@@ -13,6 +13,15 @@ ERC-8183 contract — pass → provider paid, fail → client refunded.
 > Built on Circle's canonical ERC-8183 deployment on **Arc**. We never fork the escrow
 > contract — every judged job is a real job on the official protocol.
 
+## See it work
+
+A real job posted on Circle's canonical contract, judged, escrow settled — then the verdict
+**recomputed from public inputs** and matched against the on-chain record. Unedited capture:
+
+![Judge Protocol demo — a real ERC-8183 job judged on Arc, then independently recomputed](docs/demo.svg)
+
+*(Raw terminal recording: [`docs/demo.cast`](docs/demo.cast) — replay with `asciinema play docs/demo.cast`.)*
+
 ---
 
 ## Live on Arc testnet (chain 5042002) — v1.1
