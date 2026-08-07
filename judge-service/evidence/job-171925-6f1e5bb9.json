@@ -1,0 +1,100 @@
+{
+  "jobId": "171925",
+  "criteriaHash": "0x9b2b732563a22ef61ba2a48dd6f9eae1a59724926c1d7a3e21bfda21dcfff2d6",
+  "deliverable": "0x4c5568398a9872a61017f57d995c215d9f2d1a2554c8a8834b5ab00b0d136d3a",
+  "criteria": {
+    "version": 1,
+    "jobType": "doc",
+    "passThreshold": 100,
+    "checks": [
+      {
+        "kind": "length",
+        "params": {
+          "min": 10,
+          "max": 5000
+        },
+        "weight": 1
+      },
+      {
+        "kind": "contains",
+        "params": {
+          "all": [
+            "ERC-8183",
+            "USDC"
+          ]
+        },
+        "weight": 1
+      }
+    ]
+  },
+  "results": [
+    {
+      "pass": true,
+      "detail": "words=20 (need 10–5000)",
+      "kind": "length",
+      "weight": 1
+    },
+    {
+      "pass": true,
+      "detail": "all 2 terms present",
+      "kind": "contains",
+      "weight": 1
+    }
+  ],
+  "score": 100,
+  "pass": true,
+  "threshold": 100,
+  "deliverableSource": "data",
+  "deliverableAuthoredBy": "provider",
+  "deliverableURI": "data:text/plain;base64,VGhpcyBhbmFseXNpcyBjb3ZlcnMgRVJDLTgxODMgZXNjcm93IG1lY2hhbmljcyBhbmQgVVNEQyBzZXR0bGVtZW50IG9uIEFyYyB0ZXN0bmV0IGluIHN1ZmZpY2llbnQgZGV0YWlsIHRvIHNhdGlzZnkgdGhlIGFjY2VwdGFuY2UgY3JpdGVyaWEu",
+  "deliverableURL": null,
+  "startedAt": "2026-08-07T20:13:12.047Z",
+  "finishedAt": "2026-08-07T20:13:12.583Z",
+  "judge": "0xACD5a92c2bD5B5D30A91A49190936dCf85Dfe200",
+  "evidenceHash": "0x6f1e5bb954740bb68681fa5f15ee3b5ff4f250fa78ea4c79a3abe788d427c5dd",
+  "evidenceCore": {
+    "jobId": "171925",
+    "criteriaHash": "0x9b2b732563a22ef61ba2a48dd6f9eae1a59724926c1d7a3e21bfda21dcfff2d6",
+    "deliverable": "0x4c5568398a9872a61017f57d995c215d9f2d1a2554c8a8834b5ab00b0d136d3a",
+    "criteria": {
+      "version": 1,
+      "jobType": "doc",
+      "passThreshold": 100,
+      "checks": [
+        {
+          "kind": "length",
+          "params": {
+            "min": 10,
+            "max": 5000
+          },
+          "weight": 1
+        },
+        {
+          "kind": "contains",
+          "params": {
+            "all": [
+              "ERC-8183",
+              "USDC"
+            ]
+          },
+          "weight": 1
+        }
+      ]
+    },
+    "checks": [
+      {
+        "kind": "length",
+        "pass": true,
+        "weight": 1
+      },
+      {
+        "kind": "contains",
+        "pass": true,
+        "weight": 1
+      }
+    ],
+    "score": 100,
+    "threshold": 100,
+    "pass": true
+  }
+}
