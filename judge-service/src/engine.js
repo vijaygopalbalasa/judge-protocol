@@ -1,0 +1,207 @@
+// The judge engine: watch → resolve → check → sign → submit.
+import { createPublicClient, http, parseAbiItem, keccak256, decodeFunctionData, hexToString } from "viem";
+import { config } from "./config.js";
+import { acpAbi, STATUS } from "./abi.js";
+import { extractCriteria, criteriaHash } from "./criteria.js";
+import { extractDeliverableURI, resolveDeliverable, storeEvidence } from "./evidence.js";
+import { runAllChecks, InvalidCriteriaError } from "./checkers/index.js";
+import { makeClients, signVerdict, submitVerdictOnChain } from "./signer.js";
+
+const processed = new Set();
+
+// Minimum job budget (in USDC 6-dp units) we will spend gas to judge. Anyone can
+// name our address as evaluator on a zero-value job; without this floor they can
+// make the relayer pay gas for unlimited junk verdicts. 0.01 USDC default.
+const MIN_BUDGET = BigInt(process.env.MIN_JOB_BUDGET || 10_000);
+
+// ACP submit(jobId, bytes32 deliverable, bytes optParams) — used to recover the
+// PROVIDER-authored deliverable URI from their own submit-transaction calldata,
+// rather than trusting the client-authored job description.
+const acpSubmitAbi = [{
+  name: "submit", type: "function", stateMutability: "nonpayable",
+  inputs: [
+    { name: "jobId", type: "uint256" },
+    { name: "deliverable", type: "bytes32" },
+    { name: "optParams", type: "bytes" },
+  ],
+  outputs: [],
+}];
+
+/**
+ * Recover the deliverable URI. Preference order:
+ *   1. the provider's `submit` calldata optParams (provider-authored — correct)
+ *   2. a `deliverableURI:` line in the job description (client-authored — legacy)
+ * Returns { uri, authoredBy }.
+ */
+export async function resolveDeliverableSource(publicClient, submitTxHash, description) {
+  if (submitTxHash) {
+    try {
+      const tx = await publicClient.getTransaction({ hash: submitTxHash });
+      const { args } = decodeFunctionData({ abi: acpSubmitAbi, data: tx.input });
+      const optParams = args?.[2];
+      if (optParams && optParams !== "0x") {
+        // optParams carries the provider's deliverable URI as UTF-8 bytes,
+        // optionally prefixed "deliverableURI: ".
+        let s = "";
+        try { s = hexToString(optParams); } catch { s = ""; }
+        const uri = extractDeliverableURI(s) || (isUri(s.trim()) ? s.trim() : null);
+        if (uri) return { uri, authoredBy: "provider" };
+      }
+    } catch { /* fall through to description */ }
+  }
+  const fromDesc = extractDeliverableURI(description);
+  if (fromDesc) return { uri: fromDesc, authoredBy: "client" };
+  return { uri: null, authoredBy: null };
+}
+
+function isUri(s) {
+  return s.startsWith("data:") || s.startsWith("ipfs://") || s.startsWith("http://") || s.startsWith("https://");
+}
+
+export async function evaluateJob(jobId, deliverableHash, clients, submitTxHash) {
+  const { publicClient, signerAccount, relayerWallet } = clients;
+  const startedAt = Date.now();
+  const log = (...a) => console.log(`[job ${jobId}]`, ...a);
+
+  // 1. Read the job; only judge jobs that name us and are Submitted.
+  const job = await publicClient.readContract({
+    address: config.acpAddress, abi: acpAbi, functionName: "getJob", args: [jobId],
+  });
+  const evaluator = job.evaluator ?? job[3];
+  const status = Number(job.status ?? job[7]);
+  const description = job.description ?? job[4];
+  const budget = BigInt(job.budget ?? job[5] ?? 0n);
+  if (evaluator.toLowerCase() !== config.judgeAddress.toLowerCase()) {
+    return null; // not our job — silent (this is the vast majority of chain traffic)
+  }
+  if (STATUS[status] !== "Submitted") {
+    log(`skip — status ${STATUS[status]}`);
+    return null;
+  }
+  // Gas-drain guard: refuse to spend a verdict tx on a sub-threshold job.
+  if (budget < MIN_BUDGET) {
+    log(`skip — budget ${budget} < MIN_BUDGET ${MIN_BUDGET} (spam guard)`);
+    return null;
+  }
+
+  // 2. Criteria (committed in the immutable job description).
+  const criteria = extractCriteria(description);
+  if (!criteria) {
+    log("abstain — no judge-criteria block in description");
+    return null;
+  }
+  const cHash = criteriaHash(criteria);
+
+  // 3. Resolve the PROVIDER-authored deliverable and bind it to the on-chain
+  //    commitment. If the content does not hash to what the provider submitted,
+  //    we refuse to judge (never grade unverified/substituted content).
+  const { uri, authoredBy } = await resolveDeliverableSource(publicClient, submitTxHash, description);
+  if (!uri) { log("abstain — no deliverable URI (provider optParams or description)"); return null; }
+  let deliverable;
+  try {
+    deliverable = await resolveDeliverable(uri);
+  } catch (e) {
+    log(`abstain — deliverable resolution failed: ${e.message}`);
+    return null;
+  }
+  const contentHash = keccak256(deliverable.content);
+  if (contentHash.toLowerCase() !== String(deliverableHash).toLowerCase()) {
+    log(`abstain — deliverable hash mismatch: ${contentHash} != committed ${deliverableHash}`);
+    return null;
+  }
+  log(`deliverable resolved (${authoredBy}-authored, ${deliverable.source}), hash matches commitment`);
+
+  // 4. Run deterministic checkers. Malformed criteria → abstain (never score).
+  let checkResult;
+  try {
+    checkResult = await runAllChecks(criteria, deliverable);
+  } catch (e) {
+    if (e instanceof InvalidCriteriaError) {
+      log(`abstain — invalid criteria: ${e.message}`);
+      return null;
+    }
+    throw e;
+  }
+  const { results, score, pass, threshold } = checkResult;
+  log(`checks done: score=${score} threshold=${threshold} pass=${pass}`);
+
+  // 5. Build + store evidence, derive evidenceHash (over the recomputable core).
+  const verdictObj = {
+    jobId: jobId.toString(),
+    criteriaHash: cHash,
+    deliverable: deliverableHash,
+    criteria,
+    results,
+    score,
+    pass,
+    threshold,
+    deliverableSource: deliverable.source,
+    deliverableAuthoredBy: authoredBy,
+    deliverableURI: uri,               // how to retrieve the deliverable (for verify)
+    deliverableURL: deliverable.url || null,
+    startedAt: new Date(startedAt).toISOString(),
+    finishedAt: new Date().toISOString(),
+    judge: signerAccount.address,
+  };
+  const { evidenceHash, file } = storeEvidence(verdictObj);
+  log(`evidence stored: ${file} (hash ${evidenceHash.slice(0, 18)}…)`);
+
+  // 6. Sign (EIP-712) and submit.
+  const verdict = {
+    jobId,
+    criteriaHash: cHash,
+    deliverable: deliverableHash,
+    score,
+    threshold,
+    pass,
+    evidenceHash,
+    timestamp: BigInt(Math.floor(Date.now() / 1000)),
+  };
+  const sig = await signVerdict(signerAccount, verdict);
+  const { hash } = await submitVerdictOnChain(relayerWallet, publicClient, verdict, sig);
+  log(`verdict submitted: ${pass ? "COMPLETE" : "REJECT"} tx=${hash}`);
+  return { pass, score, txHash: hash };
+}
+
+/** One polling pass: find recent JobSubmitted events and evaluate them. */
+export async function pollOnce(clients, fromBlock) {
+  const { publicClient, signerAccount, relayerWallet } = clients ?? makeClients();
+  const latest = await publicClient.getBlockNumber();
+  const logs = await publicClient.getLogs({
+    address: config.acpAddress,
+    event: parseAbiItem("event JobSubmitted(uint256 indexed jobId, address indexed provider, bytes32 deliverable)"),
+    fromBlock,
+    toBlock: latest,
+  });
+  for (const log of logs) {
+    const jobId = log.args.jobId;
+    const key = jobId.toString();
+    if (processed.has(key)) continue;
+    processed.add(key);
+    try {
+      await evaluateJob(jobId, log.args.deliverable, { publicClient, signerAccount, relayerWallet }, log.transactionHash);
+    } catch (e) {
+      console.error(`[job ${jobId}] evaluation error:`, e.message);
+      processed.delete(key); // transient failure — allow retry next pass
+    }
+  }
+  return latest;
+}
+
+export async function run() {
+  const clients = makeClients();
+  console.log(`Judge service up. chain=${config.chain.id} judge=${config.judgeAddress}`);
+  console.log(`ACP=${config.acpAddress}`);
+  let cursor = await clients.publicClient.getBlockNumber();
+  // Look back a little on boot so we don't miss jobs submitted while offline.
+  let fromBlock = cursor > 5000n ? cursor - 5000n : 0n;
+  for (;;) {
+    try {
+      const latest = await pollOnce(clients, fromBlock);
+      fromBlock = latest + 1n;
+    } catch (e) {
+      console.error("poll error:", e.message);
+    }
+    await new Promise((r) => setTimeout(r, config.pollIntervalMs));
+  }
+}

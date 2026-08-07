@@ -1,0 +1,20 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+*.key
+.wallets.tmp
+
+# Build artifacts / caches (regenerable)
+contracts/out/
+contracts/cache/
+node_modules/
+judge-service/judge-service.log
+
+# NOTE: contracts/broadcast/ (deploy receipts) and judge-service/evidence/
+# (verdict evidence) are intentionally COMMITTED — they are public on-chain
+# data and serve as the audit trail. They contain no secrets.
+
+# OS / editor
+.DS_Store
+*.swp

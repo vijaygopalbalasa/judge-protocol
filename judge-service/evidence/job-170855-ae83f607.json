@@ -1,0 +1,99 @@
+{
+  "jobId": "170855",
+  "criteriaHash": "0x9b2b732563a22ef61ba2a48dd6f9eae1a59724926c1d7a3e21bfda21dcfff2d6",
+  "deliverable": "0x4c5568398a9872a61017f57d995c215d9f2d1a2554c8a8834b5ab00b0d136d3a",
+  "criteria": {
+    "version": 1,
+    "jobType": "doc",
+    "passThreshold": 100,
+    "checks": [
+      {
+        "kind": "length",
+        "params": {
+          "min": 10,
+          "max": 5000
+        },
+        "weight": 1
+      },
+      {
+        "kind": "contains",
+        "params": {
+          "all": [
+            "ERC-8183",
+            "USDC"
+          ]
+        },
+        "weight": 1
+      }
+    ]
+  },
+  "results": [
+    {
+      "pass": true,
+      "detail": "words=20 (need 10–5000)",
+      "kind": "length",
+      "weight": 1
+    },
+    {
+      "pass": true,
+      "detail": "all 2 terms present",
+      "kind": "contains",
+      "weight": 1
+    }
+  ],
+  "score": 100,
+  "pass": true,
+  "threshold": 100,
+  "deliverableSource": "data",
+  "deliverableAuthoredBy": "provider",
+  "deliverableURL": null,
+  "startedAt": "2026-08-07T01:52:43.647Z",
+  "finishedAt": "2026-08-07T01:52:44.175Z",
+  "judge": "0xACD5a92c2bD5B5D30A91A49190936dCf85Dfe200",
+  "evidenceHash": "0xae83f607a23070460af200c774a69aaf321dd45574ea6ae0e1fb27bd5892598a",
+  "evidenceCore": {
+    "jobId": "170855",
+    "criteriaHash": "0x9b2b732563a22ef61ba2a48dd6f9eae1a59724926c1d7a3e21bfda21dcfff2d6",
+    "deliverable": "0x4c5568398a9872a61017f57d995c215d9f2d1a2554c8a8834b5ab00b0d136d3a",
+    "criteria": {
+      "version": 1,
+      "jobType": "doc",
+      "passThreshold": 100,
+      "checks": [
+        {
+          "kind": "length",
+          "params": {
+            "min": 10,
+            "max": 5000
+          },
+          "weight": 1
+        },
+        {
+          "kind": "contains",
+          "params": {
+            "all": [
+              "ERC-8183",
+              "USDC"
+            ]
+          },
+          "weight": 1
+        }
+      ]
+    },
+    "checks": [
+      {
+        "kind": "length",
+        "pass": true,
+        "weight": 1
+      },
+      {
+        "kind": "contains",
+        "pass": true,
+        "weight": 1
+      }
+    ],
+    "score": 100,
+    "threshold": 100,
+    "pass": true
+  }
+}
