@@ -75,18 +75,34 @@ async function main() {
   const budgets = funded.map((j) => Number(j.budget) / 1e6).sort((a, b) => a - b);
   const median = budgets.length ? budgets[Math.floor(budgets.length / 2)] : 0;
 
+  // 95% confidence interval for a sample proportion, with finite-population
+  // correction. Published numbers MUST carry these — a bare percentage from a
+  // sample invites (correct) accusations of an unsourced statistic.
+  const ci95 = (pct) => {
+    const p = pct / 100, n = jobs.length;
+    if (n < 2 || p < 0 || p > 1) return null;
+    const fpc = Math.sqrt(Math.max(0, (counter - n) / (counter - 1)));
+    return +(1.96 * Math.sqrt((p * (1 - p)) / n) * fpc * 100).toFixed(2);
+  };
+
   const report = {
     measuredAt: new Date().toISOString(), rpc: RPC, acp: ACP, chainId: 5042002,
     jobCounter: counter, sampled: jobs.length, samplingStep: step,
     selfEvaluationRate: +(selfEval.length / jobs.length * 100).toFixed(2),
+    selfEvaluationRate_ci95pp: ci95(selfEval.length / jobs.length * 100),
     thirdPartyEvaluatorJobs: thirdParty.length,
+    thirdPartyDelegationRate: +(thirdParty.length / jobs.length * 100).toFixed(2),
+    thirdPartyDelegationRate_ci95pp: ci95(thirdParty.length / jobs.length * 100),
     distinctThirdPartyEvaluators: distinctThirdParty.length,
     fundedJobs: funded.length,
     fundedRate: +(funded.length / jobs.length * 100).toFixed(2),
+    fundedRate_ci95pp: ci95(funded.length / jobs.length * 100),
     medianFundedBudgetUSDC: median,
     decidedJobs: decided.length,
     rejectionRate: decided.length ? +(byStatus.Rejected / decided.length * 100).toFixed(2) : null,
     jobsWithNonZeroHook: nonZeroHook.length,
+    // With 0 observed hooks, the one-sided 95% upper bound is ~3/n (rule of three).
+    hookUsageUpperBound95Pct: +(300 / jobs.length).toFixed(3),
     THIRD_PARTY_EVALUATORS_PAID_THROUGH: paidThroughEvaluators.length,
     thirdPartyPaidThroughJobs: paidThrough.length,
     paidThroughEvaluatorAddresses: paidThroughEvaluators.slice(0, 25),
