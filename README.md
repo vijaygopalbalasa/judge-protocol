@@ -36,6 +36,7 @@ A real job posted on Circle's canonical contract, judged, escrow settled — the
 **Real judged jobs on Circle's canonical ERC-8183 contract, with provider-authored deliverables:**
 - Job **170857** — PASS → escrow released to provider ([job](https://testnet.arcscan.app/tx/0x13507d31df322c43473de6965b5180db0aff53a0959514f44e9cba047b9f83bd))
 - Job **170856** — REJECT (deliverable violated criteria) → client refunded
+- Jobs **171507** and **171925** — PASS → escrow released (both re-verifiable in the browser verifier under `web/`)
 
 Every verdict is independently checkable: `node judge-service/src/verify.js <jobId> --evidence <file>`
 recomputes the score, decision, and evidence hash from public inputs and asserts they match

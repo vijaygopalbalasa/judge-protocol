@@ -5,8 +5,9 @@ import "forge-std/Script.sol";
 import "../src/JudgeEvaluator.sol";
 import "../src/JudgeReputationHook.sol";
 
-/// @notice Deploys the Judge protocol against the canonical Arc testnet ACP.
-///         Env: ACP_ADDRESS, GUARDIAN, SIGNERS (comma-separated), REPUTATION (opt).
+/// @notice Deploys the Judge protocol against the canonical Arc ACP. Chain-agnostic:
+///         point ACP_ADDRESS at the testnet or mainnet ACP and broadcast to that chain.
+///         Env: ACP_ADDRESS, GUARDIAN, SIGNER, REPUTATION (opt).
 contract Deploy is Script {
     function run() external {
         address acp = vm.envAddress("ACP_ADDRESS");
