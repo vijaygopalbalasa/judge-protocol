@@ -5,8 +5,19 @@
 
 import { keccak_256 } from './vendor/noble/sha3.js';
 
+// Deployed (Vercel) reads go through the same-origin /api/rpc proxy so a
+// visitor's network or cross-origin rules can never make the page look broken.
+// Local static hosting (localhost / file://, e.g. the README's python3 http
+// server) has no such function, so it calls the Arc RPC directly.
+const RPC_ENDPOINT = (() => {
+  if (typeof location === 'undefined') return 'https://rpc.testnet.arc.io';
+  const h = location.hostname;
+  const local = h === 'localhost' || h === '127.0.0.1' || h === '' || location.protocol === 'file:';
+  return local ? 'https://rpc.testnet.arc.io' : '/api/rpc';
+})();
+
 export const CFG = {
-  rpc: 'https://rpc.testnet.arc.io',
+  rpc: RPC_ENDPOINT,
   chainId: 5042002,
   judge: '0x6EFF7d4BB514d341AbEd90bF4c667d0A980173AD',
   hook: '0xfe38bF336148eb3F2E1A5DEE8Ed89AC3B8bcF1c8',
