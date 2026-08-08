@@ -1,14 +1,14 @@
-# Judge Protocol — Arc Testnet Wallets
+# Judge Protocol: Arc Testnet Wallets
 
-## Owner / Guardian (YOUR wallet — controls the protocol)
+## Owner / Guardian (YOUR wallet, controls the protocol)
 | Role | Address |
 |------|---------|
-| **Guardian / Owner** | `0x427C62eDCae20DDc8c5e875De39D4E4845491458` — funded 20 USDC ✅ |
+| **Guardian / Owner** | `0x427C62eDCae20DDc8c5e875De39D4E4845491458`, funded 20 USDC ✅ |
 
 The guardian can pause the judge, rotate/revoke verdict signers, and administer the
-deployed contracts. Only the **address** is used — its private key never touches this repo.
+deployed contracts. Only the **address** is used; its private key never touches this repo.
 
-## Service keys (throwaway, generated 2026-08-07 — testnet only, keys in gitignored `.env`)
+## Service keys (throwaway, generated 2026-08-07, testnet only, keys in gitignored `.env`)
 | Role | Address | Purpose | Needs funding |
 |------|---------|---------|---------------|
 | Deployer | `0xf629006403580E2A7d94B666daA8374353a1d368` | pays gas to publish contracts | **~5 USDC** |
@@ -18,11 +18,11 @@ deployed contracts. Only the **address** is used — its private key never touch
 
 ## How to fund (from your wallet, MetaMask on Arc Testnet)
 Send plain USDC transfers from `0x427C…1458` to each address above (amounts in the
-table — ~15 USDC total of your 20). Gas on Arc is ~$0.005/tx, so these amounts are
+table, ~15 USDC total of your 20). Gas on Arc is ~$0.005/tx, so these amounts are
 generous. Alternatively each address can be funded at https://faucet.circle.com
 (rate-limited to ~1 request/address/day).
 
-> Old throwaway wallets (0xd079…, 0x3943…, 0x3252… from the v1 draft) are retired —
+> Old throwaway wallets (0xd079…, 0x3943…, 0x3252… from the v1 draft) are retired;
 > never funded, safe to ignore.
 
 ## After funding
