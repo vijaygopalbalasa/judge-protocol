@@ -23,6 +23,14 @@ export const config = {
   pollIntervalMs: Number(process.env.POLL_INTERVAL_MS || 4000),
   slaSeconds: Number(process.env.SLA_SECONDS || 300),
   evidenceDir: process.env.EVIDENCE_DIR || "./evidence",
+
+  // Watcher cursor persistence (survives restarts; see cursor.js).
+  cursorFile: process.env.CURSOR_FILE || "./state/cursor.json",
+
+  // HTTP integration API. Binds to loopback by default — put a reverse proxy
+  // in front before exposing it publicly.
+  httpPort: Number(process.env.HTTP_PORT || 8788),
+  httpHost: process.env.HTTP_HOST || "127.0.0.1",
 };
 
 export const USDC_DECIMALS = 6; // Arc ERC-20 view (never mix with 18-dec native)

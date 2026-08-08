@@ -10,6 +10,7 @@ contracts/out/
 contracts/cache/
 node_modules/
 judge-service/judge-service.log
+judge-service/state/
 
 # NOTE: contracts/broadcast/ (deploy receipts) and judge-service/evidence/
 # (verdict evidence) are intentionally COMMITTED — they are public on-chain

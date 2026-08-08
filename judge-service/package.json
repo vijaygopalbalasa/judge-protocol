@@ -6,6 +6,7 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
+    "api": "node src/http.js",
     "test": "node --test 'test/*.test.js'",
     "verify": "node src/verify.js",
     "measure": "node src/measure-acp.js"

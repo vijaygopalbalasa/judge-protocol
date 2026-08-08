@@ -6,8 +6,21 @@ import { extractCriteria, criteriaHash } from "./criteria.js";
 import { extractDeliverableURI, resolveDeliverable, storeEvidence } from "./evidence.js";
 import { runAllChecks, InvalidCriteriaError } from "./checkers/index.js";
 import { makeClients, signVerdict, submitVerdictOnChain } from "./signer.js";
+import { loadCursor, saveCursor } from "./cursor.js";
 
 const processed = new Set();
+
+// Live service state surfaced by the HTTP /healthz endpoint.
+export const serviceState = {
+  startedAt: new Date().toISOString(),
+  cursor: null,
+  lastPollAt: null,
+  lastError: null,
+};
+
+// Max block span per getLogs call. Catch-up after downtime iterates in chunks
+// so a single huge-range query can't hit RPC range/rate limits.
+const MAX_BLOCK_RANGE = 10_000n;
 
 // Minimum job budget (in USDC 6-dp units) we will spend gas to judge. Anyone can
 // name our address as evaluator on a zero-value job; without this floor they can
@@ -163,26 +176,32 @@ export async function evaluateJob(jobId, deliverableHash, clients, submitTxHash)
   return { pass, score, txHash: hash };
 }
 
-/** One polling pass: find recent JobSubmitted events and evaluate them. */
+/** One polling pass: find recent JobSubmitted events and evaluate them.
+ *  Scans [fromBlock, tip] in MAX_BLOCK_RANGE chunks so long catch-ups stay
+ *  within RPC range limits. Returns the tip block scanned. */
 export async function pollOnce(clients, fromBlock) {
   const { publicClient, signerAccount, relayerWallet } = clients ?? makeClients();
   const latest = await publicClient.getBlockNumber();
-  const logs = await publicClient.getLogs({
-    address: config.acpAddress,
-    event: parseAbiItem("event JobSubmitted(uint256 indexed jobId, address indexed provider, bytes32 deliverable)"),
-    fromBlock,
-    toBlock: latest,
-  });
-  for (const log of logs) {
-    const jobId = log.args.jobId;
-    const key = jobId.toString();
-    if (processed.has(key)) continue;
-    processed.add(key);
-    try {
-      await evaluateJob(jobId, log.args.deliverable, { publicClient, signerAccount, relayerWallet }, log.transactionHash);
-    } catch (e) {
-      console.error(`[job ${jobId}] evaluation error:`, e.message);
-      processed.delete(key); // transient failure — allow retry next pass
+  const event = parseAbiItem("event JobSubmitted(uint256 indexed jobId, address indexed provider, bytes32 deliverable)");
+  for (let from = fromBlock; from <= latest; from += MAX_BLOCK_RANGE) {
+    const to = from + MAX_BLOCK_RANGE - 1n < latest ? from + MAX_BLOCK_RANGE - 1n : latest;
+    const logs = await publicClient.getLogs({
+      address: config.acpAddress,
+      event,
+      fromBlock: from,
+      toBlock: to,
+    });
+    for (const log of logs) {
+      const jobId = log.args.jobId;
+      const key = jobId.toString();
+      if (processed.has(key)) continue;
+      processed.add(key);
+      try {
+        await evaluateJob(jobId, log.args.deliverable, { publicClient, signerAccount, relayerWallet }, log.transactionHash);
+      } catch (e) {
+        console.error(`[job ${jobId}] evaluation error:`, e.message);
+        processed.delete(key); // transient failure — allow retry next pass
+      }
     }
   }
   return latest;
@@ -192,14 +211,24 @@ export async function run() {
   const clients = makeClients();
   console.log(`Judge service up. chain=${config.chain.id} judge=${config.judgeAddress}`);
   console.log(`ACP=${config.acpAddress}`);
-  let cursor = await clients.publicClient.getBlockNumber();
-  // Look back a little on boot so we don't miss jobs submitted while offline.
-  let fromBlock = cursor > 5000n ? cursor - 5000n : 0n;
+  const latest = await clients.publicClient.getBlockNumber();
+  // Resume from the persisted cursor; fall back to a bounded lookback on
+  // first boot (or if the cursor file is missing/corrupt).
+  const saved = loadCursor(config.cursorFile);
+  let fromBlock = saved ?? (latest > 5000n ? latest - 5000n : 0n);
+  console.log(saved !== null
+    ? `resuming from persisted cursor: block ${fromBlock}`
+    : `no cursor — starting from block ${fromBlock} (bounded lookback)`);
   for (;;) {
     try {
-      const latest = await pollOnce(clients, fromBlock);
-      fromBlock = latest + 1n;
+      const tip = await pollOnce(clients, fromBlock);
+      fromBlock = tip + 1n;
+      saveCursor(config.cursorFile, fromBlock);
+      serviceState.cursor = fromBlock;
+      serviceState.lastPollAt = new Date().toISOString();
+      serviceState.lastError = null;
     } catch (e) {
+      serviceState.lastError = e.message;
       console.error("poll error:", e.message);
     }
     await new Promise((r) => setTimeout(r, config.pollIntervalMs));

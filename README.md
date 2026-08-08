@@ -124,6 +124,23 @@ node --env-file=.env src/e2e.js --reject   # REJECT path
 node --env-file=.env src/verify.js <jobId> --evidence evidence/job-<jobId>-<hash>.json
 ```
 
+## HTTP API
+
+`npm start` runs the watcher **and** a local integration API (loopback-only by default,
+`HTTP_HOST`/`HTTP_PORT` to change). `npm run api` runs the API standalone — the read
+endpoints and dry-run evaluation need no keys.
+
+| Endpoint | What it returns |
+|---|---|
+| `GET /healthz` | liveness + watcher state (persisted block cursor, last poll, last error) |
+| `GET /verdict/:jobId` | the on-chain verdict from `JudgeEvaluator.getVerdict` (404 if none) |
+| `GET /evidence/:jobId` | the stored evidence JSON whose hash the verdict commits to |
+| `POST /evaluate` | **dry run**: `{criteria, deliverable\|deliverableBase64}` → the exact `score`/`pass`/`evidenceHash` a real run would produce. Nothing is signed or settled. |
+
+The watcher persists its block cursor (`state/cursor.json`), so jobs submitted while the
+service is down are still picked up on restart; catch-up scans run in bounded block-range
+chunks to stay inside RPC limits.
+
 ## Security model
 
 - **No custody.** Judge only attests; the canonical ACP contract escrows and disburses. A
