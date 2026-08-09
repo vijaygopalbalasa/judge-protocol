@@ -46,8 +46,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_CONFIG: .gitleaks.toml
+      - name: Install gitleaks
+        run: |
+          VER=$(curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4)
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/${VER}/gitleaks_${VER#v}_linux_x64.tar.gz" | tar xz gitleaks
+          echo "$PWD" >> "$GITHUB_PATH"
+      - name: Scan full git history
+        run: gitleaks git --config .gitleaks.toml --verbose --redact .
