@@ -2,7 +2,8 @@
 ### Deterministic evaluator for ERC-8183 agent escrow
 
 **A neutral, evidence-backed judgment layer for agent-to-agent work, deployed on Arc testnet.**
-*(The judging service is currently offline; the contracts and the in-browser verifier are live.)*
+*(The judge runs on demand plus a daily safety sweep on Arc testnet, best effort with no uptime
+guarantee: https://judge-protocol-api.vercel.app. The contracts and the in-browser verifier are live.)*
 
 When AI agents hire each other, escrow alone isn't enough: someone must decide *did the
 provider deliver what was promised?* ERC-8183 defines an `evaluator` role for exactly this
@@ -34,14 +35,18 @@ same edits as above.)*
 | **JudgeEvaluator** (source-verified ✓) | [`0x6EFF7d4BB514d341AbEd90bF4c667d0A980173AD`](https://testnet.arcscan.app/address/0x6EFF7d4BB514d341AbEd90bF4c667d0A980173AD) |
 | **JudgeReputationHook** (source-verified ✓) | [`0xfe38bF336148eb3F2E1A5DEE8Ed89AC3B8bcF1c8`](https://testnet.arcscan.app/address/0xfe38bF336148eb3F2E1A5DEE8Ed89AC3B8bcF1c8) |
 | Canonical ACP (Circle) | [`0x0747EEf0706327138c69792bF28Cd525089e4583`](https://testnet.arcscan.app/address/0x0747EEf0706327138c69792bF28Cd525089e4583) |
-| Guardian / owner | `0x427C62eDCae20DDc8c5e875De39D4E4845491458` |
+| Owner (signer allowlist) | `0xf629006403580E2A7d94B666daA8374353a1d368` |
+| Guardian (pause) | `0x427C62eDCae20DDc8c5e875De39D4E4845491458` |
+| Hosted judge signer | `0x1a5c5fED543C9C3273f2f53AAD1930030ef5E127` |
 
 **Real judged jobs on Circle's canonical ERC-8183 contract, with provider-authored deliverables:**
 - Job **170857**: PASS → escrow released to provider ([job](https://testnet.arcscan.app/tx/0x13507d31df322c43473de6965b5180db0aff53a0959514f44e9cba047b9f83bd))
 - Job **170856**: REJECT (deliverable violated criteria) → client refunded
 - Jobs **171507** and **171925** (and the first test job, **170855**): PASS → escrow released
+- Jobs **186740** (PASS) and **186741** (REJECT): ruled by the hosted API on Sep 27, 2026, through
+  the same path any third party uses (no criteria registration by us, one `POST /api/judge`)
 
-All five settled verdicts re-verify end to end in the browser verifier under `web/`.
+All seven settled verdicts re-verify end to end in the browser verifier under `web/`.
 
 Every verdict is independently checkable: `node judge-service/src/verify.js <jobId>` (no keys or
 `.env` needed; it shares its code with the in-browser verifier) binds the verdict to the provider's
@@ -49,6 +54,21 @@ on-chain commitment, recomputes the score, decision and evidence hash from publi
 asserts they match the on-chain record. For `http-endpoint` checks, which are a live network probe
 recorded once at judging time, verifiers confirm everything else and report what the judge
 recorded, but the probe itself cannot be re-verified later.
+
+## Use the hosted judge
+
+1. Create the job on Circle's ERC-8183 contract with the evaluator set to JudgeEvaluator
+   `0x6EFF7d4BB514d341AbEd90bF4c667d0A980173AD`.
+2. Put the acceptance criteria in the description as a fenced `judge-criteria` JSON block.
+3. The provider submits with `optParams` = `deliverableURI: data:...` (or an https or ipfs URI).
+4. Ask for the ruling; the judge settles the escrow on chain:
+
+```bash
+curl -X POST https://judge-protocol-api.vercel.app/api/judge \
+  -H 'content-type: application/json' -d '{"jobId":"<id>","submitTx":"<provider submit tx hash>"}'
+```
+
+`GET /api/judge?jobId=<id>` reads the status; `GET /api/health` shows the signer and its gas.
 
 ## How it works
 
@@ -99,7 +119,8 @@ judge-service/    Node/viem off-chain engine
   src/engine.js                 watcher + evaluation pipeline
   src/verify.js                 independent verdict recomputation CLI
   src/measure-acp.js            on-chain ERC-8183 market measurement
-  test/                         31 unit tests (checker gate, SSRF, evidence determinism)
+  api/                          hosted judge (Vercel): /api/judge, /api/health, /api/cron/sweep
+  test/                         72 unit tests (checker gate, SSRF, evidence determinism, hosted judge)
   evidence/                     recomputable verdict evidence (public audit trail)
 ```
 
@@ -110,14 +131,16 @@ judge-service/    Node/viem off-chain engine
   verdict, threshold enforcement, criteria-registration gating, withdraw auth, and the full
   hook feedback flow (7 hook tests; the hook decode bug that these now cover was previously
   untested).
-- ✅ **31/31 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
-  criteria defects, SSRF denylist, and evidence-hash determinism.
-- ✅ **89/89 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
+- ✅ **72/72 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
+  criteria defects, SSRF denylist with DNS pinning, evidence-hash determinism, and the hosted judge
+  (on-demand rulings, races, reverted transactions, the daily sweep).
+- ✅ **91/91 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
   `judge-service` first): the page's CSP, the read-only relay, the public numbers, parity with the
   service's own checkers, the CLI, and the in-browser verifier run against a fake chain built from
   recorded Arc testnet data, including tampered inputs that must never verify.
-- ⏸ **The judging service is not running right now** (last verdict Aug 7, 2026). The contracts and
-  the in-browser verifier are live, and every past verdict can still be recomputed.
+- ✅ **Hosted judge** at https://judge-protocol-api.vercel.app: an on-demand API
+  (`POST /api/judge`) plus a daily safety sweep. Best effort, no uptime guarantee; if it does not
+  rule, `claimRefund` after `expiredAt` is the protocol backstop.
 - ✅ **Live end-to-end on Arc testnet**: provider-authored PASS and REJECT jobs on the
   canonical contract, verdicts independently recomputed and matched on-chain.
 
@@ -128,7 +151,7 @@ judge-service/    Node/viem off-chain engine
 cd contracts && git submodule update --init --recursive && forge test   # 27/27
 
 # service
-cd ../judge-service && npm install && npm test                          # 31/31
+cd ../judge-service && npm install && npm test                          # 72/72
 
 # run the judge against Arc testnet (needs a funded .env, see .env.example)
 node --env-file=.env src/index.js

@@ -32,7 +32,7 @@ export const CFG = {
   acp: '0x0747EEf0706327138c69792bF28Cd525089e4583',
   explorer: 'https://testnet.arcscan.app',
   // Every job this evaluator has settled, newest first. Verified on-chain.
-  knownJobs: [171925, 171507, 170857, 170856, 170855],
+  knownJobs: [186741, 186740, 171925, 171507, 170857, 170856, 170855],
 };
 
 /* ------------------------------ input ------------------------------------ */

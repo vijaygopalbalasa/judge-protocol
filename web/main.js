@@ -28,8 +28,10 @@ set($('#measure'), MEASURED.map(([a, b, c]) => el('tr', {}, [
 set($('#limits'), [
   el('strong', { text: 'Honest limits. ' }),
   el('span', {
-    text: 'The judging service is not running right now; the last verdict was issued on Aug 7, 2026. The '
-      + 'contracts and this verifier are live, and every past verdict can still be recomputed here. '
+    text: 'The judge runs on demand plus a daily sweep on Arc testnet: after a provider submits, anyone can '
+      + 'ask it to rule (judge-protocol-api.vercel.app), and the sweep catches jobs nobody asked about. It is '
+      + 'best effort with no uptime guarantee; if it never rules, claimRefund after the job expires returns '
+      + 'the client\'s funds. '
       + 'No third party has named this evaluator on their own job yet: every settled job shown here was '
       + 'posted by us. The ERC-8004 reputation hook is implemented and tested but not attachable, because the '
       + 'canonical contract gates hooks behind a whitelist that, of the addresses we checked, contains only '

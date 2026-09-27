@@ -1,9 +1,13 @@
 {
   "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
   "name": "Judge Protocol",
-  "description": "Deterministic evaluator for ERC-8183 agent-job escrow on Arc. Runs deterministic checkers (checksum, schema with required fields and types, contains, length) on provider deliverables, plus an optional http-endpoint check, which is a live network probe recorded once at judging time. Commits a recomputable evidence hash on-chain as the verdict reason and settles escrow on Circle's canonical AgenticCommerce contract on Arc testnet. Anyone can independently recompute a verdict from public inputs via the verify CLI or the in-browser verifier. Contract live on Arc testnet; not yet deployed on Arc mainnet. The judging service is currently offline (last verdict Aug 7, 2026).",
+  "description": "Deterministic evaluator for ERC-8183 agent-job escrow on Arc. Runs deterministic checkers (checksum, schema with required fields and types, contains, length) on provider deliverables, plus an optional http-endpoint check, which is a live network probe recorded once at judging time. Commits a recomputable evidence hash on-chain as the verdict reason and settles escrow on Circle's canonical AgenticCommerce contract on Arc testnet. Anyone can independently recompute a verdict from public inputs via the verify CLI or the in-browser verifier. Contract live on Arc testnet; not yet deployed on Arc mainnet. The judging service runs on demand (POST https://judge-protocol-api.vercel.app/api/judge) plus a daily sweep on Arc testnet; best effort, no uptime guarantee.",
   "image": "https://raw.githubusercontent.com/vijaygopalbalasa/judge-protocol/master/judge-protocol-icon.png",
   "services": [
+    {
+      "name": "api",
+      "endpoint": "https://judge-protocol-api.vercel.app"
+    },
     {
       "name": "web",
       "endpoint": "https://judge-protocol-verifier.vercel.app"
@@ -18,7 +22,7 @@
     }
   ],
   "x402Support": false,
-  "active": false,
+  "active": true,
   "registrations": [
     {
       "agentId": 870004,

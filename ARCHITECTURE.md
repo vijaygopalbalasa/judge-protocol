@@ -57,7 +57,7 @@ Be the neutral judgment layer between agent Clients and Providers: given a job's
 - Reentrancy: all state-changing paths `nonReentrant`; SafeERC20 for token movement; CEI ordering.
 
 ## Latency / liveness
-When the service is running, verdicts are produced within a few polling intervals of `JobSubmitted` (it is not running at the moment; the last verdict was issued on Aug 7, 2026). Liveness is **best-effort, not guaranteed**: if the service is down, `claimRefund` after `expiredAt` is the protocol-level backstop; judge downtime can never lock funds. (A managed-hosting / alerting story is deliberately out of scope for this version.)
+The hosted judge (https://judge-protocol-api.vercel.app) rules on demand: `POST /api/judge` settles a Submitted job within one function invocation, and a daily cron sweep over about the last 58 hours of blocks is the safety net. Liveness is **best-effort, not guaranteed** (no uptime SLA): if the judge does not rule, `claimRefund` after `expiredAt` is the protocol-level backstop; judge downtime can never lock funds. (A managed-hosting / alerting story is deliberately out of scope for this version.)
 
 ## What v1 is NOT
 - Not a dispute/arbitration court (escalation to UMA/Internet Court is Act 2)

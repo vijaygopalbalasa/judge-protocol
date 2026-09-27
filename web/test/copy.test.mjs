@@ -93,15 +93,22 @@ test('measurement copy says testnet, and does not call faucet USDC "real money"'
   assert.doesNotMatch(read('web/measurement.js'), /real money/i);
 });
 
-test('honest limits say the judging service is not running and when the last verdict was', () => {
+test('honest limits describe the hosted judge truthfully: on demand, daily sweep, best effort', () => {
   const main = read('web/main.js');
-  assert.match(main, /not running/i);
-  assert.match(main, /Aug(ust)? 7, 2026/);
+  assert.match(main, /on demand/i);
+  assert.match(main, /daily/i);
+  assert.match(main, /best effort/i);
+  assert.match(main, /no uptime guarantee/i);
+  assert.doesNotMatch(main, /not running|offline/i);
 });
 
-test('agent profile is honest about the offline service and lists its own registration', () => {
+test('agent profile states the real liveness, lists the hosted API and its own registration', () => {
   const reg = JSON.parse(read('docs/agent-registration.json'));
-  assert.ok(reg.active === false || /offline|not running/i.test(reg.description), 'profile must not read as operating');
+  assert.equal(reg.active, true);
+  assert.match(reg.description, /on demand/i);
+  assert.match(reg.description, /best effort/i);
+  assert.doesNotMatch(reg.description, /offline|not running/i);
+  assert.ok(reg.services.some((x) => x.endpoint === 'https://judge-protocol-api.vercel.app'), 'hosted API listed');
   assert.ok(reg.registrations.some((x) => x.agentId === 870004 && /eip155:5042002:0x8004A818BFB912233c491871b3d84c89A494BD9e/i.test(x.agentRegistry)));
   assert.doesNotMatch(reg.description, /json-schema/);
 });
@@ -159,7 +166,32 @@ test('hook-whitelist wording is hedged the same way everywhere', () => {
   assert.match(read('web/measurement.js'), /no sampled job used a hook/);
 });
 
-test('the README tagline does not imply a running service', () => {
+test('the README tagline states the real liveness: on demand, best effort', () => {
   const head = read('README.md').split('\n').slice(0, 12).join('\n');
-  assert.match(head, /offline|not running/i);
+  assert.match(head, /on demand/i);
+  assert.match(head, /best effort/i);
+  assert.doesNotMatch(head, /offline|not running/i);
+});
+
+test('the hosted API is documented where integrators look', () => {
+  for (const f of ['README.md', 'ARCHITECTURE.md']) {
+    const t = read(f);
+    assert.match(t, /https:\/\/judge-protocol-api\.vercel\.app/, f);
+    assert.match(t, /\/api\/judge/, f);
+  }
+});
+
+test('test counts quoted in the README match the suites that actually exist', () => {
+  const count = (dir, ext) => readdirSync(new URL(dir, root)).filter((f) => f.endsWith(ext))
+    .reduce((n, f) => n + (read(dir + f).match(/^\s*test\(/gm) || []).length, 0);
+  const svc = count('judge-service/test/', '.test.js');
+  const web = count('web/test/', '.test.mjs');
+  const readme = read('README.md');
+  assert.match(readme, new RegExp(`\\*\\*${svc}/${svc} service unit tests\\*\\*`));
+  assert.match(readme, new RegExp(`\\*\\*${web}/${web} web verifier tests\\*\\*`));
+  assert.match(readme, new RegExp(`${svc} unit tests \\(`));
+  assert.match(readme, new RegExp(`# ${svc}/${svc}`));
+  for (const m of readme.matchAll(/(\d+)\/\1 (service unit|web verifier) tests/g)) {
+    assert.equal(Number(m[1]), m[2] === 'service unit' ? svc : web, m[0]);
+  }
 });
