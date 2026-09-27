@@ -25,6 +25,7 @@ export const CRITERIA = { version: 1, jobType: "doc", passThreshold: 100, checks
 export const describe = (criteria = CRITERIA) => ["Analyze ERC-8183 escrow on Arc.", "```judge-criteria", JSON.stringify(criteria), "```"].join("\n");
 export const dataUri = (text) => `data:text/plain;base64,${Buffer.from(text).toString("base64")}`;
 
+const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
 const STATUS = { Open: 0, Funded: 1, Submitted: 2, Completed: 3, Rejected: 4, Expired: 5 };
 const EMPTY_VERDICT = { jobId: 0n, criteriaHash: padHex("0x0"), deliverable: padHex("0x0"), score: 0, threshold: 0, pass: false, evidenceHash: padHex("0x0"), timestamp: 0n };
 
@@ -32,8 +33,12 @@ const EMPTY_VERDICT = { jobId: 0n, criteriaHash: padHex("0x0"), deliverable: pad
  * @param {object} o
  * @param {Array<object>} o.jobs  each: { id, evaluator?, status?, budget?, description?, content?, block?, submitted? (default true), txHash? }
  * @param {bigint} [o.latest]
- * @param {"ok"|"revert-then-judged"|"revert"|"mined-revert"|"mined-revert-then-judged"|"transient-then-ok"|"receipt-timeout-landed"} [o.relay]
+ * @param {"ok"|"revert-then-judged"|"revert"|"mined-revert"|"mined-revert-then-judged"|"transient-then-ok"|"transient"|"receipt-timeout-landed"} [o.relay]
  *        mined-revert*: the tx is accepted and mined but reverts (the receipt says so)
+ *        transient: every send fails before reaching the chain (an RPC outage)
+ * @param {boolean} [o.paused] JudgeEvaluator.paused() (default false); a paused contract reverts every verdict
+ * @param {Object<string,string>} [o.registeredCriteria] jobId -> JudgeEvaluator.jobCriteria(jobId)
+ * @param {Object<string,number>} [o.failReads] functionName -> how many reads throw a transport error first
  * @param {bigint} [o.balance] relayer native balance (18 decimals)
  * @param {boolean} [o.signerAuthorized] whether JudgeEvaluator.isSigner(TEST_SIGNER) is true (default true)
  * @param {boolean} [o.sameKey] relayer uses the signer's key (default: a separate relayer key)
@@ -80,9 +85,16 @@ export function mockChain(o) {
       if (!Array.isArray(abi) || !abi.some((x) => x.type === "function" && x.name === functionName)) {
         throw new Error(`Function "${functionName}" not found on ABI`);
       }
+      if (o.failReads?.[functionName] > 0) {
+        o.failReads[functionName]--;
+        throw new Error("HTTP request failed. Status: 429 URL: https://rpc.testnet.arc.io Details: rate limit exceeded");
+      }
+      if (functionName === "paused") return !!o.paused;
+      if (functionName === "jobCriteria") return o.registeredCriteria?.[String(args[0])] ?? padHex("0x0");
       if (functionName === "getJob") {
         const j = jobs.get(BigInt(args[0]));
-        if (!j) throw new Error("execution reverted");
+        // Like Circle's contract: an unknown id is not a revert, it is an all-zero job.
+        if (!j) return { id: 0n, client: ZERO_ADDR, provider: ZERO_ADDR, evaluator: ZERO_ADDR, description: "", budget: 0n, expiredAt: 0n, status: 0, hook: ZERO_ADDR };
         return j;
       }
       if (functionName === "getVerdict") return verdicts.get(BigInt(args[0])) ?? EMPTY_VERDICT;
@@ -125,6 +137,10 @@ export function mockChain(o) {
       }
       const mode = o.relay ?? "ok";
       const [v] = args;
+      if (o.paused) throw new Error("execution reverted: Paused_()");
+      if (mode === "transient") {
+        throw new Error("HTTP request failed. Status: 503 URL: https://rpc.testnet.arc.io Details: internal error (-32603)");
+      }
       if (mode === "revert-then-judged") {
         // Another invocation won the race: the verdict is on-chain now.
         verdicts.set(BigInt(v.jobId), { ...v });

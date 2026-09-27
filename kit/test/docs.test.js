@@ -103,3 +103,39 @@ test("the ERC-8004 registration (agent 870004's live profile) matches what the s
   assert.ok(!JSON.stringify(reg).includes("\u2014"), "no em dashes");
   assert.equal(reg.registrations[0].agentId, 870004);
 });
+
+test("CRITERIA.md states the newer refusals: weight cap, unknown params, arrays, long strings", async () => {
+  const { LIMITS } = await import("../../judge-service/src/checkers/index.js");
+  assert.ok(CRITERIA_MD.includes(`at most ${LIMITS.weight}`), "weight cap");
+  assert.match(CRITERIA_MD, /unknown param/i, "unknown params are refused");
+  assert.match(CRITERIA_MD, /JSON array[^.]*fails/i, "a JSON array fails schema");
+  assert.ok(CRITERIA_MD.includes(`\`bodyIncludes\` | list of up to ${LIMITS.terms} strings, each up to ${LIMITS.termChars} characters`), "bodyIncludes strings are capped");
+  assert.ok(CRITERIA_MD.includes(`\`required\` | list of up to ${LIMITS.terms} field names, each up to ${LIMITS.termChars} characters`), "field names are capped");
+  assert.match(CRITERIA_MD, /\\u0060/, "hand-written blocks: how to write a backtick");
+  assert.match(CRITERIA_MD, /unknown field on a check/i, "misspelled check fields are refused");
+  assert.match(CRITERIA_MD, /misspelled `passThreshold` is not caught/, "and top-level typos are not: say so");
+});
+
+test("INTEGRATION.md states the fetch limits with the code's own numbers, and how to recover", async () => {
+  const { MAX_BYTES, FETCH_TIMEOUT_MS } = await import("../../judge-service/src/safe-fetch.js");
+  const { MAX_DELIVERABLE_BYTES } = await import("../../judge-service/src/evaluate.js");
+  assert.ok(INTEGRATION_MD.includes(`at most ${MAX_BYTES / 1_000_000} MB`), "deliverable size cap");
+  assert.ok(INTEGRATION_MD.includes(`within ${FETCH_TIMEOUT_MS / 1000} seconds`), "fetch timeout");
+  assert.ok(INTEGRATION_MD.includes(`at most ${MAX_DELIVERABLE_BYTES / 1024} KB`), "dry-run size cap");
+  assert.match(INTEGRATION_MD, /no redirects/);
+  assert.match(INTEGRATION_MD, /ask again for free with `POST \/api\/judge`/, "a paid ruling whose transaction failed is finished on the free path");
+  assert.doesNotMatch(INTEGRATION_MD, /sweep (will )?settles?/i, "the sweep only covers ~2 days: no blanket promise");
+  assert.match(INTEGRATION_MD, /Request failed with status/, "what Circle's pay() throws before paying");
+  assert.match(INTEGRATION_MD, /Payment failed: <error>/, "and after paying");
+  assert.match(INTEGRATION_MD, /not published to npm/);
+});
+
+test("the API landing page lists every status GET /api/judge can return", () => {
+  const src = read("judge-service/src/judge-now.js");
+  const row = read("judge-service/public/index.html").split("\n").find((l) => l.includes("GET /api/judge?jobId=N"));
+  assert.ok(row, "the landing page documents GET /api/judge");
+  for (const r of ["pending", "judged", "not-submitted", "expired", "closed", "not-ours", "not-found"]) {
+    assert.ok(src.includes(`"${r}"`), `${r} is a real status`);
+    assert.ok(row.includes(r), `the landing page's GET row must list ${r}`);
+  }
+});

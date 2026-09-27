@@ -10,7 +10,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { keccak256, toHex } from "viem";
 import { config } from "./config.js";
-import { safeFetch, MAX_BYTES } from "./safe-fetch.js";
+import { safeFetch, FetchError, MAX_BYTES } from "./safe-fetch.js";
 import { canonicalize } from "./criteria.js";
 
 const sha256hex = (buf) => "0x" + crypto.createHash("sha256").update(buf).digest("hex");
@@ -21,29 +21,48 @@ export function extractDeliverableURI(description) {
   return m ? m[1] : null;
 }
 
+/**
+ * Decode a data: URI per RFC 2397: `data:[<mediatype>][;base64],<data>`. The
+ * data is everything after the FIRST comma (commas inside it are kept). With
+ * the ;base64 flag (any case, after any parameters) it is base64; otherwise it
+ * is percent-encoded, and each %XX is one byte.
+ */
+export function decodeDataUri(uri) {
+  const comma = uri.indexOf(",");
+  if (!uri.startsWith("data:") || comma < 0) throw new FetchError("BAD_DATA_URI", "malformed data URI (no comma)");
+  const meta = uri.slice(5, comma), body = uri.slice(comma + 1);
+  if (/;base64$/i.test(meta)) return Buffer.from(body, "base64");
+  const bytes = [];
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] === "%" && /^[0-9a-fA-F]{2}$/.test(body.slice(i + 1, i + 3))) { bytes.push(parseInt(body.slice(i + 1, i + 3), 16)); i += 2; continue; }
+    const cp = body.codePointAt(i);
+    const ch = String.fromCodePoint(cp);
+    for (const b of Buffer.from(ch, "utf8")) bytes.push(b);
+    if (cp > 0xffff) i++;
+  }
+  return Buffer.from(bytes);
+}
+
 /** Resolve a deliverable into { content: Buffer, source, url? }. All network
  *  fetches go through safeFetch (SSRF denylist + timeout + size cap). */
 export async function resolveDeliverable(uri) {
   if (!uri) throw new Error("no deliverable URI");
   if (uri.startsWith("data:")) {
-    const base64 = uri.split(",")[1] || "";
-    const content = Buffer.from(base64, "base64");
-    if (content.length > MAX_BYTES) throw new Error(`data URI exceeds ${MAX_BYTES} bytes`);
+    const content = decodeDataUri(uri);
+    if (content.length > MAX_BYTES) throw new FetchError("TOO_LARGE", `data URI exceeds ${MAX_BYTES} bytes`);
     return { content, source: "data" };
   }
   if (uri.startsWith("ipfs://")) {
-    const gw = process.env.IPFS_GATEWAY || "https://ipfs.io/ipfs/";
+    const gw = process.env.IPFS_GATEWAY || "https://ipfs.filebase.io/ipfs/"; // ipfs.io answers 429 since its Sep 2026 sunset
     const url = gw + uri.replace("ipfs://", "");
-    const { content, status } = await safeFetch(url);
-    if (status < 200 || status >= 300) throw new Error(`ipfs fetch ${status}`);
+    const { content } = await safeFetch(url, { okOnly: true });
     return { content, source: "ipfs", url };
   }
   if (uri.startsWith("http://") || uri.startsWith("https://")) {
-    const { content, status } = await safeFetch(uri);
-    if (status < 200 || status >= 300) throw new Error(`http fetch ${status}`);
+    const { content } = await safeFetch(uri, { okOnly: true });
     return { content, source: "http", url: uri };
   }
-  throw new Error(`unsupported deliverable URI scheme: ${uri}`);
+  throw new FetchError("UNSUPPORTED_SCHEME", `unsupported deliverable URI scheme: ${uri}`);
 }
 
 /**

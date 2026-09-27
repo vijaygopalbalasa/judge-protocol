@@ -29,3 +29,15 @@ export function openLog(file, opts = {}) {
   }
   return ledger;
 }
+
+/** A log belongs to the paymaster that wrote it: the client of its first job.
+ *  A copied brief that keeps another project's name would otherwise resume
+ *  that project's log, treat its milestones as done, and append to it. */
+export async function checkLogOwner(entries, { readJob, paymaster, file }) {
+  const first = entries.find((e) => e.type === "job-created");
+  if (!first) return;
+  const job = await readJob(first.data.jobId);
+  if (String(job.client).toLowerCase() !== String(paymaster).toLowerCase()) {
+    throw new Error(`${file} belongs to paymaster ${job.client}, not ${paymaster}. Give your brief its own "project" name so it gets its own log.`);
+  }
+}

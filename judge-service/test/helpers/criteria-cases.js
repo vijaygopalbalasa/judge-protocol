@@ -58,6 +58,17 @@ export const CRITERIA_CASES = [
   ["passThreshold -1", { passThreshold: -1, checks: [{ kind: "length" }] }, false],
   ["passThreshold fractional", { passThreshold: 99.5, checks: [{ kind: "length" }] }, false],
 
+  ["weight at the cap (1000)", { checks: [{ kind: "length", weight: 1000 }] }, true],
+
+  // --- invalid: unknown param names (a misspelling would otherwise pass vacuously) ---
+  ["contains with a misspelled list (terms)", one("contains", { terms: ["USDC"] }), false],
+  ["length with a misspelled bound (minimum)", one("length", { minimum: 500 }), false],
+  ["schema with a misspelled key (require)", one("schema", { require: ["id"] }), false],
+  ["checksum with a misspelled key (hash)", one("checksum", { hash: "a".repeat(64) }), false],
+  ["http-endpoint with a misspelled key (status)", one("http-endpoint", { status: 200 }), false],
+  ["weight above the cap", { checks: [{ kind: "length", weight: 1001 }] }, false],
+  ["weight 1e308 (overflows the score)", { checks: [{ kind: "length", weight: 1e308 }, { kind: "length", weight: 1e308 }] }, false],
+
   // --- invalid: bounds (new) ---
   ["65 checks", many(65, { kind: "length" }), false],
   ["five http-endpoint probes", many(5, { kind: "http-endpoint" }), false],
@@ -98,6 +109,16 @@ export const CRITERIA_CASES = [
   ["http-endpoint expectStatus as a string", one("http-endpoint", { expectStatus: "200" }), false],
   ["http-endpoint bodyIncludes as a string", one("http-endpoint", { bodyIncludes: "ok" }), false],
   ["http-endpoint bodyIncludes with a number", one("http-endpoint", { bodyIncludes: [1] }), false],
+  ["a misspelled params (param): the check would silently pass", { checks: [{ kind: "length", param: { min: 50 } }] }, false],
+  ["a misspelled params (Params)", { checks: [{ kind: "contains", Params: { all: ["USDC"] } }] }, false],
+  ["a misspelled weight (wieght)", { checks: [{ kind: "length", params: { min: 1 }, wieght: 3 }] }, false],
+  ["an extra field on a check (note)", { checks: [{ kind: "length", note: "why" }] }, false],
+  ["kind, params and weight together", { checks: [{ kind: "length", params: { min: 1 }, weight: 2 }] }, true],
+  ["a free-form top-level field stays allowed (hashed with the rest)", { note: "anything", checks: [{ kind: "length" }] }, true],
+  ["http-endpoint bodyIncludes string of 1025 characters", one("http-endpoint", { bodyIncludes: ["x".repeat(1025)] }), false],
+  ["http-endpoint bodyIncludes string of exactly 1024 characters", one("http-endpoint", { bodyIncludes: ["x".repeat(1024)] }), true],
+  ["schema field name of 1025 characters", one("schema", { required: ["k".repeat(1025)] }), false],
+  ["schema field name of exactly 1024 characters", one("schema", { required: ["k".repeat(1024)] }), true],
   ["http-endpoint timeoutMs 0", one("http-endpoint", { timeoutMs: 0 }), false],
   ["http-endpoint timeoutMs above 10 s", one("http-endpoint", { timeoutMs: 10001 }), false],
   ["http-endpoint timeoutMs as a string", one("http-endpoint", { timeoutMs: "5000" }), false],

@@ -1,5 +1,6 @@
 // Judge Protocol kit: plug a neutral, deterministic judge into an ERC-8183 job
-// on Arc testnet. One file, one dependency (viem). Copy it, or install it.
+// on Arc testnet. One file, one dependency (viem). It is not on npm: copy it
+// into your project.
 //
 //   client:   createJudgedJob -> fundJob
 //   provider: setBudget -> dryRun (optional self-check) -> submitDeliverable
@@ -25,6 +26,9 @@ const ZERO = "0x0000000000000000000000000000000000000000";
 // Inline data: deliverables travel in calldata; keep them small. Larger work
 // belongs at an https:// or ipfs:// URI the provider controls.
 export const MAX_INLINE_BYTES = 48 * 1024;
+// A hosted deliverable is fetched once by the judge: at most 1 MB, within 5
+// seconds, no redirects, public addresses only.
+export const MAX_HOSTED_BYTES = 1_000_000;
 export const MIN_EXPIRY_SECONDS = 600;
 
 export const ACP_ABI = [
@@ -44,7 +48,7 @@ const ERC20_ABI = [
 export const KNOWN_KINDS = ["checksum", "schema", "contains", "length", "http-endpoint"];
 
 /** Bounds the judge enforces (judge-service/src/checkers/index.js LIMITS; a test keeps them equal). */
-export const LIMITS = { checks: 64, probes: 4, depth: 12, terms: 256, termChars: 1024, urlChars: 2048, probeTimeoutMs: 10_000 };
+export const LIMITS = { checks: 64, probes: 4, depth: 12, terms: 256, termChars: 1024, urlChars: 2048, probeTimeoutMs: 10_000, weight: 1000 };
 const TYPE_NAMES = ["string", "number", "boolean", "object"];
 const has = (v) => v !== undefined && v !== null; // null params are treated as absent
 const isPlainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -65,7 +69,13 @@ function nestsDeeperThan(value, limit) {
 }
 
 /** What is wrong with one check's params, or null (the judge's own rules). */
+const CHECK_FIELDS = ["kind", "params", "weight"];
+const PARAM_NAMES = { length: ["min", "max", "unit"], contains: ["all", "wholeWords"], schema: ["required", "types"],
+  checksum: ["sha256"], "http-endpoint": ["url", "expectStatus", "bodyIncludes", "timeoutMs"] };
 function paramsProblem(kind, p) {
+  for (const k of Object.keys(p)) {
+    if (!(PARAM_NAMES[kind] || []).includes(k)) return `unknown param "${k}" (known: ${(PARAM_NAMES[kind] || []).join(", ")})`;
+  }
   switch (kind) {
     case "length":
       for (const k of ["min", "max"]) if (has(p[k]) && !isNumberIn(p[k], 0, Infinity)) return `${k} must be a number >= 0`;
@@ -77,7 +87,7 @@ function paramsProblem(kind, p) {
       if (has(p.wholeWords) && typeof p.wholeWords !== "boolean") return "wholeWords must be true or false";
       return null;
     case "schema":
-      if (has(p.required) && !isStringList(p.required)) return `required must be a list of at most ${LIMITS.terms} field names`;
+      if (has(p.required) && !isStringList(p.required)) return `required must be a list of at most ${LIMITS.terms} field names of at most ${LIMITS.termChars} characters`;
       if (has(p.types)) {
         if (!isPlainObject(p.types)) return "types must be an object of field: type";
         const entries = Object.entries(p.types);
@@ -91,7 +101,7 @@ function paramsProblem(kind, p) {
     case "http-endpoint":
       if (has(p.url) && (typeof p.url !== "string" || p.url.length > LIMITS.urlChars)) return `url must be a string of at most ${LIMITS.urlChars} characters`;
       if (has(p.expectStatus) && !(Number.isInteger(p.expectStatus) && p.expectStatus >= 100 && p.expectStatus <= 599)) return "expectStatus must be an integer from 100 to 599";
-      if (has(p.bodyIncludes) && !isStringList(p.bodyIncludes)) return `bodyIncludes must be a list of at most ${LIMITS.terms} strings`;
+      if (has(p.bodyIncludes) && !isStringList(p.bodyIncludes)) return `bodyIncludes must be a list of at most ${LIMITS.terms} strings of at most ${LIMITS.termChars} characters`;
       if (has(p.timeoutMs) && !isNumberIn(p.timeoutMs, 1, LIMITS.probeTimeoutMs)) return `timeoutMs must be a number from 1 to ${LIMITS.probeTimeoutMs}`;
       return null;
     default:
@@ -112,9 +122,11 @@ export function validateCriteria(criteria) {
   for (let i = 0; i < criteria.checks.length; i++) {
     const c = criteria.checks[i];
     if (!c || typeof c !== "object") return { valid: false, reason: `checks[${i}] is not an object` };
+    const extra = Object.keys(c).find((k) => !CHECK_FIELDS.includes(k));
+    if (extra !== undefined) return { valid: false, reason: `checks[${i}] unknown field "${extra}" (a check has only kind, params and weight)` };
     if (!KNOWN_KINDS.includes(c.kind)) return { valid: false, reason: `checks[${i}] unknown kind "${c.kind}" (known: ${KNOWN_KINDS.join(", ")})` };
-    if (c.weight !== undefined && (typeof c.weight !== "number" || !Number.isFinite(c.weight) || c.weight <= 0)) {
-      return { valid: false, reason: `checks[${i}] weight must be a finite number > 0, got ${c.weight}` };
+    if (c.weight !== undefined && (typeof c.weight !== "number" || !Number.isFinite(c.weight) || c.weight <= 0 || c.weight > LIMITS.weight)) {
+      return { valid: false, reason: `checks[${i}] weight must be a finite number > 0 and at most ${LIMITS.weight}, got ${c.weight}` };
     }
     if (has(c.params) && !isPlainObject(c.params)) return { valid: false, reason: `checks[${i}].params must be an object` };
     const problem = paramsProblem(c.kind, c.params ?? {});
@@ -146,7 +158,9 @@ export function criteriaBlock(criteria, { title = "Deliverable judged by Judge P
   const v = validateCriteria(criteria);
   if (!v.valid) throw new Error(`invalid criteria: ${v.reason}`);
   if (String(title).includes("```")) throw new Error("title must not contain a code fence");
-  return `${title}\n\`\`\`judge-criteria\n${JSON.stringify(criteria)}\n\`\`\``;
+  // Backticks go in as \u0060 (still valid JSON, parses to the same string),
+  // so a term that contains a code fence cannot close the block early.
+  return `${title}\n\`\`\`judge-criteria\n${JSON.stringify(criteria).replace(/`/g, "\\u0060")}\n\`\`\``;
 }
 
 /* ------------------------------ deliverables ------------------------------- */
@@ -159,17 +173,34 @@ const base64 = (bytes) => {
 
 /**
  * Encode a deliverable for submit(): returns the provider's commitment
- * (keccak256 of the exact bytes) and the optParams carrying it as a data: URI.
+ * (keccak256 of the exact bytes) and the optParams carrying it as a data: URI,
+ * or, with `uri`, pointing at where those same bytes are hosted.
  */
-export function deliverable(content, { mediaType = "application/octet-stream" } = {}) {
+export function deliverable(content, { mediaType = "application/octet-stream", uri } = {}) {
   const bytes = toBytes(content);
   if (bytes.length === 0) throw new Error("deliverable is empty");
+  if (uri !== undefined) {
+    // The judge loads only these exact lowercase schemes, reads the URI up to
+    // the first whitespace, and never sends credentials.
+    if (typeof uri !== "string" || !/^(https?|ipfs):\/\/\S+$/.test(uri)) {
+      throw new Error("uri must be an https://, http:// or ipfs:// URI with no spaces");
+    }
+    if (/^https?:/.test(uri)) {
+      let u;
+      try { u = new URL(uri); } catch { throw new Error("uri is not a valid URL"); }
+      if (u.username || u.password) throw new Error("uri must not include credentials: the judge never sends them");
+    }
+    if (bytes.length > MAX_HOSTED_BYTES) {
+      throw new Error(`a hosted deliverable can be at most ${MAX_HOSTED_BYTES} bytes (1 MB); the judge fetches no more`);
+    }
+    return { uri, optParams: toHex(`deliverableURI: ${uri}`), deliverableHash: keccak256(bytes), bytes };
+  }
   if (bytes.length > MAX_INLINE_BYTES) {
-    throw new Error(`deliverable is too large to inline (${bytes.length} > ${MAX_INLINE_BYTES} bytes); host it at an https:// or ipfs:// URI instead`);
+    throw new Error(`deliverable is too large to inline (${bytes.length} > ${MAX_INLINE_BYTES} bytes); host it at an https:// or ipfs:// URI and pass it as uri`);
   }
   if (/[,;\s]/.test(mediaType)) throw new Error("mediaType must be a bare type like text/plain");
-  const uri = `data:${mediaType};base64,${base64(bytes)}`;
-  return { uri, optParams: toHex(`deliverableURI: ${uri}`), deliverableHash: keccak256(bytes), bytes };
+  const dataUri = `data:${mediaType};base64,${base64(bytes)}`;
+  return { uri: dataUri, optParams: toHex(`deliverableURI: ${dataUri}`), deliverableHash: keccak256(bytes), bytes };
 }
 
 /* --------------------------- on-chain (viem) ------------------------------- */
@@ -216,8 +247,8 @@ export async function fundJob({ walletClient, publicClient, jobId, amount, confi
 }
 
 /** Provider: submit the deliverable. The commitment and the content travel together. */
-export async function submitDeliverable({ walletClient, publicClient, jobId, content, mediaType, config = ARC_TESTNET }) {
-  const d = deliverable(content, mediaType ? { mediaType } : undefined);
+export async function submitDeliverable({ walletClient, publicClient, jobId, content, mediaType, uri, config = ARC_TESTNET }) {
+  const d = deliverable(content, { ...(mediaType ? { mediaType } : {}), ...(uri !== undefined ? { uri } : {}) });
   const { hash } = await send(walletClient, publicClient, {
     address: config.acp, abi: ACP_ABI, functionName: "submit", args: [BigInt(jobId), d.deliverableHash, d.optParams],
   });
@@ -257,13 +288,17 @@ export async function requestRuling({ jobId, submitTx, api = ARC_TESTNET.api, fe
   throw new Error(`the judge could not rule yet: ${last && last.message}`);
 }
 
-/** Poll the read-only status until the verdict is on chain. */
+/** Poll the read-only status until the verdict is on chain. A network blip or
+ *  a temporary error just means another poll; only a final answer ends it. */
 export async function waitForRuling({ jobId, api = ARC_TESTNET.api, fetchImpl = fetch, intervalMs = 4000, timeoutMs = 180_000 }) {
   const id = idString(jobId);
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    const res = await fetchImpl(`${api}/api/judge?jobId=${id}`);
-    const out = await res.json().catch(() => ({}));
+    let out = {};
+    try {
+      const res = await fetchImpl(`${api}/api/judge?jobId=${id}`);
+      out = await res.json().catch(() => ({}));
+    } catch { /* try again on the next poll */ }
     if (out.result === "judged") return out;
     if (["expired", "closed", "not-ours", "not-found"].includes(out.result)) throw new Error(`job ${id} will not be judged: ${out.result}`);
     if (Date.now() + intervalMs > deadline) throw new Error(`timed out waiting for a ruling on job ${id}`);

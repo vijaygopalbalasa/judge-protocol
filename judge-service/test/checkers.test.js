@@ -8,6 +8,7 @@ import {
   runAllChecks,
   validateCriteria,
   InvalidCriteriaError,
+  LIMITS,
 } from "../src/checkers/index.js";
 
 const deliverable = { content: Buffer.from("hello world"), source: "test" };
@@ -124,4 +125,32 @@ test("contains with wholeWords: a term must stand on its own, so \"Arc\" does no
   assert.equal((await c("Pays in USDC, settles on ERC-8183.", ["ERC-8183", "USDC"])).pass, true, "terms with punctuation");
   assert.equal((await c("a.b?c", ["b?c"])).pass, true, "regex characters in a term are literal");
   assert.equal((await c("abbc", ["b?c"])).pass, false);
+});
+
+test("schema: only a real JSON object, and only its own fields, can satisfy it", async () => {
+  const run = (text, params) => runAllChecks({ checks: [{ kind: "schema", params }] }, { content: Buffer.from(text), source: "t" });
+  assert.equal((await run("[]", { required: [] })).pass, false, "an array is not an object");
+  assert.equal((await run("[1,2]", { required: ["length"] })).pass, false, "an array's length is not a field");
+  assert.equal((await run("{}", { required: ["constructor"] })).pass, false, "inherited properties are not fields");
+  assert.equal((await run("{}", { types: { toString: "object" } })).pass, true, "a type check only applies to own fields that exist");
+  assert.equal((await run('{"constructor":1}', { required: ["constructor"], types: { constructor: "number" } })).pass, true);
+});
+
+test("a refused list says every limit it enforces, including the per-string cap", () => {
+  const long = "x".repeat(LIMITS.termChars + 1);
+  for (const [kind, params] of [["http-endpoint", { bodyIncludes: [long] }], ["schema", { required: [long] }], ["contains", { all: [long] }]]) {
+    const v = validateCriteria({ checks: [{ kind, params }] });
+    assert.equal(v.valid, false, kind);
+    assert.match(v.reason, new RegExp(`at most ${LIMITS.termChars} characters`), kind);
+  }
+});
+
+test("a failed probe says what kind of failure it was, never the addresses behind it", async () => {
+  const { runCheck } = await import("../src/checkers/index.js");
+  for (const url of ["http://localhost/x", "http://10.9.8.7/x", "https://user:pw@example.com/x"]) {
+    const r = await runCheck({ kind: "http-endpoint", params: { url } }, { content: Buffer.from("x") });
+    assert.equal(r.pass, false, url);
+    assert.match(r.detail, /^fetch failed: /, url);
+    assert.doesNotMatch(r.detail, /127\.0\.0\.1|::1|10\.9\.8\.7|resolves to|blocked address|user:pw/, r.detail);
+  }
 });

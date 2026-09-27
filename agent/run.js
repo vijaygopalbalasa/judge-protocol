@@ -8,8 +8,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runProject } from "./src/paymaster.js";
 import { livePorts, makePublicClient, makeWallet } from "./src/ports.js";
-import { scriptedContractor } from "./src/contractors.js";
-import { logPathFor, openLog } from "./src/logfile.js";
+import { scriptedContractor, checkDemoKeys } from "./src/contractors.js";
+import { logPathFor, openLog, checkLogOwner } from "./src/logfile.js";
+import { privateKeyToAccount } from "viem/accounts";
+import * as kit from "../kit/judge-kit.js";
 import { formatEntry } from "./src/format.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -22,14 +24,18 @@ const say = (type, d) => console.log(formatEntry(type, d));
 
 const publicClient = makePublicClient();
 const contractors = new Map();
-for (const c of brief.contractors) {
-  if (!c.demo) continue;
-  const key = process.env[c.demo.keyEnv];
-  if (!key) { console.error(`demo contractor ${c.name} needs ${c.demo.keyEnv}`); process.exit(1); }
+let demo;
+try { demo = checkDemoKeys(brief); } catch (e) { console.error(e.message); process.exit(1); }
+for (const { contractor: c, key } of demo) {
   contractors.set(c.address.toLowerCase(), scriptedContractor({ name: c.name, style: c.demo.style, wallet: makeWallet(key), publicClient, log: (m) => console.log(`    ${m}`) }));
 }
 
-const ledger = openLog(logPathFor(brief, path.join(here, "runs")));
+const logFile = logPathFor(brief, path.join(here, "runs"));
+const ledger = openLog(logFile);
+try {
+  await checkLogOwner(ledger.entries, { file: path.relative(process.cwd(), logFile), paymaster: privateKeyToAccount(paymasterKey).address,
+    readJob: (jobId) => publicClient.readContract({ address: kit.ARC_TESTNET.acp, abi: kit.ACP_ABI, functionName: "getJob", args: [BigInt(jobId)] }) });
+} catch (e) { console.error(e.message); process.exit(1); }
 const ports = livePorts({ paymasterKey, contractors, publicClient });
 const out = await runProject({ brief, ports, ledger, history: brief.historyJobIds ?? [], log: say });
 console.log(`log head ${out.ledgerHead} (${ledger.entries.length} entries)`);

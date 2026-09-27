@@ -6,6 +6,7 @@ import { extractCriteria, criteriaHash } from "./criteria.js";
 import { extractDeliverableURI, resolveDeliverable, storeEvidence, evidenceHashOf } from "./evidence.js";
 import { runAllChecks, validateCriteria, InvalidCriteriaError } from "./checkers/index.js";
 import { makeClients, signVerdict, submitVerdictOnChain } from "./signer.js";
+import { MAX_BYTES, FetchError } from "./safe-fetch.js";
 import { loadCursor, saveCursor } from "./cursor.js";
 
 const processed = new Set();
@@ -72,6 +73,36 @@ function isUri(s) {
 }
 
 /** Rule on a job end to end: prepare the verdict, then sign and settle it. */
+const SIZE_LABEL = MAX_BYTES % 1_000_000 === 0 ? `${MAX_BYTES / 1_000_000} MB` : `${MAX_BYTES}-byte`;
+const RETRY_FETCH = { outcome: "retry", reason: "the deliverable host could not be reached or refused the request; try again later" };
+
+/** How to answer a deliverable that failed to load. A failure that can never
+ *  succeed for this URI abstains with a reason the provider can act on; one
+ *  that can pass (DNS, a timeout, an HTTP error status, an IPFS gateway
+ *  problem) is retried. It decides on error codes and on undici's fixed cause
+ *  strings, never on message text, which can quote the provider's URL. A name
+ *  that resolves to a private address is retried like an unresolvable one,
+ *  so the answer says nothing about the network the judge runs in. */
+export function fetchFailureOutcome(e, uri) {
+  const code = e instanceof FetchError ? e.code : null;
+  const cause = e?.cause?.message;
+  const u = String(uri ?? "");
+  if (code === "TOO_LARGE") return { outcome: "abstain", reason: `the deliverable is larger than the ${SIZE_LABEL} limit` };
+  if (code === "UNSUPPORTED_SCHEME") return { outcome: "abstain", reason: "unsupported deliverable URI scheme (use data:, https:// or ipfs://)" };
+  if (u.startsWith("ipfs://")) return RETRY_FETCH;
+  if (u.startsWith("http://") || u.startsWith("https://")) {
+    if (cause === "unexpected redirect") return { outcome: "abstain", reason: "the deliverable URL redirects, and the judge does not follow redirects" };
+    if (cause === "bad port") return { outcome: "abstain", reason: "the deliverable URL uses a port the judge will not fetch from" };
+    if (code === "CREDENTIALS") return { outcome: "abstain", reason: "the deliverable URL includes credentials, which the judge will not send" };
+    if (code === "INVALID_URL" || code === "BLOCKED_SCHEME" || code === "BLOCKED_ADDRESS") {
+      return { outcome: "abstain", reason: "the deliverable URL must be a valid URL on a public internet address" };
+    }
+    return RETRY_FETCH;
+  }
+  if (u.startsWith("data:")) return { outcome: "abstain", reason: "the deliverable data: URI could not be decoded" };
+  return { outcome: "abstain", reason: "unsupported deliverable URI scheme (use data:, https:// or ipfs://)" };
+}
+
 export async function evaluateJob(jobId, deliverableHash, clients, submitTxHash) {
   const prepared = await prepareRuling(jobId, deliverableHash, clients, submitTxHash);
   if (prepared.outcome !== "ready") return prepared;
@@ -138,17 +169,8 @@ export async function prepareRuling(jobId, deliverableHash, clients, submitTxHas
   try {
     deliverable = await resolveDeliverable(uri);
   } catch (e) {
-    // A remote host that is down, slow or refusing is a transient condition:
-    // retry later. A data: URI or an unsupported scheme will never load:
-    // abstain. Details stay in the server log, never in the reply, so the
-    // judge is not an oracle for internal network probing.
-    log(`deliverable resolution failed: ${e.message}`);
-    if (/^(https?|ipfs):\/\//i.test(uri)) {
-      return { outcome: "retry", reason: "the deliverable host could not be reached or refused the request; try again later" };
-    }
-    return { outcome: "abstain", reason: /unsupported deliverable URI scheme/.test(e.message)
-      ? "unsupported deliverable URI scheme (use data:, https:// or ipfs://)"
-      : "the deliverable could not be decoded or exceeds the size limit" };
+    log(`deliverable resolution failed: ${e.message}${e.cause?.message ? ` (${e.cause.message})` : ""}`);
+    return fetchFailureOutcome(e, uri);
   }
   const contentHash = keccak256(deliverable.content);
   if (contentHash.toLowerCase() !== String(deliverableHash).toLowerCase()) {
@@ -195,7 +217,7 @@ export async function prepareRuling(jobId, deliverableHash, clients, submitTxHas
 
 // A revert is deterministic (the contract said no); anything else (an RPC
 // hiccup, a timeout, a rate limit) is worth another try.
-const isRevert = (e) => !!e?.reverted || /execution reverted|reverted with|ContractFunctionRevert/i.test(String(e?.message ?? e));
+export const isRevert = (e) => !!e?.reverted || /execution reverted|reverted with|ContractFunctionRevert/i.test(String(e?.message ?? e));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Store the evidence, sign the verdict (EIP-712) and settle it on chain. */

@@ -3,8 +3,10 @@
 Judge Protocol is a neutral, deterministic evaluator for ERC-8183 jobs. The client
 writes the acceptance criteria into the job, the provider delivers, and the judge
 checks the delivery against those criteria and settles the escrow: PASS pays the
-provider, REJECT refunds the client. Every ruling can be recomputed by anyone at
-https://judge-protocol-verifier.vercel.app, so nobody has to trust the judge.
+provider, REJECT refunds the client. Anyone can recompute a ruling at
+https://judge-protocol-verifier.vercel.app from chain data (plus the file, for a deliverable
+hosted off chain), so nobody has to trust the judge. The one exception is a live
+`http-endpoint` probe: its result is shown as the judge recorded it.
 
 It is free to use on Arc testnet. It is best effort with no uptime guarantee.
 
@@ -23,8 +25,15 @@ It is free to use on Arc testnet. It is best effort with no uptime guarantee.
    ([criteria reference](CRITERIA.md)).
 2. **Provider** calls `setBudget`; **client** approves USDC and calls `fund`.
 3. **Provider** calls `submit(jobId, keccak256(deliverableBytes), optParams)` with
-   `optParams` = the UTF-8 bytes of `deliverableURI: <uri>`. Use a `data:` URI for
-   small text, or an `https://` / `ipfs://` URI you control.
+   `optParams` = the UTF-8 bytes of `deliverableURI: <uri>`, from an ordinary account
+   (the judge reads `optParams` from the submit transaction itself, so a submit relayed
+   through a smart-contract wallet is not read). The URI can be:
+   - `data:<type>;base64,<base64>` (what the kit writes; its `mediaType` option sets the type)
+     or `data:,<percent-encoded text>`, for small content;
+   - `https://...` on a host you control: at most 1 MB, fully downloaded within 5 seconds, no
+     redirects, no credentials in the URL, public addresses only;
+   - `ipfs://<cid>`, fetched through a public gateway (ipfs.filebase.io by default). This is
+     best effort; prefer https for anything that matters.
 4. **Anyone** asks for the ruling: `POST /api/judge` with the job id and the submit
    transaction hash. The judge settles on chain in the same request.
 
@@ -44,7 +53,20 @@ const sub = await kit.submitDeliverable({ walletClient: provider, publicClient, 
 const ruling = await kit.requestRuling({ jobId: job.jobId, submitTx: sub.txHash });
 ```
 
-`kit/example.js` is the complete, runnable version (two testnet keys, about a minute).
+`submitDeliverable` inlines the work as a `data:` URI (up to 48 KB). For bigger work, host
+the exact bytes and pass their address as `uri`, for example
+`kit.submitDeliverable({ ..., content: work, uri: "https://files.example.com/work.txt" })`: the
+commitment is the hash of `content`, so the hosted file must be byte for byte the same.
+
+The kit is not published to npm: copy `kit/judge-kit.js` into your project and add viem.
+`kit/example.js` is the complete, runnable version (two testnet keys with a little testnet
+USDC for gas, about a minute):
+
+```bash
+git clone https://github.com/vijaygopalbalasa/judge-protocol && cd judge-protocol/kit
+npm ci
+CLIENT_KEY=0x... PROVIDER_KEY=0x... node example.js
+```
 
 Or with plain HTTP after `submit`:
 
@@ -60,6 +82,10 @@ The criteria from the kit example, as they appear in the description:
 {"version":1,"checks":[{"kind":"length","params":{"min":20,"max":400}},{"kind":"contains","params":{"all":["ERC-8183","USDC"]}}]}
 ```
 
+If you write the block by hand, keep it one valid JSON object and write any backtick inside
+a term as `\u0060`: three backticks in a row would close the block early. `kit.criteriaBlock`
+does this for you and refuses criteria the judge would refuse.
+
 ## Path B: your own escrow (for example a fork of circlefin/arc-escrow)
 
 The on-chain ruling above needs Circle's ERC-8183 contract. If you run your own
@@ -73,31 +99,37 @@ curl -X POST https://judge-protocol-api.vercel.app/api/evaluate \
 ```
 
 `POST /api/evaluate` returns the score, the decision, and the `evidenceHash` the
-judge would sign for the same inputs. It never signs, never settles and never makes
-a network request (an `http-endpoint` check is reported as not run). Anyone can
-recompute its answer with the kit or the verifier code. For images and other
-subjective work, keep a human or a model in the loop: a deterministic check
-cannot judge taste.
+judge would sign for the same inputs (pass the job's `jobId`: the hash includes it, so
+without it the hash will not match an on-chain verdict). It never signs, never settles
+and never makes a network request: an `http-endpoint` check is listed in `notRun`, and with
+one in the criteria `score`, `pass` and `evidenceHash` come back `null`. The deliverable can
+be at most 256 KB here. Anyone can recompute its answer with the service code
+(`judge-service/src/evaluate.js`); the kit only validates criteria, it does not score. For images and other subjective work, keep a human or a
+model in the loop: a deterministic check cannot judge taste.
 
 ## API reference
 
 ### `POST /api/judge`
 Body: `{"jobId": "<id>", "submitTx": "0x..."}`. `submitTx` is optional for
 submissions in the last ~4 hours and needed for older ones (the daily sweep also
-finds them).
+finds submissions from the last ~2 days).
 
 | HTTP | `result` | Meaning | What to do |
 |---|---|---|---|
 | 200 | `judged` | The judge ruled and settled on chain. Includes `pass`, `score`, `txHash`, `evidenceHash`. | Done. Verify it at the verifier if you like. |
 | 200 | `already-judged` | A verdict already exists (maybe another caller asked first). Includes `verdict`. | Done. |
 | 200 | `not-ours` | The job names a different evaluator. | Create the job with the JudgeEvaluator address. |
-| 200 | `not-submitted` | The job is not in the Submitted state yet. | Ask again after `submit`. |
+| 200 | `not-submitted` | The job is Open or Funded, not Submitted yet. | Ask again after `submit`. |
+| 200 | `expired` | The client already took the escrow back with `claimRefund` after expiry. | Nothing to rule. |
+| 200 | `closed` | The job was already completed or rejected. | Nothing to rule. |
 | 200 | `skipped` | For example the budget is under 0.01 USDC (spam guard). | Use a budget of at least 0.01 USDC. |
 | 404 | `not-found` | No job with this id exists on the ACP contract. | Check the job id (and that you are on Arc testnet). |
 | 404 | `submission-not-found` | No `JobSubmitted` event found in the search window. | Pass `submitTx`. |
-| 422 | `abstained` | The judge will not rule (invalid criteria, no deliverable URI, content does not match the commitment). `reason` says which. | Fix the job; if it cannot be fixed, `claimRefund` after expiry. |
-| 503 | `retry-later` | A temporary problem, for example the deliverable host is down. | Ask again later. |
+| 422 | `abstained` | The judge will not rule. `reason` says why: invalid criteria, other criteria registered on chain for the job, no deliverable URI, content that does not hash to the provider's commitment, or a deliverable that can never load (it redirects, is over 1 MB, has credentials or a port the judge will not use, is on a private IP address, or uses an unsupported scheme). | Fix the job if you can (a host can stop redirecting); otherwise `claimRefund` after expiry. Answers are cached for 10 minutes. |
+| 503 | `retry-later` | A temporary problem: the deliverable host is down, slow or answering with an error, Arc testnet could not be read, or the judge contract is paused. | Ask again later. The daily sweep also retries submissions from the last ~2 days. |
 | 502 | `error` | The ruling could not be settled right now. | Ask again later. |
+| 400 | (none) | `error` says what is wrong: malformed JSON, a `jobId` that is not a positive integer, or a `submitTx` that is not a 32-byte hash. | Fix the request. |
+| 413 | (none) | The request body is over 4 KB. | Send only `jobId` and `submitTx`. |
 
 ### `GET /api/judge?jobId=<id>`
 Read-only. `result` is `judged` (with the on-chain `verdict`), `pending` (Submitted,
@@ -118,15 +150,21 @@ ERC-8183 contract has no evaluator fee; the free `POST /api/judge` keeps working
   header (x402 v2). Any other job is answered for free, with the same `result` values as above.
 - Send the signed payment in a `payment-signature` header. The judge checks it locally (terms,
   recipient, amount, canonical numbers, signature), asks Circle Gateway to verify it, checks your
-  Gateway balance, prepares the verdict, and only then settles the payment and signs.
+  Gateway balance, prepares the verdict, checks the contract would accept it (not paused, signer
+  authorized, no other criteria registered), and only then settles the payment and signs.
 - Every answer carries `charged`: `true`, `false`, or `"unknown"` if Gateway could not confirm.
+  That includes malformed or oversized requests (400, 413), which are never charged.
   A settled payment's receipt comes back in the `PAYMENT-RESPONSE` header and as `payment` in the
   body. Trust those, not the amount your client signed: Circle's `GatewayClient.pay()` reports
   the signed amount even when the payment was not settled.
 - Nothing is settled when no verdict is ready (the judge abstains, a transient failure, the job
   was already judged). `payment-failed` (402) means Gateway refused the settlement (for example
   an empty balance or a payment already used) and nothing was signed. If the verdict transaction
-  fails after your payment settled, the answer says so and the daily sweep settles the verdict.
+  still fails after your payment settled, the answer says which way. If it did not go through,
+  ask again for free with `POST /api/judge` (same `jobId` and `submitTx`): the judge rules again,
+  and without `http-endpoint` checks it reaches the same verdict. If the contract refused it, that
+  is a fault on the judge's side: report it at the repo's issues. The fee is not refunded
+  automatically.
 
 With Circle's client (`npm install @circle-fin/x402-batching`):
 
@@ -139,6 +177,12 @@ const { data } = await gateway.pay("https://judge-protocol-api.vercel.app/api/x4
   { method: "POST", body: { jobId: "186760" } });
 ```
 
+`pay()` returns only 2xx answers and throws on anything else, so you do not see `result` or
+`charged` in those cases. Check first that `GET /api/judge?jobId=<id>` says `pending`. Before
+a payment, the error is `Request failed with status <code>` and nothing was paid. After a
+payment, it is `Payment failed: <error>`, and every such error means nothing was settled except
+one that says your payment settled (see above).
+
 ### `GET /api/health`
 The judge address, its signer and whether the signer is authorized on chain, and
 the relayer's gas balance.
@@ -146,9 +190,12 @@ the relayer's gas balance.
 ## How to check a ruling yourself
 
 - In a browser: https://judge-protocol-verifier.vercel.app, enter the job id. It
-  recomputes every hash and the score from chain data and shows each check.
+  recomputes every hash and the score from chain data and shows each check. For a
+  deliverable hosted at a URL, the page does not fetch it: drop in the file and it checks
+  those exact bytes against the provider's commitment.
 - From a terminal: `node judge-service/src/verify.js <jobId>` in a checkout of the
-  repo (no keys needed).
+  repo, after `npm ci` in `judge-service` (no keys needed). For a deliverable hosted at a URL,
+  pass the file with `--deliverable <file>`.
 
 ## Limits, stated plainly
 
@@ -156,8 +203,16 @@ the relayer's gas balance.
   rules, `claimRefund` after `expiredAt` returns the client's funds.
 - Deterministic checks cover objective, structured work. They do not judge quality or taste.
 - `http-endpoint` checks are live probes and cannot be re-run later as the judge saw them.
+  Without a `url` they probe the deliverable's own URL, so with a `data:` deliverable give
+  them an explicit `url` (otherwise the check fails with "no url provided").
+- Deliverables at an https URL: at most 1 MB, fully downloaded within 5 seconds, no redirects,
+  no credentials in the URL, public addresses only. A redirect, an oversized file, credentials,
+  a port the judge will not use or a private IP address makes the judge abstain; a timeout, a
+  DNS failure (including a name that resolves to a private address) or an HTTP error status is
+  treated as temporary and retried. For `ipfs://`, only an oversized file abstains; gateway
+  problems are retried.
 - Inline `data:` deliverables are for small content (the kit caps them at 48 KB);
-  host larger work at an https or ipfs URI.
+  host larger work at an https or ipfs URI (the kit's `uri` option).
 - Paid rulings settle in Circle Gateway batches, so the transfer completes minutes later.
   Gateway refuses to settle a used payment or an empty balance, and the judge signs only after
   a payment settled, so a replayed payment or a burst against one balance buys at most one

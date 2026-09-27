@@ -170,6 +170,7 @@ test('browser checkers and validation agree with the judge-service on a battery 
   const contents = ['', 'hello', '{"a":1,"b":"x"}', '{"a":"1"}', 'not json', 'ERC-8183 USDC Arc', '  many   words here  ',
     '42', 'null', '"a string"', 'true', '[1,2]', // valid JSON that is not an object: a failed schema check, never a crash
     'A software Architecture in USDC', 'built on Arc, a USDC chain', 'Arcé USDCs a', // whole-word edges
+    '{}', '{"length":1,"constructor":2}', // own fields
     Buffer.from([0xff, 0xfe, 0x00]).toString('latin1'), Buffer.from([0xef, 0xbb, 0xbf, 0x41]).toString('latin1')];
   const criteriaList = [
     { checks: [{ kind: 'length', params: { min: 2, max: 3 } }] },
@@ -179,6 +180,7 @@ test('browser checkers and validation agree with the judge-service on a battery 
     { passThreshold: 0, checks: [{ kind: 'contains', params: { all: [] } }] },
     { checks: [{ kind: 'length', params: { min: 2, max: 2, unit: 'chars' } }] }, // a UTF-8 BOM must be kept, as Buffer does
     { checks: [{ kind: 'contains', params: { all: ['Arc', 'a', 'USDC'], wholeWords: true } }] }, // whole words, same as the judge
+    { checks: [{ kind: 'schema', params: { required: ['length', 'constructor'], types: { toString: 'object' } } }] }, // own fields of real objects only
   ];
   for (const criteria of criteriaList) {
     for (const c of contents) {
@@ -207,9 +209,27 @@ test('the verifier refuses exactly what the judge refuses, on every shared crite
     let v;
     assert.doesNotThrow(() => { v = app.validateCriteria(c); }, label);
     assert.equal(v.valid, valid, `${label}: ${v.reason}`);
+    assert.equal(v.reason, service.checkers.validateCriteria(c).reason, `${label}: the same reason as the judge`);
   }
 });
 
 test('the verifier and the judge enforce the same bounds', () => {
   assert.deepEqual(app.LIMITS, service.checkers.LIMITS);
+});
+
+test('data: URIs decode exactly like the judge (RFC 2397: base64 flag, percent-encoding, commas)', async () => {
+  const { decodeDataUri } = await import('../../judge-service/src/evidence.js');
+  const uris = [
+    'data:text/plain;base64,' + Buffer.from('Pays in USDC, on Arc.').toString('base64'),
+    'data:text/plain,' + encodeURIComponent('Pays in USDC, on Arc.'),
+    'data:,a,b,c', 'data:application/octet-stream,%00%FF%41', 'data:text/plain;charset=utf-8;BASE64,eA==',
+    'data:text/plain,caf%C3%A9 and café and \u{1F600}', 'data:text/plain,100% sure', 'data:,',
+  ];
+  for (const u of uris) {
+    const want = [...decodeDataUri(u)];
+    const got = [...app.resolveDataUri(u)];
+    assert.deepEqual(got, want, u);
+  }
+  assert.throws(() => decodeDataUri('data:text/plain;base64'));
+  assert.equal(app.resolveDataUri('data:text/plain;base64'), null, 'the page reports a malformed data URI as unreadable');
 });

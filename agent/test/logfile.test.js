@@ -37,3 +37,13 @@ test("an intact log reopens and keeps growing", () => {
   again.append("c", {});
   assert.equal(openLog(file).entries.length, 3);
 });
+
+test("a log belongs to the paymaster that wrote it: another paymaster is refused before anything runs", async () => {
+  const { checkLogOwner } = await import("../src/logfile.js");
+  const A = "0x5e14c9E5278ee370D764d03d314e92B3d9fFC04F", B = "0xF14F72Ca02c396e4BEbE366b158B7c4418572447";
+  const entries = [{ type: "project-started", data: {} }, { type: "job-created", data: { jobId: "186764" } }];
+  const readJob = async (id) => { assert.equal(String(id), "186764"); return { client: A }; };
+  await assert.rejects(() => checkLogOwner(entries, { readJob, paymaster: B, file: "runs/x.jsonl" }), /runs\/x\.jsonl belongs to paymaster .*own "project" name/);
+  await checkLogOwner(entries, { readJob, paymaster: A.toLowerCase(), file: "runs/x.jsonl" }); // the owner, any case
+  await checkLogOwner([{ type: "project-started", data: {} }], { readJob: async () => { throw new Error("no read expected"); }, paymaster: B, file: "f" }); // no jobs yet
+});

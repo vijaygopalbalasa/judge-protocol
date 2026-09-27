@@ -8,7 +8,9 @@ description: Use when an agent pays another agent or a person for work on Arc (E
 A neutral, deterministic evaluator for ERC-8183 jobs on Arc testnet. The client
 commits acceptance criteria in the job; the provider commits a deliverable; the
 judge rules and settles the escrow (PASS pays the provider, REJECT refunds the
-client). Every ruling is recomputable from public chain data.
+client). Every ruling is recomputable from public chain data (plus the file, for a
+deliverable hosted off chain), except a live `http-endpoint` probe, which shows as the judge
+recorded it.
 
 - ACP (Circle's ERC-8183): `0x0747EEf0706327138c69792bF28Cd525089e4583`
 - JudgeEvaluator (name it as the evaluator): `0x6EFF7d4BB514d341AbEd90bF4c667d0A980173AD`
@@ -40,12 +42,15 @@ client). Every ruling is recomputable from public chain data.
 3. **Client:** `createJudgedJob({ walletClient, publicClient, provider, criteria, title })`,
    then after the provider's `setBudget`, `fundJob({ walletClient, publicClient, jobId, amount })`.
 4. **Provider:** `setBudget({ ... jobId, amount })`, do the work, optionally `dryRun`
-   it, then `submitDeliverable({ walletClient, publicClient, jobId, content })`.
+   it, then `submitDeliverable({ walletClient, publicClient, jobId, content })`. Work over
+   48 KB: host the exact bytes and add `uri` (https or ipfs; at most 1 MB, no redirects).
+   Submit from an ordinary account, not through a smart-contract wallet.
 5. **Rule:** `requestRuling({ jobId, submitTx })`, then `waitForRuling({ jobId })`.
    To pay per ruling instead (0.01 USDC over x402 through Circle Gateway), call
    `POST /api/x402/judge` with Circle's `GatewayClient.pay()`: the payment settles
    only once the judge has a verdict ready, before it signs. Trust `charged` in the
-   answer, not the amount your client signed.
+   answer, not the amount your client signed. Check `GET /api/judge?jobId=` says
+   `pending` first: `pay()` throws on any answer that is not 2xx.
 6. **Report honestly:** give the user the job id, PASS or REJECT, the score, and the
    verifier link `https://judge-protocol-verifier.vercel.app`.
 
@@ -63,3 +68,6 @@ hash-chained log anchored on chain.
 - Arc testnet only; never move mainnet funds with this skill.
 - If the judge answers `abstained`, report its `reason` and fix the job; do not retry blindly.
 - `retry-later` and `error` mean try again later; `not-ours` means the job names a different evaluator.
+- If a paid ruling says the payment settled but the verdict transaction did not go through,
+  ask again with the free `POST /api/judge` for the same job. If it says the contract refused
+  the verdict, do not retry: report it (the answer says where).

@@ -55,8 +55,8 @@ funded; one who never quotes costs nothing.
 ## Run it
 
 ```bash
-cd agent && npm ci
-npm test                                           # 59 tests, no network
+cd kit && npm ci && cd ../agent && npm ci           # the agent uses the kit
+npm test                                           # 62 tests, no network; needs npm ci in ../judge-service too
 PAYMASTER_KEY=0x... PROVIDER_KEY=0x... CONTRACTOR_B_KEY=0x... node run.js briefs/demo.json
 node approve.js briefs/demo.json review --by "<name>" --note "<why>"
 node verify-log.js runs/arc-docs-sprint-demo.jsonl  # no keys needed
@@ -64,6 +64,12 @@ node verify-log.js runs/arc-docs-sprint-demo.jsonl  # no keys needed
 
 The paymaster key needs testnet USDC in its wallet for escrows and a Circle
 Gateway deposit for judge fees (`GatewayClient.deposit`).
+
+To run the demo with your own wallets, copy `briefs/demo.json`, give the copy its own
+`project` name (the log in `runs/` is named after it) and put your own contractor
+addresses in it: each demo contractor signs with the key its `keyEnv` names. Before it
+sends anything, `run.js` refuses a key that does not match the address in the brief, and a
+log that another paymaster wrote.
 
 ## The recorded demo run (Arc testnet, 2026-09-27)
 

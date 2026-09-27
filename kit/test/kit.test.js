@@ -46,7 +46,13 @@ test("the kit refuses exactly what the judge refuses, on every shared criteria c
     assert.doesNotThrow(() => { v = kit.validateCriteria(c); }, label);
     assert.equal(v.valid, valid, `${label}: ${v.reason}`);
     assert.equal(svcCheckers.validateCriteria(c).valid, valid, `${label} (judge)`);
+    assert.equal(v.reason, svcCheckers.validateCriteria(c).reason, `${label}: the same reason as the judge`);
   }
+});
+
+test("the kit's hosted-deliverable cap is the judge's own fetch cap", async () => {
+  const { MAX_BYTES } = await import("../../judge-service/src/safe-fetch.js");
+  assert.equal(kit.MAX_HOSTED_BYTES, MAX_BYTES);
 });
 
 test("the kit and the judge enforce the same bounds", () => {
@@ -203,4 +209,68 @@ test("the runnable example only uses functions the kit exports", () => {
   const used = [...src.matchAll(/(?<![\w-])kit\.([a-zA-Z_]+)/g)].map((m) => m[1]);
   assert.ok(used.length >= 5, "the example should exercise the kit");
   for (const u of used) assert.ok(u in kit, `example uses kit.${u}, which the kit does not export`);
+});
+
+test("criteriaBlock survives backticks in a term: the judge still reads exactly these criteria", async () => {
+  const svcCriteria = await import("../../judge-service/src/criteria.js");
+  const criteria = { version: 1, checks: [{ kind: "contains", params: { all: ["use ```js fences", "`x`"] } }] };
+  const block = kit.criteriaBlock(criteria, { title: "Explain code fences." });
+  assert.deepEqual(kit.extractCriteria(block), criteria, "the kit reads it back");
+  assert.deepEqual(svcCriteria.extractCriteria(block), criteria, "the judge reads it back");
+  assert.equal(kit.criteriaHash(kit.extractCriteria(block)), kit.criteriaHash(criteria), "same criteria hash");
+});
+
+test("a hosted deliverable: the judge reads back exactly the URI, and the hash is of the content", async () => {
+  const { encodeFunctionData } = await import("viem");
+  const big = "x".repeat(kit.MAX_INLINE_BYTES + 1); // too big to inline, fine to host
+  for (const uri of ["https://example.com/work/report.txt?v=2", "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi", "http://example.com/r.txt"]) {
+    const d = kit.deliverable(big, { uri });
+    assert.equal(d.uri, uri);
+    assert.equal(d.deliverableHash, keccak256(Buffer.from(big)));
+    const input = encodeFunctionData({ abi: kit.ACP_ABI, functionName: "submit", args: [1n, d.deliverableHash, d.optParams] });
+    const src = await svcEngine.resolveDeliverableSource({ getTransaction: async () => ({ input }) }, "0x" + "ab".repeat(32), "none");
+    assert.deepEqual(src, { uri, authoredBy: "provider" }, uri);
+  }
+});
+
+test("a hosted deliverable the judge could never load is refused before any transaction", () => {
+  const ok = "hello";
+  for (const uri of ["https://example.com/a b", "https://example.com/a\nb", "HTTPS://example.com/x", "ftp://example.com/x", "data:,hello", "example.com/x", "https://", "", 42]) {
+    assert.throws(() => kit.deliverable(ok, { uri }), /uri/i, JSON.stringify(uri).slice(0, 60));
+  }
+  assert.throws(() => kit.deliverable("x".repeat(1_000_001), { uri: "https://example.com/x" }), /1000000|1 MB/, "over the judge's fetch limit");
+  assert.doesNotThrow(() => kit.deliverable("x".repeat(1_000_000), { uri: "https://example.com/x" }), "exactly at the limit is fine");
+});
+
+test("submitDeliverable passes a hosted URI through to submit()", async () => {
+  const m = mockWallet();
+  const s = await kit.submitDeliverable({ ...m, jobId: 6n, content: TEXT, uri: "https://example.com/t.txt" });
+  const [jobId, hash, optParams] = m.sent[0].args;
+  assert.equal(jobId, 6n);
+  assert.equal(hash, keccak256(Buffer.from(TEXT)));
+  assert.equal(Buffer.from(optParams.slice(2), "hex").toString("utf8"), "deliverableURI: https://example.com/t.txt");
+  assert.equal(s.deliverableHash, hash);
+});
+
+test("a hosted URI with credentials is refused: the judge never sends them", () => {
+  for (const uri of ["https://user:pass@example.com/r.txt", "https://user@example.com/r.txt", "http://:pw@example.com/r"]) {
+    assert.throws(() => kit.deliverable("hello", { uri }), /credentials/, uri);
+  }
+  assert.doesNotThrow(() => kit.deliverable("hello", { uri: "https://example.com/r.txt?user=a@b" }), "an @ in the query is not a credential");
+});
+
+test("waitForRuling keeps waiting through a network blip, a 503 and an HTML error page", async () => {
+  const answers = [
+    () => { throw new TypeError("fetch failed"); },
+    () => reply(503, { result: "retry-later", reason: "could not read Arc testnet right now" }),
+    () => ({ ok: false, status: 502, json: async () => { throw new SyntaxError("Unexpected token <"); } }),
+    () => reply(200, { result: "pending" }),
+    () => reply(200, { result: "judged", verdict: { pass: true } }),
+  ];
+  let n = 0;
+  const r = await kit.waitForRuling({ jobId: 9, intervalMs: 1, timeoutMs: 5000, fetchImpl: async () => answers[n++]() });
+  assert.equal(r.result, "judged");
+  assert.equal(n, answers.length);
+  // a final answer still ends the wait at once
+  await assert.rejects(() => kit.waitForRuling({ jobId: 9, intervalMs: 1, fetchImpl: async () => reply(200, { result: "expired" }) }), /will not be judged: expired/);
 });

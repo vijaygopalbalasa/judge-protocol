@@ -4,7 +4,27 @@
 // revises until it passes (or declines to submit); "sloppy" never checks.
 // Their writing is scripted in the brief (milestone.demoWork): the agent under
 // test here is the paymaster, not these writers.
+import { privateKeyToAccount } from "viem/accounts";
 import * as defaultKit from "../../kit/judge-kit.js";
+
+/** The key each demo contractor signs with, checked against the brief. A key
+ *  for another address would only fail on chain at the first quote, so a
+ *  copied brief that still names our demo addresses is refused up front. */
+export function checkDemoKeys(brief, env = process.env) {
+  const out = [];
+  for (const c of brief.contractors || []) {
+    if (!c.demo) continue;
+    const key = env[c.demo.keyEnv];
+    if (!key) throw new Error(`demo contractor ${c.name} needs ${c.demo.keyEnv}`);
+    let address;
+    try { address = privateKeyToAccount(key).address; } catch { throw new Error(`${c.demo.keyEnv} is not a valid private key`); }
+    if (address.toLowerCase() !== String(c.address).toLowerCase()) {
+      throw new Error(`${c.demo.keyEnv} signs as ${address}, which does not match ${c.name}'s address ${c.address} in the brief. Put your own contractor addresses in your copy of the brief.`);
+    }
+    out.push({ contractor: c, key });
+  }
+  return out;
+}
 
 export function scriptedContractor({ name, style, wallet, publicClient, dryRun = defaultKit.dryRun, kit = defaultKit, log = () => {} }) {
   return {

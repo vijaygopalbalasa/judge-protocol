@@ -12,8 +12,8 @@
 import { parseAbiItem, decodeEventLog } from "viem";
 import { config } from "./config.js";
 import { acpAbi, judgeAbi, STATUS } from "./abi.js";
-import { prepareRuling, settleRuling, pollOnce, MIN_BUDGET } from "./engine.js";
-import { extractCriteria } from "./criteria.js";
+import { prepareRuling, settleRuling, pollOnce, isRevert, MIN_BUDGET } from "./engine.js";
+import { extractCriteria, criteriaHash } from "./criteria.js";
 import { validateCriteria } from "./checkers/index.js";
 import { makeClients as defaultMakeClients, makePublicClient as defaultMakePublicClient } from "./signer.js";
 
@@ -46,6 +46,11 @@ function recall(key) {
 
 const jsonable = (v) => JSON.parse(JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x)));
 const reply = (status, body) => ({ status, body: jsonable(body) });
+
+/** Circle's contract answers an unknown job id with an all-zero job, not a revert. */
+const isNoJob = (job) => !job || /^0x0{40}$/i.test(String(job.client ?? "")) && /^0x0{40}$/i.test(String(job.evaluator ?? ""));
+/** What a job that is not Submitted means for a ruling. */
+const statusResult = (status) => status === "Open" || status === "Funded" ? "not-submitted" : status === "Expired" ? "expired" : "closed";
 
 export function parseJobIdInput(v) {
   const s = typeof v === "number" ? String(v) : typeof v === "string" ? v.trim() : "";
@@ -117,19 +122,17 @@ export async function judgeNow(input = {}, deps = {}) {
 
 async function ruleOn(jobId, input, clients, deps) {
   const { publicClient } = clients;
-  let job;
-  try {
-    job = await publicClient.readContract({ address: config.acpAddress, abi: acpAbi, functionName: "getJob", args: [jobId] });
-  } catch {
-    return reply(404, { result: "not-found", error: "no such job on the ACP contract" });
-  }
+  // An unknown id reads as an all-zero job, so a read that throws is the RPC
+  // failing: judgeNow answers "retry later", never "no such job".
+  const job = await publicClient.readContract({ address: config.acpAddress, abi: acpAbi, functionName: "getJob", args: [jobId] });
+  if (isNoJob(job)) return reply(404, { result: "not-found", error: "no such job on the ACP contract" });
   if (String(job.evaluator).toLowerCase() !== config.judgeAddress.toLowerCase()) {
     return reply(200, { result: "not-ours", jobId, evaluator: job.evaluator });
   }
   const existing = await readVerdict(publicClient, jobId);
   if (existing) return reply(200, { result: "already-judged", jobId, verdict: existing });
   const status = STATUS[Number(job.status)];
-  if (status !== "Submitted") return reply(200, { result: "not-submitted", jobId, status });
+  if (status !== "Submitted") return reply(200, { result: statusResult(status), jobId, status });
 
   const key = jobId.toString();
   const cached = recall(key);
@@ -138,12 +141,16 @@ async function ruleOn(jobId, input, clients, deps) {
   const sub = await findSubmission(publicClient, jobId, input.submitTx);
   if (!sub) {
     return reply(404, { result: "submission-not-found", jobId,
-      error: `no JobSubmitted event for this job in the last ~${SEARCH_HOURS} hours; pass submitTx (the provider's submit transaction hash) to rule on an older submission, or let the daily sweep find it` });
+      error: `no JobSubmitted event for this job in the last ~${SEARCH_HOURS} hours; pass submitTx (the provider's submit transaction hash) to rule on an older submission (the daily sweep also finds submissions from the last ~2 days)` });
   }
 
   let outcome;
   try {
     const prepared = await prepareRuling(jobId, sub.deliverable, clients, sub.txHash);
+    if (prepared.outcome === "ready") {
+      const refused = await contractRefusal(publicClient, jobId, prepared.criteriaHash, clients.signerAccount.address);
+      if (refused) return refused;
+    }
     if (prepared.outcome === "ready" && deps.beforeSettle) {
       const gate = await deps.beforeSettle(prepared);
       if (!gate || gate.ok !== true) return reply(gate?.status ?? 402, gate?.body ?? { result: "payment-failed", jobId });
@@ -155,7 +162,7 @@ async function ruleOn(jobId, input, clients, deps) {
     // Most often a concurrent caller settled first; report their verdict.
     const now = await readVerdict(publicClient, jobId).catch(() => null);
     if (now) return reply(200, { result: "already-judged", jobId, verdict: now });
-    return reply(502, { result: "error", jobId, error: String(e.message || e).slice(0, 300) });
+    return reply(502, { result: "error", jobId, reverted: isRevert(e), error: String(e.message || e).slice(0, 300) });
   }
   if (!outcome) return reply(500, { result: "error", jobId, error: "no outcome" });
   if (outcome.outcome === "judged") {
@@ -180,7 +187,8 @@ async function ruleOn(jobId, input, clients, deps) {
 export async function rulingPrecheck(input = {}, deps = {}) {
   const jobId = parseJobIdInput(input.jobId);
   if (jobId === null) return reply(400, { error: "jobId must be a positive integer" });
-  try { clientsFrom(deps); } catch {
+  let clients;
+  try { clients = clientsFrom(deps); } catch {
     return reply(503, { error: "the judge signer is not configured on this deployment" });
   }
   const publicClient = deps.clients ? deps.clients.publicClient : (deps.publicClient || (deps.makePublicClient || defaultMakePublicClient)());
@@ -197,6 +205,26 @@ export async function rulingPrecheck(input = {}, deps = {}) {
   if (!criteria) return reply(422, { result: "abstained", jobId, reason: "no judge-criteria block in the job description" });
   const v = validateCriteria(criteria);
   if (!v.valid) return reply(422, { result: "abstained", jobId, reason: `invalid criteria: ${v.reason}` });
+  try {
+    return await contractRefusal(publicClient, jobId, criteriaHash(criteria), clients.signerAccount.address);
+  } catch {
+    return reply(503, { result: "retry-later", jobId, reason: "could not read Arc testnet right now; try again shortly" });
+  }
+}
+
+/**
+ * The contract's own refusals that do not depend on the signature. Checked
+ * before anyone is asked to pay and again right before a payment settles, so
+ * nobody pays for a verdict the contract would refuse. Null means none apply.
+ */
+async function contractRefusal(publicClient, jobId, cHash, signer) {
+  const read = (functionName, args) => publicClient.readContract({ address: config.judgeAddress, abi: judgeAbi, functionName, ...(args ? { args } : {}) });
+  const [paused, authorized, registered] = await Promise.all([read("paused"), read("isSigner", [signer]), read("jobCriteria", [jobId])]);
+  if (paused) return reply(503, { result: "retry-later", jobId, reason: "the judge contract is paused right now; try again later" });
+  if (!authorized) return reply(503, { result: "retry-later", jobId, reason: "the judge's signer is not authorized on chain right now; try again later" });
+  if (!/^0x0{64}$/i.test(String(registered)) && String(registered).toLowerCase() !== String(cHash).toLowerCase()) {
+    return reply(422, { result: "abstained", jobId, reason: "different criteria are registered on chain for this job, so the contract would refuse any verdict on the description's criteria" });
+  }
   return null;
 }
 
@@ -213,22 +241,16 @@ async function readStatus(input, deps) {
   const jobId = parseJobIdInput(input.jobId);
   if (jobId === null) return reply(400, { error: "jobId must be a positive integer" });
   const publicClient = deps.clients ? deps.clients.publicClient : (deps.publicClient || (deps.makePublicClient || defaultMakePublicClient)());
-  let job;
-  try {
-    job = await publicClient.readContract({ address: config.acpAddress, abi: acpAbi, functionName: "getJob", args: [jobId] });
-  } catch {
-    return reply(404, { result: "not-found", jobId });
-  }
+  // A read that throws is the RPC failing (jobStatus answers "retry later").
+  const job = await publicClient.readContract({ address: config.acpAddress, abi: acpAbi, functionName: "getJob", args: [jobId] });
+  if (isNoJob(job)) return reply(404, { result: "not-found", jobId });
   if (String(job.evaluator).toLowerCase() !== config.judgeAddress.toLowerCase()) {
     return reply(200, { result: "not-ours", jobId, evaluator: job.evaluator });
   }
   const v = await readVerdict(publicClient, jobId);
   if (v) return reply(200, { result: "judged", jobId, verdict: v });
   const status = STATUS[Number(job.status)];
-  const result = status === "Submitted" ? "pending"
-    : status === "Open" || status === "Funded" ? "not-submitted"
-      : status === "Expired" ? "expired" : "closed";
-  return reply(200, { result, jobId, status });
+  return reply(200, { result: status === "Submitted" ? "pending" : statusResult(status), jobId, status });
 }
 
 export async function sweepRecent(deps = {}, { lookbackBlocks = SWEEP_LOOKBACK_BLOCKS } = {}) {

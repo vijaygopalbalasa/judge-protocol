@@ -128,7 +128,20 @@ export function decodeBase64(input) {
 /** Resolve a data: URI to raw bytes, exactly as the service does. No network. */
 export function resolveDataUri(uri) {
   if (!uri || !uri.startsWith('data:')) return null;
-  return decodeBase64(uri.split(',')[1] || '');
+  // RFC 2397, as the judge reads it: the data is everything after the FIRST comma;
+  // base64 when the metadata ends in ;base64 (any case), otherwise percent-encoded bytes.
+  const comma = uri.indexOf(',');
+  if (comma < 0) return null;
+  const meta = uri.slice(5, comma), body = uri.slice(comma + 1);
+  if (/;base64$/i.test(meta)) return decodeBase64(body);
+  const enc = new TextEncoder(), bytes = [];
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] === '%' && /^[0-9a-fA-F]{2}$/.test(body.slice(i + 1, i + 3))) { bytes.push(parseInt(body.slice(i + 1, i + 3), 16)); i += 2; continue; }
+    const cp = body.codePointAt(i);
+    for (const b of enc.encode(String.fromCodePoint(cp))) bytes.push(b);
+    if (cp > 0xffff) i++;
+  }
+  return new Uint8Array(bytes);
 }
 
 /* ------------------------------ rpc / abi -------------------------------- */
@@ -246,7 +259,7 @@ const isUri = (s) => /^(data:|ipfs:\/\/|https?:\/\/)/.test(s);
 export const KNOWN_KINDS = ['checksum', 'schema', 'contains', 'length', 'http-endpoint'];
 
 /** Bounds the judge enforces (judge-service/src/checkers/index.js LIMITS; a parity test holds them equal). */
-export const LIMITS = { checks: 64, probes: 4, depth: 12, terms: 256, termChars: 1024, urlChars: 2048, probeTimeoutMs: 10_000 };
+export const LIMITS = { checks: 64, probes: 4, depth: 12, terms: 256, termChars: 1024, urlChars: 2048, probeTimeoutMs: 10_000, weight: 1000 };
 const TYPE_NAMES = ['string', 'number', 'boolean', 'object'];
 const has = (v) => v !== undefined && v !== null; // null params are treated as absent
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -267,7 +280,13 @@ function nestsDeeperThan(value, limit) {
 }
 
 /** What is wrong with one check's params, or null (the judge's own rules). */
+const CHECK_FIELDS = ['kind', 'params', 'weight'];
+const PARAM_NAMES = { length: ['min', 'max', 'unit'], contains: ['all', 'wholeWords'], schema: ['required', 'types'],
+  checksum: ['sha256'], 'http-endpoint': ['url', 'expectStatus', 'bodyIncludes', 'timeoutMs'] };
 function paramsProblem(kind, p) {
+  for (const k of Object.keys(p)) {
+    if (!(PARAM_NAMES[kind] || []).includes(k)) return `unknown param "${k}" (known: ${(PARAM_NAMES[kind] || []).join(', ')})`;
+  }
   switch (kind) {
     case 'length':
       for (const k of ['min', 'max']) if (has(p[k]) && !isNumberIn(p[k], 0, Infinity)) return `${k} must be a number >= 0`;
@@ -279,7 +298,7 @@ function paramsProblem(kind, p) {
       if (has(p.wholeWords) && typeof p.wholeWords !== "boolean") return "wholeWords must be true or false";
       return null;
     case 'schema':
-      if (has(p.required) && !isStringList(p.required)) return `required must be a list of at most ${LIMITS.terms} field names`;
+      if (has(p.required) && !isStringList(p.required)) return `required must be a list of at most ${LIMITS.terms} field names of at most ${LIMITS.termChars} characters`;
       if (has(p.types)) {
         if (!isPlainObject(p.types)) return 'types must be an object of field: type';
         const entries = Object.entries(p.types);
@@ -293,7 +312,7 @@ function paramsProblem(kind, p) {
     case 'http-endpoint':
       if (has(p.url) && (typeof p.url !== 'string' || p.url.length > LIMITS.urlChars)) return `url must be a string of at most ${LIMITS.urlChars} characters`;
       if (has(p.expectStatus) && !(Number.isInteger(p.expectStatus) && p.expectStatus >= 100 && p.expectStatus <= 599)) return 'expectStatus must be an integer from 100 to 599';
-      if (has(p.bodyIncludes) && !isStringList(p.bodyIncludes)) return `bodyIncludes must be a list of at most ${LIMITS.terms} strings`;
+      if (has(p.bodyIncludes) && !isStringList(p.bodyIncludes)) return `bodyIncludes must be a list of at most ${LIMITS.terms} strings of at most ${LIMITS.termChars} characters`;
       if (has(p.timeoutMs) && !isNumberIn(p.timeoutMs, 1, LIMITS.probeTimeoutMs)) return `timeoutMs must be a number from 1 to ${LIMITS.probeTimeoutMs}`;
       return null;
     default:
@@ -316,9 +335,11 @@ export function validateCriteria(criteria) {
   for (let i = 0; i < criteria.checks.length; i++) {
     const c = criteria.checks[i];
     if (!c || typeof c !== 'object') return { valid: false, reason: `checks[${i}] is not an object` };
-    if (!KNOWN_KINDS.includes(c.kind)) return { valid: false, reason: `checks[${i}] unknown kind "${c.kind}"` };
-    if (c.weight !== undefined && (typeof c.weight !== 'number' || !Number.isFinite(c.weight) || c.weight <= 0)) {
-      return { valid: false, reason: `checks[${i}] weight must be a finite number > 0, got ${c.weight}` };
+    const extra = Object.keys(c).find((k) => !CHECK_FIELDS.includes(k));
+    if (extra !== undefined) return { valid: false, reason: `checks[${i}] unknown field "${extra}" (a check has only kind, params and weight)` };
+    if (!KNOWN_KINDS.includes(c.kind)) return { valid: false, reason: `checks[${i}] unknown kind "${c.kind}" (known: ${KNOWN_KINDS.join(', ')})` };
+    if (c.weight !== undefined && (typeof c.weight !== 'number' || !Number.isFinite(c.weight) || c.weight <= 0 || c.weight > LIMITS.weight)) {
+      return { valid: false, reason: `checks[${i}] weight must be a finite number > 0 and at most ${LIMITS.weight}, got ${c.weight}` };
     }
     if (has(c.params) && !isPlainObject(c.params)) return { valid: false, reason: `checks[${i}].params must be an object` };
     const problem = paramsProblem(c.kind, c.params ?? {});
@@ -351,12 +372,12 @@ const CHECKERS = {
   schema: (p, d) => {
     let obj;
     try { obj = JSON.parse(d.text); } catch { return { pass: false, detail: 'deliverable is not valid JSON' }; }
-    if (obj === null || typeof obj !== 'object') return { pass: false, detail: 'deliverable is not a JSON object' };
+    if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return { pass: false, detail: 'deliverable is not a JSON object' };
     const required = p.required || [];
-    const missing = required.filter((f) => !(f in obj));
+    const missing = required.filter((f) => !Object.hasOwn(obj, f)); // own fields only, like the judge
     const typeErrors = [];
     for (const [field, type] of Object.entries(p.types || {})) {
-      if (field in obj && typeof obj[field] !== type) typeErrors.push(`${field}: expected ${type}, got ${typeof obj[field]}`);
+      if (Object.hasOwn(obj, field) && typeof obj[field] !== type) typeErrors.push(`${field}: expected ${type}, got ${typeof obj[field]}`);
     }
     const pass = missing.length === 0 && typeErrors.length === 0;
     return { pass, detail: pass ? `schema ok (${required.length} required fields present)` : `missing=[${missing.join(',')}] typeErrors=[${typeErrors.join(',')}]` };

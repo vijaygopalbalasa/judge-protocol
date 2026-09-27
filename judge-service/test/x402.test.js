@@ -29,8 +29,8 @@ const FEE_TO = "0xf493CF092768a4B7a533359F28Db82B06D259Dc2";
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64");
 const unb64 = (s) => JSON.parse(Buffer.from(s, "base64").toString("utf8"));
 
-function setup({ jobs, relay, balances = { [PAYER.address]: 1_000_000n }, gateway = {}, timeoutMs } = {}) {
-  const m = mockChain({ jobs, relay });
+function setup({ jobs, relay, chain = {}, balances = { [PAYER.address]: 1_000_000n }, gateway = {}, timeoutMs } = {}) {
+  const m = mockChain({ jobs, relay, ...chain });
   const gw = fakeGateway({ balances, ...gateway });
   const paid = createPaidJudge({ facilitator: gw.facilitator, balanceOf: gw.balanceOf, lookupTransfer: gw.lookupTransfer, payTo: FEE_TO,
     resourceUrl: "https://judge.test/api/x402/judge", deps: { clients: m.clients }, ...(timeoutMs ? { timeoutMs } : {}) });
@@ -137,12 +137,15 @@ test("the payment settles before the verdict is signed; if the verdict transacti
   assert.equal(r1.body.result, "already-judged");
   assert.equal(r1.body.charged, true);
   assert.ok(r1.body.verdict, "the verdict that landed is returned");
-  // a failed relay: charged, and the daily sweep settles the verdict
+  // a verdict the contract refused after the payment settled: charged, and the answer says so plainly
   const fail = setup({ jobs: [{ id: 323 }], relay: "revert" });
   const r2 = await fail.paid({ jobId: "323", paymentHeader: await payHeader(await required(fail.paid, "323")) });
   assert.equal(r2.status, 502, JSON.stringify(r2.body));
   assert.equal(r2.body.charged, true);
-  assert.match(r2.body.error, /sweep/);
+  assert.match(r2.body.error, /refused/);
+  assert.match(r2.body.error, /github\.com\/vijaygopalbalasa\/judge-protocol\/issues/, "a judge-side fault: say where to report it");
+  assert.doesNotMatch(r2.body.error, /ask again for free/, "asking again would fail the same way");
+  assert.doesNotMatch(r2.body.error, /within a day/);
   assert.ok(r2.body.payment.transaction);
   // in both, the payment settled once and only after the verdict was ready
   for (const x of [race, fail]) assert.equal(x.gw.calls.settle.length, 1);
@@ -272,7 +275,7 @@ test("when the verdict transaction really fails after payment, the answer keeps 
   const r = await paid({ jobId: "397", paymentHeader: await payHeader(await required(paid, "397")) });
   assert.equal(r.status, 502, JSON.stringify(r.body));
   assert.equal(r.body.charged, true);
-  assert.match(r.body.error, /sweep/);
+  assert.match(r.body.error, /refused/);
   assert.match(r.body.detail, /BadSigner/, "the real error is kept for diagnosis");
 });
 
@@ -480,4 +483,58 @@ test("end to end with Circle's real GatewayClient.pay() over HTTP: 402, sign, re
   } finally {
     server.close();
   }
+});
+
+test("every answer carries charged, including malformed and oversized requests", async () => {
+  const h = createX402JudgeHandler({ facilitator: fakeGateway().facilitator, payTo: FEE_TO, deps: { clients: mockChain({ jobs: [] }).clients } });
+  const bad = await call(h, { body: "{not json" });
+  assert.equal(bad.code, 400);
+  assert.equal(bad.payload.charged, false);
+  const big = await call(h, { body: { jobId: "1" }, headers: { "content-length": "999999" } });
+  assert.equal(big.code, 413);
+  assert.equal(big.payload.charged, false);
+  const get = await call(h, { method: "GET" });
+  assert.equal(get.code, 405);
+  assert.equal(get.payload.charged, false);
+});
+
+test("after a paid ruling's verdict transaction fails to go through, the free POST /api/judge finishes it", async () => {
+  const opts = { jobs: [{ id: 3240 }], relay: "transient" };
+  const m = mockChain(opts);
+  const gw = fakeGateway({ balances: { [PAYER.address]: 1_000_000n } });
+  const paid = createPaidJudge({ facilitator: gw.facilitator, balanceOf: gw.balanceOf, lookupTransfer: gw.lookupTransfer, payTo: FEE_TO,
+    resourceUrl: "https://judge.test/api/x402/judge", deps: { clients: m.clients, relayRetryDelayMs: 0 } });
+  const r1 = await paid({ jobId: "3240", paymentHeader: await payHeader(await required(paid, "3240")) });
+  assert.equal(r1.status, 502);
+  assert.equal(r1.body.charged, true);
+  assert.match(r1.body.error, /ask again for free with POST \/api\/judge/, "a transient failure: say how to finish it");
+  opts.relay = "ok"; // the chain recovers
+  const { judgeNow } = await import("../src/judge-now.js");
+  const r2 = await judgeNow({ jobId: "3240" }, { clients: m.clients });
+  assert.equal(r2.body.result, "judged", JSON.stringify(r2.body));
+  assert.equal(gw.calls.settle.length, 1, "the free path never charges again");
+});
+
+test("nobody is asked to pay while the contract would refuse the verdict", async () => {
+  for (const [id, chain] of [[5201, { paused: true }], [5202, { signerAuthorized: false }], [5203, { registeredCriteria: { 5203: "0x" + "22".repeat(32) } }]]) {
+    const { gw, paid } = setup({ jobs: [{ id }], chain });
+    const r = await paid({ jobId: String(id) });
+    assert.notEqual(r.status, 402, `${id}: ${JSON.stringify(r.body)}`);
+    assert.equal(r.body.charged, false);
+    assert.equal(gw.calls.settle.length, 0);
+  }
+});
+
+test("a contract paused after the terms were sent: the payment is not settled", async () => {
+  const opts = { jobs: [{ id: 5204 }] };
+  const m = mockChain(opts);
+  const gw = fakeGateway({ balances: { [PAYER.address]: 1_000_000n } });
+  const paid = createPaidJudge({ facilitator: gw.facilitator, balanceOf: gw.balanceOf, lookupTransfer: gw.lookupTransfer, payTo: FEE_TO,
+    resourceUrl: "https://judge.test/api/x402/judge", deps: { clients: m.clients } });
+  const terms = await required(paid, "5204");
+  opts.paused = true;
+  const r = await paid({ jobId: "5204", paymentHeader: await payHeader(terms) });
+  assert.equal(r.body.charged, false, JSON.stringify(r.body));
+  assert.equal(gw.calls.settle.length, 0);
+  assert.equal(m.calls.writeContract.length, 0);
 });

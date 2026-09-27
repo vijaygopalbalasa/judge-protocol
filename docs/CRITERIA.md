@@ -19,7 +19,9 @@ Explain ERC-8183 escrow in plain English.
 ````
 
 The kit's `criteriaBlock(criteria, { title })` builds this for you and refuses
-criteria the judge would refuse.
+criteria the judge would refuse. If you write the block by hand, keep it one valid
+JSON object and write any backtick inside a term as `\u0060` (valid JSON for the same
+character): three backticks in a row would end the block early.
 
 ## Top-level fields
 
@@ -30,8 +32,12 @@ criteria the judge would refuse.
 | `version` | number | none | Free-form; hashed with everything else. |
 | `jobType` | string | none | Free-form label; hashed with everything else. |
 
-Each check: `{ "kind": "...", "params": { ... }, "weight": 1 }`. `weight` is
-optional (default 1) and must be a finite number greater than 0.
+Any other top-level field is free-form too: hashed with everything else, otherwise ignored.
+So a misspelled `passThreshold` is not caught, and the default of 100 applies. The dry run
+returns the `threshold` it used; check it before you create the job.
+
+Each check: `{ "kind": "...", "params": { ... }, "weight": 1 }`, and nothing else. `weight`
+is optional (default 1) and must be a number greater than 0 and at most 1000.
 
 ## Scoring
 
@@ -61,11 +67,12 @@ default, or a whole word with `wholeWords`.
 
 ### `schema`
 The deliverable must parse as a JSON object. Valid JSON that is not a JSON object
-(for example `42` or `null`) fails the check.
+(for example `42` or `null`) fails the check, and a JSON array fails it too. Fields are
+the object's own keys: inherited names such as `constructor` do not count.
 
 | Param | Type | Meaning |
 |---|---|---|
-| `required` | list of up to 256 field names | Keys that must exist on the parsed object. |
+| `required` | list of up to 256 field names, each up to 1024 characters | Keys that must exist on the parsed object. |
 | `types` | object `{ key: type }`, up to 256 fields | For keys that exist, `typeof value` must equal `type`, one of `"string"`, `"number"`, `"boolean"`, `"object"`. |
 
 ### `checksum`
@@ -80,9 +87,9 @@ A live network probe: the judge fetches a URL once, at judging time.
 
 | Param | Type | Default | Meaning |
 |---|---|---|---|
-| `url` | string, up to 2048 characters | the deliverable's URL | Address to probe (http or https only; internal addresses are blocked). |
+| `url` | string, up to 2048 characters | the deliverable's URL | Address to probe (http or https only; internal addresses are blocked). A `data:` deliverable has no URL, so give one here or the check fails. |
 | `expectStatus` | integer from 100 to 599 | 200 | Required HTTP status. |
-| `bodyIncludes` | list of up to 256 strings | none | Substrings the response body must contain. |
+| `bodyIncludes` | list of up to 256 strings, each up to 1024 characters | none | Substrings the response body must contain. |
 | `timeoutMs` | number from 1 to 10000 | 5000 | Probe timeout in milliseconds. |
 
 This is the one kind that is **not** recomputable later: a URL can change after
@@ -94,10 +101,14 @@ cannot re-run the probe as the judge saw it. Prefer the other kinds when you can
 
 - `checks` missing, not an array, or empty
 - a check that is not an object, or an unknown `kind` (for example `code-test`)
-- a `weight` that is 0, negative, non-numeric or not finite
+- a `weight` that is 0, negative, non-numeric, not finite, or above 1000
 - a `passThreshold` that is not an integer from 0 to 100
 - `params` that are not an object, or a param of the wrong type or out of range (the
   tables above say what each kind accepts; a param set to `null` counts as absent)
+- an unknown param, one the kind does not define (for example `wholeword` instead of
+  `wholeWords`), and an unknown field on a check (anything but `kind`, `params` and `weight`,
+  for example `param`): a misspelled field would otherwise drop the check's params, and a
+  check without params passes almost anything
 - too many checks: the judge takes at most 64 checks, and at most 4 `http-endpoint` checks
 - criteria nested deeper than 12 levels
 - no `judge-criteria` block, or a block that is not valid JSON
@@ -141,4 +152,5 @@ An exact file:
 - Keep subjective quality (tone, taste, "is this good") out of the criteria; a
   deterministic judge cannot rule on it. Escalate those jobs to a human or a dispute process.
 - Try your criteria against a sample deliverable first: `POST /api/evaluate` or the
-  kit's `dryRun()` returns exactly the score the judge would give.
+  kit's `dryRun()` returns exactly the score the judge would give. The hosted dry run does
+  not run `http-endpoint` checks: with one in the criteria, `score` and `pass` come back `null`.

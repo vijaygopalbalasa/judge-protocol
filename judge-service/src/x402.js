@@ -15,8 +15,11 @@
 //      settle a used nonce or an empty balance, so a replayed payment or a
 //      burst against one balance buys at most one ruling, across instances.
 //   4. No verdict ready (abstain, retry later, not found): nothing is settled.
-//      If the verdict transaction fails after the payment settled, the answer
-//      says so and the daily sweep settles the verdict.
+//      The contract's own refusals (paused, signer not authorized, other
+//      criteria registered) are checked before anyone pays and again right
+//      before settling. If the verdict transaction still fails after the
+//      payment settled, the answer says so: a transient failure is finished by
+//      a free POST /api/judge; a revert is a judge-side fault to report.
 import { formatUnits, getAddress, isAddress, parseUnits, recoverTypedDataAddress } from "viem";
 import { BatchFacilitatorClient, GATEWAY_AUTH_VALIDITY_WINDOW_SECONDS } from "@circle-fin/x402-batching/server";
 import { config } from "./config.js";
@@ -24,6 +27,7 @@ import { judgeNow as defaultJudgeNow, jobStatus as defaultJobStatus, rulingPrech
 
 export const ARC_TESTNET_NETWORK = "eip155:5042002";
 export const USDC_ARC_TESTNET = "0x3600000000000000000000000000000000000000";
+const ISSUES_URL = "https://github.com/vijaygopalbalasa/judge-protocol/issues";
 export const PRICE_ATOMIC = "10000"; // 0.01 USDC (6 decimals)
 export const PRICE_LABEL = "0.01 USDC";
 export const GATEWAY_TESTNET_URL = "https://gateway-api-testnet.circle.com";
@@ -227,7 +231,9 @@ export function createPaidJudge({
         return out(200, { ...r.body, charged: receipt.charged, payment, note: "another request settled the same verdict first; your payment covered this ruling" }, headers);
       }
       return out(r.status, { ...r.body, charged: receipt.charged, payment, detail: r.body.error ?? r.body.reason ?? null,
-        error: "your payment settled but the verdict transaction failed; the daily sweep settles this job within a day" }, headers);
+        error: r.body.reverted
+          ? `your payment settled but the contract refused the verdict (see detail). That is a fault on the judge's side, and asking again fails the same way until it is fixed: please report it at ${ISSUES_URL}`
+          : "your payment settled but the verdict transaction did not go through; ask again for free with POST /api/judge (same jobId and submitTx) to finish this ruling, without paying again" }, headers);
     } finally {
       inFlight.delete(c.nonce);
     }

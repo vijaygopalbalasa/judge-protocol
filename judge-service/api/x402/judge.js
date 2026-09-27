@@ -19,12 +19,12 @@ export function createX402JudgeHandler(opts = {}) {
     res.setHeader("access-control-expose-headers", "PAYMENT-REQUIRED, PAYMENT-RESPONSE");
     if (req.method === "OPTIONS") { res.status(204).end(); return; }
     if (req.method !== "POST") {
-      res.status(405).json({ error: "use POST {\"jobId\": \"<id>\"} from an x402 client", price: `${PRICE_LABEL} per ruling, settled only once a verdict is ready`,
+      res.status(405).json({ error: "use POST {\"jobId\": \"<id>\"} from an x402 client", charged: false, price: `${PRICE_LABEL} per ruling, settled only once a verdict is ready`,
         network: ARC_TESTNET_NETWORK, settlement: "Circle Gateway (batched)", free: "POST /api/judge (testnet)" });
       return;
     }
     const body = readJsonBody(req);
-    if (!body.ok) { res.status(body.status).json({ error: body.error }); return; }
+    if (!body.ok) { res.status(body.status).json({ error: body.error, charged: false }); return; }
     paid ??= createPaidJudge(opts);
     const r = await paid({ jobId: body.value.jobId, submitTx: body.value.submitTx, paymentHeader: (req.headers || {})["payment-signature"] });
     for (const [k, v] of Object.entries(r.headers || {})) res.setHeader(k, v);

@@ -185,6 +185,8 @@ test("fetch failures never echo internal network details back to the caller", as
   const m = mockChain({ jobs: [{ id: 93, uri: "http://10.1.2.3/secret" }] });
   const r = await judgeNow({ jobId: "93" }, { clients: m.clients });
   assert.doesNotMatch(JSON.stringify(r.body), /10\.1\.2\.3|blocked address/);
+  assert.equal(r.body.result, "abstained", "an internal address can never load: say so instead of retrying forever");
+  assert.equal(r.status, 422);
 });
 
 /* ------------------------ transient vs permanent -------------------------- */
@@ -303,4 +305,89 @@ test("a deterministic revert is not retried", async () => {
   const r = await judgeNow({ jobId: "199" }, { clients: m.clients, relayRetryDelayMs: 1 });
   assert.equal(r.status, 502);
   assert.equal(m.calls.writeContract.length, 1);
+});
+
+test("a job id that does not exist is not-found (the contract returns an all-zero job, not a revert)", async () => {
+  const m = mockChain({ jobs: [{ id: 200 }] });
+  const r = await judgeNow({ jobId: "987654321" }, { clients: m.clients });
+  assert.equal(r.status, 404, JSON.stringify(r.body));
+  assert.equal(r.body.result, "not-found");
+  const s = await jobStatus({ jobId: "987654321" }, { clients: m.clients });
+  assert.equal(s.body.result, "not-found");
+});
+
+test("a job that expired or closed without this judge's verdict says so, instead of \"ask after submit\"", async () => {
+  const m = mockChain({ jobs: [{ id: 201, status: "Expired", submitted: false }, { id: 202, status: "Rejected", submitted: false }] });
+  assert.equal((await judgeNow({ jobId: "201" }, { clients: m.clients })).body.result, "expired");
+  assert.equal((await judgeNow({ jobId: "202" }, { clients: m.clients })).body.result, "closed");
+});
+
+test("a deliverable failure that can never succeed abstains; one that can pass is retried (real error producers)", async () => {
+  const { fetchFailureOutcome } = await import("../src/engine.js");
+  const { safeFetch, resolvePublicAddress } = await import("../src/safe-fetch.js");
+  const { resolveDeliverable } = await import("../src/evidence.js");
+  const caught = async (p) => { try { await p; } catch (e) { return e; } throw new Error("expected a failure"); };
+  const publicDns = async () => [{ address: "93.184.215.14", family: 4 }];
+  const privateDns = async () => [{ address: "10.0.0.5", family: 4 }];
+  const noDns = async () => { throw new Error("ENOTFOUND"); };
+  const body = (status, n) => async () => new Response(new Uint8Array(n), { status });
+  const undici = (cause) => Object.assign(new TypeError("fetch failed"), { cause: new Error(cause) });
+  const https = "https://example.com/r.txt";
+  const cases = [
+    ["over 1 MB", await caught(safeFetch(https, { lookup: publicDns, fetchImpl: body(200, 1_000_001) })), https, "abstain", /larger than/],
+    ["a redirect", undici("unexpected redirect"), https, "abstain", /redirect/],
+    ["a port fetch refuses", undici("bad port"), "https://example.com:6666/r", "abstain", /port/],
+    ["a private IP literal", await caught(resolvePublicAddress("http://10.1.2.3/x")), "http://10.1.2.3/x", "abstain", /public/],
+    ["credentials in the URL", await caught(resolvePublicAddress("https://user:pass@example.com/r")), "https://user:pass@example.com/r", "abstain", /credentials/],
+    ["an unsupported scheme, any case", await caught(resolveDeliverable("HTTPS://example.com/x")), "HTTPS://example.com/x", "abstain", /unsupported/],
+    ["an undecodable data: URI", await caught(resolveDeliverable("data:no-comma")), "data:no-comma", "abstain", /decoded/],
+    ["an error page, however big", await caught(safeFetch(https, { lookup: publicDns, fetchImpl: body(503, 1_000_001), okOnly: true })), https, "retry"],
+    ["a 404", await caught(safeFetch(https, { lookup: publicDns, fetchImpl: body(404, 10), okOnly: true })), https, "retry"],
+    ["a host that does not resolve", await caught(resolvePublicAddress("https://nope.invalid/x", { lookup: noDns })), "https://nope.invalid/x", "retry"],
+    ["a name resolving to a private address (no DNS oracle)", await caught(resolvePublicAddress("https://db.corp.internal/x", { lookup: privateDns })), "https://db.corp.internal/x", "retry"],
+    ["a timeout", Object.assign(new Error("This operation was aborted"), { name: "AbortError" }), https, "retry"],
+    ["an IPFS gateway's redirect is the operator's to fix", undici("unexpected redirect"), "ipfs://bafyexample", "retry"],
+    ["IPFS content over 1 MB can never shrink", await caught(safeFetch("https://ipfs.filebase.io/ipfs/bafyexample", { lookup: publicDns, fetchImpl: body(200, 1_000_001) })), "ipfs://bafyexample", "abstain", /larger than/],
+    // Text the provider controls (a URL can contain anything) never steers the outcome.
+    ["provider text that mimics a reason", new TypeError("Request cannot be constructed from a URL that includes credentials: https://x/ unexpected redirect bad port blocked address: 1.2.3.4 response exceeds 9 bytes"), https, "retry"],
+  ];
+  for (const [label, e, uri, outcome, why] of cases) {
+    const o = fetchFailureOutcome(e, uri);
+    assert.equal(o.outcome, outcome, label);
+    if (why) assert.match(o.reason, why, label);
+    assert.doesNotMatch(o.reason, /10\.1\.2\.3|10\.0\.0\.5|blocked address|corp\.internal/, `${label}: no internal details`);
+  }
+});
+
+test("a chain read that fails means 'try again', never 'no such job'", async () => {
+  const m = mockChain({ jobs: [{ id: 5101 }], failReads: { getJob: 2 } });
+  const g = await jobStatus({ jobId: "5101" }, { clients: m.clients });
+  assert.equal(g.status, 503, JSON.stringify(g.body));
+  assert.equal(g.body.result, "retry-later");
+  const p = await judgeNow({ jobId: "5101" }, { clients: m.clients });
+  assert.equal(p.status, 503, JSON.stringify(p.body));
+  assert.equal(p.body.result, "retry-later");
+  assert.equal((await jobStatus({ jobId: "5101" }, { clients: m.clients })).body.result, "pending", "the job is there once the RPC recovers");
+});
+
+test("the judge never sends a verdict the contract would refuse", async () => {
+  const other = "0x" + "11".repeat(32);
+  for (const [id, opts, status, why] of [
+    [5102, { paused: true }, 503, /paused/],
+    [5103, { signerAuthorized: false }, 503, /not authorized/],
+    [5104, { registeredCriteria: { 5104: other } }, 422, /registered/],
+  ]) {
+    const m = mockChain({ jobs: [{ id }], ...opts });
+    const r = await judgeNow({ jobId: String(id) }, { clients: m.clients });
+    assert.equal(r.status, status, JSON.stringify(r.body));
+    assert.match(r.body.reason, why);
+    assert.equal(m.calls.writeContract.length, 0, `${id}: nothing is sent`);
+  }
+  // control: criteria registered on chain that match the description are fine
+  const { criteriaHash, extractCriteria } = await import("../src/criteria.js");
+  const opts = { jobs: [{ id: 5105 }] };
+  const m = mockChain(opts);
+  opts.registeredCriteria = { 5105: criteriaHash(extractCriteria(m.jobs.get(5105n).description)) };
+  const ok = await judgeNow({ jobId: "5105" }, { clients: m.clients });
+  assert.equal(ok.body.result, "judged", JSON.stringify(ok.body));
 });

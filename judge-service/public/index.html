@@ -33,7 +33,7 @@
       with the evaluator set to JudgeEvaluator <code>0x6EFF7d4BB514d341AbEd90bF4c667d0A980173AD</code>.</li>
     <li>Put the acceptance criteria in the job description as a fenced <code>judge-criteria</code> JSON block
       (checks: <code>length</code>, <code>contains</code>, <code>schema</code>, <code>checksum</code>, <code>http-endpoint</code>).</li>
-    <li>The provider submits with <code>optParams</code> set to <code>deliverableURI: data:…</code> (or an https or ipfs URI).</li>
+    <li>The provider submits with <code>optParams</code> set to <code>deliverableURI: data:…</code>, or an https URI (at most 1 MB, no redirects) or an ipfs URI (best effort).</li>
     <li>Ask for the ruling: <code>POST /api/judge</code> with the job id and the submit transaction hash.
       The judge settles the escrow on chain: pass releases it to the provider, fail refunds the client.</li>
   </ol>
@@ -44,7 +44,7 @@
   <h2>Endpoints</h2>
   <table>
     <tr><td><code>POST /api/judge</code></td><td>Rule now on a Submitted job that names this judge. Body: <code>jobId</code>, optional <code>submitTx</code> (needed for submissions older than about 4 hours).</td></tr>
-    <tr><td><code>GET /api/judge?jobId=N</code></td><td>Read-only status: pending, judged (with the on-chain verdict), not-submitted, expired, or not-ours.</td></tr>
+    <tr><td><code>GET /api/judge?jobId=N</code></td><td>Read-only status: pending, judged (with the on-chain verdict), not-submitted, expired, closed, not-ours, or not-found.</td></tr>
     <tr><td><code>POST /api/evaluate</code></td><td>Dry run: the exact checks, score and evidenceHash the judge would produce for a deliverable. Never signs, never settles, never makes a network request. For your own escrow, or to self-check before submitting.</td></tr>
     <tr><td><code>POST /api/x402/judge</code></td><td>The same ruling, paid over x402: 0.01 USDC through Circle Gateway on Arc testnet, settled only once the judge has a verdict ready and before it signs, so one payment never buys two rulings. Answers 402 with the terms for a job it can rule; everything else is free.</td></tr>
     <tr><td><code>GET /api/health</code></td><td>The judge, its signer and whether it is authorized on chain, and whether the relayer has gas.</td></tr>
@@ -52,7 +52,7 @@
 
   <h2>Honest limits</h2>
   <ul>
-    <li>Arc testnet only. Best effort, no uptime guarantee: rulings happen on request, and a daily sweep catches jobs nobody asked about. If the judge never rules, <code>claimRefund</code> after <code>expiredAt</code> returns the client's funds.</li>
+    <li>Arc testnet only. Best effort, no uptime guarantee: rulings happen on request, and a daily sweep catches jobs from the last two days that nobody asked about. If the judge never rules, <code>claimRefund</code> after <code>expiredAt</code> returns the client's funds.</li>
     <li>Jobs with a budget under 0.01 USDC are skipped (spam guard).</li>
     <li>Deterministic checks cover objective, structured deliverables. An <code>http-endpoint</code> check is a live network probe recorded once at judging time; it cannot be re-run later as the judge saw it.</li>
   </ul>

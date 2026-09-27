@@ -40,3 +40,22 @@ test("sloppy: submits the weak version without checking", async () => {
   assert.deepEqual(k.done, [["setBudget", 50_000n], ["submit", milestone.demoWork.bad]]);
   assert.equal(dryRuns, 0);
 });
+
+test("the demo refuses a contractor key that does not match the brief's address", async () => {
+  const { checkDemoKeys } = await import("../src/contractors.js");
+  const brief = { contractors: [{ name: "atlas", address: "0x5e14c9E5278ee370D764d03d314e92B3d9fFC04F", demo: { keyEnv: "K1", style: "careful" } }] };
+  const wrongKey = "0x" + "11".repeat(32);
+  assert.throws(() => checkDemoKeys(brief, { K1: wrongKey }), /K1.*does not match atlas/);
+  assert.throws(() => checkDemoKeys(brief, {}), /needs K1/);
+});
+
+test("the demo accepts the matching key in any address case, and skips contractors that are not demo-run", async () => {
+  const { checkDemoKeys } = await import("../src/contractors.js");
+  const { privateKeyToAccount } = await import("viem/accounts");
+  const key = "0x" + "22".repeat(32);
+  const address = privateKeyToAccount(key).address;
+  const brief = { contractors: [{ name: "atlas", address: address.toLowerCase(), demo: { keyEnv: "K1", style: "careful" } }, { name: "real", address: "0x" + "33".repeat(20) }] };
+  const out = checkDemoKeys(brief, { K1: key });
+  assert.deepEqual(out.map((o) => o.contractor.name), ["atlas"]);
+  assert.throws(() => checkDemoKeys(brief, { K1: "not-a-key" }), /K1 is not a valid private key/);
+});

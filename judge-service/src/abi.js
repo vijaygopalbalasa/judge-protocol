@@ -86,6 +86,11 @@ export const judgeAbi = [
     outputs: [{ name: "", type: "bool" }],
   },
   {
+    name: "paused", type: "function", stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
     name: "getVerdict", type: "function", stateMutability: "view",
     inputs: [{ name: "jobId", type: "uint256" }],
     outputs: [{

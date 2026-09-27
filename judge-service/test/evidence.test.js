@@ -50,3 +50,21 @@ test("evidenceHash is a stable 32-byte hex value", () => {
   assert.match(h, /^0x[0-9a-f]{64}$/);
   assert.equal(evidenceHashOf(base), h); // repeatable
 });
+
+/* ------------------------------ data: URIs (RFC 2397) ------------------------------ */
+import { resolveDeliverable } from "../src/evidence.js";
+
+test("data: URIs are read per RFC 2397: base64 when marked, percent-encoded otherwise, commas intact", async () => {
+  const text = "Pays in USDC, settles on Arc, judged by ERC-8183.";
+  const b64 = await resolveDeliverable(`data:text/plain;base64,${Buffer.from(text).toString("base64")}`);
+  assert.equal(b64.content.toString("utf8"), text);
+  const plain = await resolveDeliverable(`data:text/plain,${encodeURIComponent(text)}`);
+  assert.equal(plain.content.toString("utf8"), text, "a percent-encoded data URI is not base64");
+  const commas = await resolveDeliverable("data:,a,b,c");
+  assert.equal(commas.content.toString("utf8"), "a,b,c", "everything after the first comma is the data");
+  const bytes = await resolveDeliverable("data:application/octet-stream,%00%FF%41");
+  assert.deepEqual([...bytes.content], [0x00, 0xff, 0x41], "percent escapes are bytes, not characters");
+  const upper = await resolveDeliverable(`data:text/plain;charset=utf-8;BASE64,${Buffer.from("x").toString("base64")}`);
+  assert.equal(upper.content.toString("utf8"), "x", "the base64 flag is case-insensitive and may follow parameters");
+  await assert.rejects(resolveDeliverable("data:text/plain;base64"), /malformed data URI/, "no comma: not a data URI");
+});

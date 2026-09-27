@@ -46,6 +46,12 @@ export function isBlockedIp(ip) {
 
 const systemLookup = (host) => dns.lookup(host, { all: true });
 
+/** A fetch failure with a stable code. Callers decide on `code`, never on the
+ *  message: it can contain the URL, and so anything a provider wrote. */
+export class FetchError extends Error {
+  constructor(code, message) { super(message); this.name = "FetchError"; this.code = code; }
+}
+
 /**
  * Validate a URL and resolve it ONCE. Blocks if the scheme is not http(s) or if
  * ANY resolved address is internal. Returns the URL and the single address the
@@ -53,21 +59,22 @@ const systemLookup = (host) => dns.lookup(host, { all: true });
  */
 export async function resolvePublicAddress(rawUrl, { lookup = systemLookup } = {}) {
   let u;
-  try { u = new URL(rawUrl); } catch { throw new Error(`invalid URL: ${rawUrl}`); }
+  try { u = new URL(rawUrl); } catch { throw new FetchError("INVALID_URL", `invalid URL: ${rawUrl}`); }
   if (u.protocol !== "http:" && u.protocol !== "https:")
-    throw new Error(`blocked scheme: ${u.protocol}`);
+    throw new FetchError("BLOCKED_SCHEME", `blocked scheme: ${u.protocol}`);
+  if (u.username || u.password) throw new FetchError("CREDENTIALS", "URL must not include credentials");
 
   const host = u.hostname.replace(/^\[|\]$/g, "");
   if (net.isIP(host)) {
-    if (isBlockedIp(host)) throw new Error(`blocked address: ${host}`);
+    if (isBlockedIp(host)) throw new FetchError("BLOCKED_ADDRESS", `blocked address: ${host}`);
     return { url: u, address: host, family: net.isIP(host) };
   }
   let addrs;
   try { addrs = await lookup(host); }
-  catch { throw new Error(`DNS resolution failed: ${host}`); }
-  if (!addrs || addrs.length === 0) throw new Error(`no DNS records: ${host}`);
+  catch { throw new FetchError("DNS_FAILED", `DNS resolution failed: ${host}`); }
+  if (!addrs || addrs.length === 0) throw new FetchError("NO_DNS_RECORDS", `no DNS records: ${host}`);
   for (const { address } of addrs) {
-    if (isBlockedIp(address)) throw new Error(`host ${host} resolves to blocked address ${address}`);
+    if (isBlockedIp(address)) throw new FetchError("RESOLVES_BLOCKED", `host ${host} resolves to blocked address ${address}`);
   }
   return { url: u, address: addrs[0].address, family: addrs[0].family };
 }
@@ -91,13 +98,18 @@ export function pinnedLookup(address, family) {
  * headers }. Enforces the SSRF denylist, a timeout, and a hard byte cap
  * (streamed: a malicious server cannot exhaust memory by lying about length).
  */
-export async function safeFetch(rawUrl, { timeoutMs = FETCH_TIMEOUT_MS, maxBytes = MAX_BYTES, lookup, fetchImpl = undiciFetch } = {}) {
+export async function safeFetch(rawUrl, { timeoutMs = FETCH_TIMEOUT_MS, maxBytes = MAX_BYTES, lookup, fetchImpl = undiciFetch, okOnly = false } = {}) {
   const { address, family } = await resolvePublicAddress(rawUrl, { lookup });
   const dispatcher = new Agent({ connect: { lookup: pinnedLookup(address, family) } });
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetchImpl(rawUrl, { signal: ctrl.signal, redirect: "error", dispatcher });
+    if (okOnly && (res.status < 200 || res.status >= 300)) {
+      // An error page is not the content asked for, however large it is.
+      try { await res.body?.cancel(); } catch {}
+      throw new FetchError("HTTP_STATUS", `http fetch ${res.status}`);
+    }
     const reader = res.body?.getReader();
     const chunks = [];
     let total = 0;
@@ -106,7 +118,7 @@ export async function safeFetch(rawUrl, { timeoutMs = FETCH_TIMEOUT_MS, maxBytes
         const { done, value } = await reader.read();
         if (done) break;
         total += value.length;
-        if (total > maxBytes) { try { await reader.cancel(); } catch {} throw new Error(`response exceeds ${maxBytes} bytes`); }
+        if (total > maxBytes) { try { await reader.cancel(); } catch {} throw new FetchError("TOO_LARGE", `response exceeds ${maxBytes} bytes`); }
         chunks.push(Buffer.from(value));
       }
     }
