@@ -32,7 +32,7 @@ const EMPTY_VERDICT = { jobId: 0n, criteriaHash: padHex("0x0"), deliverable: pad
  * @param {object} o
  * @param {Array<object>} o.jobs  each: { id, evaluator?, status?, budget?, description?, content?, block?, submitted? (default true), txHash? }
  * @param {bigint} [o.latest]
- * @param {"ok"|"revert-then-judged"|"revert"|"mined-revert"|"mined-revert-then-judged"} [o.relay]
+ * @param {"ok"|"revert-then-judged"|"revert"|"mined-revert"|"mined-revert-then-judged"|"transient-then-ok"|"receipt-timeout-landed"} [o.relay]
  *        mined-revert*: the tx is accepted and mined but reverts (the receipt says so)
  * @param {bigint} [o.balance] relayer native balance (18 decimals)
  * @param {boolean} [o.signerAuthorized] whether JudgeEvaluator.isSigner(TEST_SIGNER) is true (default true)
@@ -100,11 +100,16 @@ export function mockChain(o) {
       return { status: "success", transactionHash: hash, blockNumber: t.blockNumber,
         logs: logs.filter((l) => l.transactionHash === hash).map(({ address, topics, data, blockNumber, transactionHash }) => ({ address, topics, data, blockNumber, transactionHash })) };
     },
-    waitForTransactionReceipt: async ({ hash }) => ({ status: minedReverts.has(hash) ? "reverted" : "success", transactionHash: hash }),
+    waitForTransactionReceipt: async ({ hash }) => {
+      if (receiptTimeouts.has(hash)) throw new Error(`Timed out while waiting for transaction with hash "${hash}" to be confirmed.`);
+      return { status: minedReverts.has(hash) ? "reverted" : "success", transactionHash: hash };
+    },
     getBalance: async () => o.balance ?? 3_000_000_000_000_000_000n,
   };
 
   const minedReverts = new Set();
+  const receiptTimeouts = new Set();
+  const relayState = { failedOnce: false };
   const relayerWallet = {
     account: o.sameKey ? TEST_SIGNER : TEST_RELAYER,
     writeContract: async ({ abi, functionName, args }) => {
@@ -127,6 +132,19 @@ export function mockChain(o) {
         throw new Error("execution reverted: AlreadyResolved");
       }
       if (mode === "revert") throw new Error("execution reverted: BadSigner");
+      if (mode === "transient-then-ok" && !relayState.failedOnce) {
+        // The RPC hiccups once (as Arc testnet does under load); nothing was sent.
+        relayState.failedOnce = true;
+        throw new Error("HTTP request failed. Status: 503 URL: https://rpc.testnet.arc.io Details: internal error (-32603)");
+      }
+      if (mode === "receipt-timeout-landed") {
+        // The transaction is sent and lands, but the receipt never comes back in time.
+        verdicts.set(BigInt(v.jobId), { ...v });
+        jobs.get(BigInt(v.jobId)).status = v.pass ? STATUS.Completed : STATUS.Rejected;
+        const h = keccak256(toHex(`verdict-${v.jobId}`));
+        receiptTimeouts.add(h);
+        return h;
+      }
       if (mode === "mined-revert" || mode === "mined-revert-then-judged") {
         const h = keccak256(toHex(`reverted-${v.jobId}`));
         minedReverts.add(h);

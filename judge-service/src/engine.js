@@ -1,7 +1,7 @@
 // The judge engine: watch → resolve → check → sign → submit.
 import { createPublicClient, http, parseAbiItem, keccak256, decodeFunctionData, hexToString } from "viem";
 import { config } from "./config.js";
-import { acpAbi, STATUS } from "./abi.js";
+import { acpAbi, judgeAbi, STATUS } from "./abi.js";
 import { extractCriteria, criteriaHash } from "./criteria.js";
 import { extractDeliverableURI, resolveDeliverable, storeEvidence, evidenceHashOf } from "./evidence.js";
 import { runAllChecks, validateCriteria, InvalidCriteriaError } from "./checkers/index.js";
@@ -75,7 +75,7 @@ function isUri(s) {
 export async function evaluateJob(jobId, deliverableHash, clients, submitTxHash) {
   const prepared = await prepareRuling(jobId, deliverableHash, clients, submitTxHash);
   if (prepared.outcome !== "ready") return prepared;
-  return settleRuling(prepared, clients);
+  return settleRuling(prepared, clients, clients.relayRetry);
 }
 
 /**
@@ -193,8 +193,13 @@ export async function prepareRuling(jobId, deliverableHash, clients, submitTxHas
     evidenceHash: evidenceHashOf(verdictObj) };
 }
 
+// A revert is deterministic (the contract said no); anything else (an RPC
+// hiccup, a timeout, a rate limit) is worth another try.
+const isRevert = (e) => !!e?.reverted || /execution reverted|reverted with|ContractFunctionRevert/i.test(String(e?.message ?? e));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 /** Store the evidence, sign the verdict (EIP-712) and settle it on chain. */
-export async function settleRuling(prepared, clients) {
+export async function settleRuling(prepared, clients, { retries = 2, retryDelayMs = 1500 } = {}) {
   const { publicClient, signerAccount, relayerWallet } = clients;
   const log = (...a) => console.log(`[job ${prepared.jobId}]`, ...a);
   const { evidenceHash, file } = storeEvidence(prepared.verdictObj);
@@ -210,9 +215,25 @@ export async function settleRuling(prepared, clients) {
     timestamp: BigInt(Math.floor(Date.now() / 1000)),
   };
   const sig = await signVerdict(signerAccount, verdict);
-  const { hash } = await submitVerdictOnChain(relayerWallet, publicClient, verdict, sig);
-  log(`verdict submitted: ${prepared.pass ? "COMPLETE" : "REJECT"} tx=${hash}`);
-  return { outcome: "judged", pass: prepared.pass, score: prepared.score, threshold: prepared.threshold, txHash: hash, evidenceHash };
+  const judged = (txHash) => ({ outcome: "judged", pass: prepared.pass, score: prepared.score, threshold: prepared.threshold, txHash, evidenceHash });
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const { hash } = await submitVerdictOnChain(relayerWallet, publicClient, verdict, sig);
+      log(`verdict submitted: ${prepared.pass ? "COMPLETE" : "REJECT"} tx=${hash}`);
+      return judged(hash);
+    } catch (e) {
+      if (isRevert(e)) throw e; // the contract refused; judgeNow reports a verdict someone else landed
+      // The transaction may have landed even though the answer never came back: look before resending.
+      const onChain = await publicClient.readContract({ address: config.judgeAddress, abi: judgeAbi, functionName: "getVerdict", args: [prepared.jobId] }).catch(() => null);
+      if (onChain && BigInt(onChain.timestamp ?? 0) !== 0n && String(onChain.evidenceHash).toLowerCase() === evidenceHash.toLowerCase()) {
+        log(`verdict confirmed on chain after: ${e.message}`);
+        return judged(e.hash ?? null);
+      }
+      if (attempt >= retries) throw e;
+      log(`verdict send failed (${String(e.message).slice(0, 120)}); retrying`);
+      await sleep(retryDelayMs * (attempt + 1));
+    }
+  }
 }
 
 /** One polling pass: find recent JobSubmitted events and evaluate them.

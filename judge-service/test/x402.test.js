@@ -257,6 +257,25 @@ test("one payment cannot buy two rulings", async () => {
   assert.equal(gw.calls.settle.length, 1);
 });
 
+test("a transient RPC error after the payment settled is retried: judged, charged once", async () => {
+  const { m, gw, paid } = setup({ jobs: [{ id: 396 }], relay: "transient-then-ok" });
+  const r = await paid({ jobId: "396", paymentHeader: await payHeader(await required(paid, "396")) });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.result, "judged");
+  assert.equal(r.body.charged, true);
+  assert.equal(gw.calls.settle.length, 1);
+  assert.equal(m.calls.writeContract.length, 2);
+});
+
+test("when the verdict transaction really fails after payment, the answer keeps the underlying reason", async () => {
+  const { paid } = setup({ jobs: [{ id: 397 }], relay: "revert" });
+  const r = await paid({ jobId: "397", paymentHeader: await payHeader(await required(paid, "397")) });
+  assert.equal(r.status, 502, JSON.stringify(r.body));
+  assert.equal(r.body.charged, true);
+  assert.match(r.body.error, /sweep/);
+  assert.match(r.body.detail, /BadSigner/, "the real error is kept for diagnosis");
+});
+
 test("if the payment does not settle, nothing is signed and nobody is charged", async () => {
   const m = mockChain({ jobs: [{ id: 380 }] });
   const gw = fakeGateway({ balances: { [PAYER.address]: 1_000_000n } });

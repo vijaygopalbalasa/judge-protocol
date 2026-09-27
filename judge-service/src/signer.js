@@ -77,7 +77,10 @@ export async function submitVerdictOnChain(relayerWallet, publicClient, verdict,
     functionName: "relay",
     args: [verdict, sig],
   });
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  let receipt;
+  try { receipt = await publicClient.waitForTransactionReceipt({ hash }); } catch (e) {
+    throw Object.assign(e, { hash }); // sent, fate unknown: the caller checks the chain before resending
+  }
   // viem resolves (does not throw) for a mined-but-reverted tx. A reverted
   // verdict tx recorded nothing, so it must never be reported as a ruling.
   if (receipt.status !== "success") {

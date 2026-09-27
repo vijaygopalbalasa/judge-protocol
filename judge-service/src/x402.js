@@ -226,7 +226,7 @@ export function createPaidJudge({
       if (r.body.result === "already-judged") {
         return out(200, { ...r.body, charged: receipt.charged, payment, note: "another request settled the same verdict first; your payment covered this ruling" }, headers);
       }
-      return out(r.status, { ...r.body, charged: receipt.charged, payment,
+      return out(r.status, { ...r.body, charged: receipt.charged, payment, detail: r.body.error ?? r.body.reason ?? null,
         error: "your payment settled but the verdict transaction failed; the daily sweep settles this job within a day" }, headers);
     } finally {
       inFlight.delete(c.nonce);

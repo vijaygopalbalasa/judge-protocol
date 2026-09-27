@@ -281,3 +281,26 @@ test("criteria that are malformed or absurdly deep make the judge abstain (422),
   }
   assert.equal(m.calls.writeContract.length, 0);
 });
+
+test("a transient RPC error while sending the verdict is retried, and the ruling lands once", async () => {
+  const m = mockChain({ jobs: [{ id: 197 }], relay: "transient-then-ok" });
+  const r = await judgeNow({ jobId: "197" }, { clients: m.clients, relayRetryDelayMs: 1 });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.result, "judged");
+  assert.equal(m.calls.writeContract.length, 2, "one failed send, one that landed");
+});
+
+test("a receipt that times out after the transaction landed is confirmed from chain, never resent", async () => {
+  const m = mockChain({ jobs: [{ id: 198 }], relay: "receipt-timeout-landed" });
+  const r = await judgeNow({ jobId: "198" }, { clients: m.clients, relayRetryDelayMs: 1 });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.result, "judged");
+  assert.equal(m.calls.writeContract.length, 1, "no second transaction for a verdict that is already on chain");
+});
+
+test("a deterministic revert is not retried", async () => {
+  const m = mockChain({ jobs: [{ id: 199 }], relay: "revert" });
+  const r = await judgeNow({ jobId: "199" }, { clients: m.clients, relayRetryDelayMs: 1 });
+  assert.equal(r.status, 502);
+  assert.equal(m.calls.writeContract.length, 1);
+});

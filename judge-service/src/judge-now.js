@@ -148,7 +148,9 @@ async function ruleOn(jobId, input, clients, deps) {
       const gate = await deps.beforeSettle(prepared);
       if (!gate || gate.ok !== true) return reply(gate?.status ?? 402, gate?.body ?? { result: "payment-failed", jobId });
     }
-    outcome = prepared.outcome === "ready" ? await settleRuling(prepared, clients) : prepared;
+    outcome = prepared.outcome === "ready"
+      ? await settleRuling(prepared, clients, deps.relayRetryDelayMs !== undefined ? { retryDelayMs: deps.relayRetryDelayMs } : undefined)
+      : prepared;
   } catch (e) {
     // Most often a concurrent caller settled first; report their verdict.
     const now = await readVerdict(publicClient, jobId).catch(() => null);
