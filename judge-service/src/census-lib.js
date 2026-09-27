@@ -17,9 +17,10 @@ const STATUS = ["Open", "Funded", "Submitted", "Completed", "Rejected", "Expired
 const ZERO = "0x0000000000000000000000000000000000000000";
 const ADDR = /^0x[0-9a-fA-F]{40}$/;
 
+/** USDC base units (6 decimals) to dollars, rounded to the nearest cent. */
 const usdc = (units) => {
-  const whole = units / 1_000_000n, frac = units % 1_000_000n;
-  return `${whole}.${String(frac).padStart(6, "0").slice(0, 2)}`;
+  const cents = (units + 5_000n) / 10_000n;
+  return `${cents / 100n}.${String(cents % 100n).padStart(2, "0")}`;
 };
 
 function normalize(r, seen) {

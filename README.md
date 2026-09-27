@@ -84,6 +84,9 @@ Gateway, settled only once the judge has a verdict ready, before it signs).
   enforced in code, contractors are chosen by their on-chain record, the judge is paid per ruling
   over x402, and every decision goes into a hash-chained log anchored on chain. A recorded run on
   Arc testnet (jobs 186764 to 186767) is in `agent/runs/`.
+- **Census:** [`docs/CENSUS.md`](docs/CENSUS.md), every job on Circle's testnet ERC-8183 contract
+  read from chain: 71.79% are graded by the party that pays, no hook has ever been used, and five
+  single-client evaluators carry half the third-party volume. One command reproduces it.
 
 ## How it works
 
@@ -136,7 +139,7 @@ judge-service/    Node/viem off-chain engine
   src/measure-acp.js            on-chain ERC-8183 market measurement
   api/                          hosted judge (Vercel): /api/judge, /api/x402/judge, /api/evaluate,
                                 /api/health, /api/cron/sweep
-  test/                         145 unit tests (checker gate, SSRF, evidence determinism, hosted judge, x402)
+  test/                         146 unit tests (checker gate, SSRF, evidence determinism, hosted judge, x402)
   evidence/                     recomputable verdict evidence (public audit trail)
 ```
 
@@ -147,7 +150,7 @@ judge-service/    Node/viem off-chain engine
   verdict, threshold enforcement, criteria-registration gating, withdraw auth, and the full
   hook feedback flow (7 hook tests; the hook decode bug that these now cover was previously
   untested).
-- ✅ **145/145 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
+- ✅ **146/146 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
   criteria defects, SSRF denylist with DNS pinning, evidence-hash determinism, and the hosted judge
   (on-demand rulings, races, reverted transactions, the daily sweep, deliverables that can never
   load abstaining instead of retrying forever), and paid rulings over x402 (payments signed by
@@ -184,7 +187,7 @@ judge-service/    Node/viem off-chain engine
 cd contracts && git submodule update --init --recursive && forge test   # 27/27
 
 # service
-cd ../judge-service && npm install && npm test                          # 145/145
+cd ../judge-service && npm install && npm test                          # 146/146
 
 # run the judge against Arc testnet (needs a funded .env, see .env.example)
 node --env-file=.env src/index.js

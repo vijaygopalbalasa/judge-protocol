@@ -121,3 +121,12 @@ test("scanRanges covers every block exactly once, splits ranges that fail, and r
   assert.equal(out.totals.hooks, 1);
   assert.equal(out.totals.created, 90);
 });
+
+test("USDC amounts round to the nearest cent, so a rerun prints what a report quotes", () => {
+  const Z0 = "0x0000000000000000000000000000000000000000";
+  const mk = (id, budget) => ({ id, client: "0x" + "1".repeat(40), provider: "0x" + "2".repeat(40), evaluator: "0x" + "9".repeat(40), budget, status: 3, hook: Z0 });
+  assert.equal(analyzeCensus([mk(1, "1005000")]).thirdParty.paidThrough.totalUSDC, "1.01", "half a cent rounds up");
+  assert.equal(analyzeCensus([mk(1, "1004999")]).thirdParty.paidThrough.totalUSDC, "1.00");
+  assert.equal(analyzeCensus([mk(1, "22671466192")]).thirdParty.paidThrough.totalUSDC, "22671.47");
+  assert.equal(analyzeCensus([mk(1, "999999")]).thirdParty.paidThrough.totalUSDC, "1.00", "carries into the dollars");
+});
