@@ -13,6 +13,7 @@ import { logPathFor, openLog, checkLogOwner } from "./src/logfile.js";
 import { privateKeyToAccount } from "viem/accounts";
 import * as kit from "../kit/judge-kit.js";
 import { formatEntry } from "./src/format.js";
+import { draftWithModel, modelFromEnv } from "./src/llm-drafter.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const briefPath = process.argv[2] || path.join(here, "briefs/demo.json");
@@ -37,6 +38,9 @@ try {
     readJob: (jobId) => publicClient.readContract({ address: kit.ARC_TESTNET.acp, abi: kit.ACP_ABI, functionName: "getJob", args: [BigInt(jobId)] }) });
 } catch (e) { console.error(e.message); process.exit(1); }
 const ports = livePorts({ paymasterKey, contractors, publicClient });
-const out = await runProject({ brief, ports, ledger, history: brief.historyJobIds ?? [], log: say });
+const llm = modelFromEnv();
+console.log(llm ? `criteria: rules first, then ${llm.name} (${llm.model}) for sentences the rules cannot read` : "criteria: rules only (set GEMINI_API_KEY, GROQ_API_KEY or AI_GATEWAY_API_KEY to add a model)");
+const draft = llm ? (text) => draftWithModel(text, { chat: llm.chat, model: llm.model }) : undefined;
+const out = await runProject({ brief, ports, ledger, history: brief.historyJobIds ?? [], log: say, ...(draft ? { draft } : {}) });
 console.log(`log head ${out.ledgerHead} (${ledger.entries.length} entries)`);
 if (out.halted) process.exit(2);

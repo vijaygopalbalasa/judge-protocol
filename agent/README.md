@@ -56,7 +56,7 @@ funded; one who never quotes costs nothing.
 
 ```bash
 cd kit && npm ci && cd ../agent && npm ci           # the agent uses the kit
-npm test                                           # 62 tests, no network; needs npm ci in ../judge-service too
+npm test                                           # 75 tests, no network; needs npm ci in ../judge-service too
 PAYMASTER_KEY=0x... PROVIDER_KEY=0x... CONTRACTOR_B_KEY=0x... node run.js briefs/demo.json
 node approve.js briefs/demo.json review --by "<name>" --note "<why>"
 node verify-log.js runs/arc-docs-sprint-demo.jsonl  # no keys needed
@@ -92,9 +92,13 @@ Every job can be checked at https://judge-protocol-verifier.vercel.app.
   under test.
 - The drafter is deterministic and deliberately narrow. It understands lengths,
   required terms, JSON fields and types, file checksums and endpoint probes;
-  anything else goes back to a human. A language model could widen what it
-  understands, but it would only draft: its output would pass the same
-  validation, and it would never decide a payment. None is wired in yet.
+  anything else goes back to a human. An optional model (`src/llm-drafter.js`)
+  reads only the sentences the rules could not, and may only use the owner's own
+  words and numbers: a term, count, field, URL or digest that is not in the
+  sentence sends it back to the owner, and every draft must pass the judge's own
+  validator. It never decides a payment. It is off unless a key is set
+  (GEMINI_API_KEY or GROQ_API_KEY, both free tiers, or AI_GATEWAY_API_KEY), and the
+  log records which checks it drafted and from which sentence.
 - The demo approval was recorded by the operator running the demo, and says so.
 - Keys are plain testnet keys from the environment. A Circle developer-controlled
   wallet could replace the paymaster's key; it is not wired in.

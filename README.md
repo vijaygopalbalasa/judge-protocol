@@ -136,7 +136,7 @@ judge-service/    Node/viem off-chain engine
   src/measure-acp.js            on-chain ERC-8183 market measurement
   api/                          hosted judge (Vercel): /api/judge, /api/x402/judge, /api/evaluate,
                                 /api/health, /api/cron/sweep
-  test/                         137 unit tests (checker gate, SSRF, evidence determinism, hosted judge, x402)
+  test/                         145 unit tests (checker gate, SSRF, evidence determinism, hosted judge, x402)
   evidence/                     recomputable verdict evidence (public audit trail)
 ```
 
@@ -147,7 +147,7 @@ judge-service/    Node/viem off-chain engine
   verdict, threshold enforcement, criteria-registration gating, withdraw auth, and the full
   hook feedback flow (7 hook tests; the hook decode bug that these now cover was previously
   untested).
-- ✅ **137/137 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
+- ✅ **145/145 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
   criteria defects, SSRF denylist with DNS pinning, evidence-hash determinism, and the hosted judge
   (on-demand rulings, races, reverted transactions, the daily sweep, deliverables that can never
   load abstaining instead of retrying forever), and paid rulings over x402 (payments signed by
@@ -162,12 +162,13 @@ judge-service/    Node/viem off-chain engine
   hashing and deliverable decoding, inline or hosted; nothing reaches the chain on bad input; the
   docs state every check, parameter, limit and API result with the code's own numbers, and every
   example in them is valid.
-- ✅ **62/62 paymaster agent tests** (`cd agent && npm ci && npm test`, after `npm ci` in
+- ✅ **75/75 paymaster agent tests** (`cd agent && npm ci && npm test`, after `npm ci` in
   `judge-service` and `kit`): the wallet guard refuses everything but creating, funding and reclaiming
   judged escrow; hard spend caps and the approval band; the drafter refuses to guess; records
   come only from on-chain verdicts; a lying judge reply halts the run; a rerun never pays twice;
   the judge port against the real x402 handler; a demo key that does not match the brief, or a
-  log another paymaster wrote, is refused before anything is sent.
+  log another paymaster wrote, is refused before anything is sent; an optional model drafter may
+  only use the owner's own words, and anything it invents goes back to the owner.
 - ✅ **Live check** (`cd judge-service && npm run live-check`): 17 checks against the hosted judge,
   no keys and no money, including exact parity with a verdict on chain (job 186740).
 - ✅ **Hosted judge** at https://judge-protocol-api.vercel.app: an on-demand API
@@ -183,7 +184,7 @@ judge-service/    Node/viem off-chain engine
 cd contracts && git submodule update --init --recursive && forge test   # 27/27
 
 # service
-cd ../judge-service && npm install && npm test                          # 137/137
+cd ../judge-service && npm install && npm test                          # 145/145
 
 # run the judge against Arc testnet (needs a funded .env, see .env.example)
 node --env-file=.env src/index.js

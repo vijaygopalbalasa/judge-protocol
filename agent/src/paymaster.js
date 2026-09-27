@@ -60,7 +60,7 @@ function openAttempts(ledger) {
   return [...byJob.values()].filter((a) => a.open);
 }
 
-export async function runProject({ brief, ports, ledger, history = [], approvals = [], log = () => {} }) {
+export async function runProject({ brief, ports, ledger, history = [], approvals = [], log = () => {}, draft = draftCriteria }) {
   const policy = makePolicy(brief.policy);
   const contractors = brief.contractors.map((c) => ({ name: c.name, address: c.address }));
   const allowlist = new Set(contractors.map((c) => c.address.toLowerCase()));
@@ -183,9 +183,11 @@ export async function runProject({ brief, ports, ledger, history = [], approvals
     if (alreadyPaid.has(m.id)) { res.outcome = "already-paid"; continue; }
     if (reconciledPaid.has(m.id) || inFlight.has(m.id)) continue;
 
-    const draft = draftCriteria(m.acceptance);
-    note("criteria-drafted", { milestoneId: m.id, complete: draft.complete, criteria: draft.criteria, uncovered: draft.uncovered, reason: draft.reason });
-    if (!draft.complete) { Object.assign(res, { outcome: "needs-rewrite", reason: draft.reason, uncovered: draft.uncovered }); continue; }
+    // The rules draft by default; a model-assisted drafter (llm-drafter.js) may be passed in.
+    const drafted = await draft(m.acceptance);
+    note("criteria-drafted", { milestoneId: m.id, complete: drafted.complete, criteria: drafted.criteria, uncovered: drafted.uncovered, reason: drafted.reason,
+      ...(drafted.draftedBy ? { draftedBy: drafted.draftedBy } : {}), ...(drafted.modelChecks ? { modelChecks: drafted.modelChecks } : {}) });
+    if (!drafted.complete) { Object.assign(res, { outcome: "needs-rewrite", reason: drafted.reason, uncovered: drafted.uncovered }); continue; }
 
     for (;;) {
       const choice = chooseContractor({ amount }, contractors, records, { trialMax: policy.trialMax, trialUsed, exclude: excluded.get(m.id) ?? [] });
@@ -204,11 +206,11 @@ export async function runProject({ brief, ports, ledger, history = [], approvals
       // Money moves only from here, and only into escrow the judge controls.
       gate.allowCreate();
       const title = `${m.title} (paymaster log ${ledger.head()})`;
-      const job = await chain.createJob({ provider: who.address, criteria: draft.criteria, title });
+      const job = await chain.createJob({ provider: who.address, criteria: drafted.criteria, title });
       note("job-created", { milestoneId: m.id, jobId: job.jobId, txHash: job.txHash, contractor: who.name, address: who.address, amount });
       res.attempts.push({ contractor: who.name, jobId: String(job.jobId) });
 
-      await market.offer({ jobId: job.jobId, amount, criteria: draft.criteria, milestone: m }, who);
+      await market.offer({ jobId: job.jobId, amount, criteria: drafted.criteria, milestone: m }, who);
       const quoted = await chain.waitForJob(job.jobId, (j) => BigInt(j.budget) > 0n);
       if (!quoted) { note("no-quote", { milestoneId: m.id, jobId: job.jobId, contractor: who.name }); exclude(m.id, who.address); continue; }
       if (BigInt(quoted.budget) !== amount) {

@@ -257,3 +257,22 @@ test("a logger that throws cannot interrupt a payment flow", async () => {
   assert.equal(out.milestones[0].outcome, "paid");
   assert.equal(verifyLedger(s.ledger.entries).ok, true);
 });
+
+test("a model-assisted drafter reads awkward phrasing; the log says which check the model drafted and from which sentence", async () => {
+  const { draftWithModel } = await import("../src/llm-drafter.js");
+  const awkward = "The summary needs to reference ERC-8183, USDC and Arc by name";
+  const ms = { ...TEXT_MS("m1", "0.10"), acceptance: `Between 5 and 60 words. ${awkward}.` };
+  const chat = async () => JSON.stringify({ checks: [{ kind: "contains", params: { all: ["ERC-8183", "USDC", "Arc"] }, covers: awkward }], notCheckable: [] });
+  const s = await setup();
+  const out = await runProject({ brief: s.brief([ms]), ports: s.ports, ledger: s.ledger, history: s.historyIds,
+    draft: (text) => draftWithModel(text, { chat, model: "test-model" }) });
+  assert.equal(out.milestones[0].outcome, "paid", JSON.stringify(out.milestones[0]));
+  const drafted = s.ledger.entries.find((e) => e.type === "criteria-drafted").data;
+  assert.equal(drafted.draftedBy, "rules+model:test-model");
+  assert.deepEqual(drafted.modelChecks.map((m) => m.sentence), [awkward]);
+  // without the model, the same brief still goes back to the owner
+  const s2 = await setup();
+  const plain = await runProject({ brief: s2.brief([ms]), ports: s2.ports, ledger: s2.ledger, history: s2.historyIds });
+  assert.equal(plain.milestones[0].outcome, "needs-rewrite");
+  assert.deepEqual(plain.milestones[0].uncovered, [awkward]);
+});
