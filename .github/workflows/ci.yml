@@ -39,6 +39,20 @@ jobs:
         working-directory: judge-service
         run: npm test
 
+  web:
+    name: Web verifier (node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: install service deps (parity tests import the service's own checkers)
+        working-directory: judge-service
+        run: npm ci
+      - name: test
+        run: node --test 'web/test/*.test.mjs'
+
   secrets:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest

@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https://rpc.testnet.arc.io; base-uri 'none'; form-action 'none'">
-<title>Judge Protocol — verifiable verdicts for ERC-8183 agent escrow on Arc</title>
-<meta name="description" content="A neutral, deterministic evaluator for ERC-8183 agent job escrow on Arc. Recompute any verdict yourself, in your own browser, from public chain data.">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://rpc.testnet.arc.io; base-uri 'none'; form-action 'none'">
+<title>Judge Protocol: verifiable verdicts for ERC-8183 agent escrow on Arc testnet</title>
+<meta name="description" content="A neutral, deterministic evaluator for ERC-8183 agent job escrow on Arc testnet. Recompute its verdicts yourself, in your own browser, from public chain data.">
 <style>
   :root{
     --bg:#0f1117; --panel:#161923; --panel2:#1c2030; --line:#272c3d;
@@ -13,7 +13,7 @@
     --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   }
   @media (prefers-color-scheme: light){
-    :root{ --bg:#f7f8fb; --panel:#fff; --panel2:#f0f2f7; --line:#dfe3ec; --fg:#161923; --dim:#5c6478; --accent:#0d7fa0; --ok:#0a8a54; --bad:#c0392b; }
+    :root{ --bg:#f7f8fb; --panel:#fff; --panel2:#f0f2f7; --line:#dfe3ec; --fg:#161923; --dim:#5c6478; --accent:#0d7fa0; --ok:#0a8a54; --bad:#c0392b; --warn:#8a5a00; }
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
@@ -65,9 +65,9 @@
     <p class="lede">
       A neutral, deterministic evaluator for <strong>ERC-8183</strong> agent job escrow. When one AI agent
       hires another and funds escrow, someone must decide whether the delivered work met the agreed
-      criteria. The standard defines that evaluator role but ships no evaluator, so today most jobs on Arc
+      criteria. The standard defines that evaluator role but ships no evaluator, so most jobs on Arc testnet
       let the paying client judge its own job. Judge Protocol fills that seat, and
-      <strong>every verdict can be recomputed from public chain data</strong> right here in your browser.
+      <strong>every verdict it has issued so far can be recomputed from public chain data</strong> right here in your browser.
     </p>
   </header>
 
@@ -76,23 +76,29 @@
 
   <h2>Verify a verdict yourself</h2>
   <p class="note">
-    This page holds no secrets and asks you to trust nothing. It reads the job from Circle's canonical
-    ERC-8183 contract, pulls the provider's deliverable out of their own <code>submit()</code> calldata,
-    re-derives every hash locally with an audited keccak256, re-runs the deterministic checks, and compares
-    the result with the signed verdict recorded on chain. If the judge had lied, a check below would fail.
+    This page holds no secrets. It reads the job from Circle's canonical ERC-8183 contract, finds the
+    provider's own <code>submit()</code> transaction and its on-chain commitment, re-derives every hash
+    locally with an audited keccak256, re-runs the deterministic checks, and compares the result with the
+    signed verdict recorded on chain. If the judge had lied about anything recomputable, a check below would
+    fail. You rely on two things: the chain data (on this site it arrives through a read-only relay at
+    <code>/api/rpc</code>; open <a href="?rpc=direct">?rpc=direct</a> to read <code>rpc.testnet.arc.io</code>
+    yourself) and this page's code, which is open source in <code>web/</code> and runs unchanged from a
+    local checkout (<code>python3 -m http.server --directory web</code>).
   </p>
   <div class="row" style="margin:12px 0">
-    <input id="jobInput" inputmode="numeric" placeholder="job id, e.g. 171507" style="max-width:230px">
+    <input id="jobInput" inputmode="numeric" placeholder="job id, e.g. 171925" style="max-width:230px">
     <button id="goBtn">Verify</button>
     <span class="note" id="quick"></span>
   </div>
+  <div class="note" id="rpcmode"></div>
   <div id="result"></div>
 
-  <h2>What we measured on Arc</h2>
+  <h2>What we measured on Arc testnet (Aug 7, 2026)</h2>
   <p class="note">
-    A reproducible sample of Circle's canonical ERC-8183 contract, from
-    <code>node judge-service/src/measure-acp.js 2500</code>. Percentages carry 95% confidence intervals
-    with a finite-population correction.
+    A sample of Circle's canonical ERC-8183 contract on Arc testnet. The snapshot shown here is
+    <code>judge-service/acp-measurement.json</code>; <code>node judge-service/src/measure-acp.js 2500</code>
+    reruns the same method against today's contract. Rates marked ± carry 95% confidence intervals with a
+    finite-population correction.
   </p>
   <div class="scroll">
     <table>
@@ -106,8 +112,9 @@
   <footer>
     <div id="addrs"></div>
     <div style="margin-top:7px">
-      keccak256 by <code>@noble/hashes</code> (MIT), vendored locally. No CDN, no analytics, no backend.
-      Arc testnet only, no real funds.
+      keccak256 by <code>@noble/hashes</code> (MIT), vendored locally. No CDN, no analytics. Chain reads on
+      this site pass through a read-only relay at <code>/api/rpc</code> (source: <code>web/api/rpc.js</code>);
+      <a href="?rpc=direct">?rpc=direct</a> reads the Arc RPC directly. Arc testnet only, no real funds.
     </div>
   </footer>
 </div>

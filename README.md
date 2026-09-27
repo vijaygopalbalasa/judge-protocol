@@ -112,10 +112,10 @@ judge-service/    Node/viem off-chain engine
   untested).
 - ✅ **31/31 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
   criteria defects, SSRF denylist, and evidence-hash determinism.
-- ✅ **63/63 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
+- ✅ **89/89 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
   `judge-service` first): the page's CSP, the read-only relay, the public numbers, parity with the
-  service's own checkers, and the in-browser verifier run against a fake chain built from recorded
-  Arc testnet data, including tampered inputs that must never verify.
+  service's own checkers, the CLI, and the in-browser verifier run against a fake chain built from
+  recorded Arc testnet data, including tampered inputs that must never verify.
 - ⏸ **The judging service is not running right now** (last verdict Aug 7, 2026). The contracts and
   the in-browser verifier are live, and every past verdict can still be recomputed.
 - ✅ **Live end-to-end on Arc testnet**: provider-authored PASS and REJECT jobs on the

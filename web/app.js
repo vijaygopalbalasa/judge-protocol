@@ -1,38 +1,87 @@
 // Judge Protocol explorer + in-browser verifier.
-// No build step, no CDN, no backend. Everything here is either read live from an
-// Arc RPC endpoint or recomputed locally, so a visitor can confirm a verdict
-// without trusting this page or its author.
+// Plain ES modules: no build step, no CDN. Every value is read live from an Arc
+// RPC endpoint or recomputed locally. On the deployed site, chain reads go
+// through a read-only same-origin relay (/api/rpc, source in web/api/rpc.js).
+// Add ?rpc=direct to read rpc.testnet.arc.io straight from the browser; to rely
+// on neither the relay nor this host's copy of the code, serve this folder
+// locally from a checkout of the repo.
 
 import { keccak_256 } from './vendor/noble/sha3.js';
 
-// Deployed (Vercel) reads go through the same-origin /api/rpc proxy so a
+const DIRECT_RPC = 'https://rpc.testnet.arc.io';
+
+// Deployed (Vercel) reads go through the same-origin /api/rpc relay so a
 // visitor's network or cross-origin rules can never make the page look broken.
 // Local static hosting (localhost / file://, e.g. the README's python3 http
-// server) has no such function, so it calls the Arc RPC directly.
+// server) has no such function, so it calls the Arc RPC directly, and so does
+// any visit with ?rpc=direct.
 const RPC_ENDPOINT = (() => {
-  if (typeof location === 'undefined') return 'https://rpc.testnet.arc.io';
+  if (typeof location === 'undefined') return DIRECT_RPC;
   const h = location.hostname;
   const local = h === 'localhost' || h === '127.0.0.1' || h === '' || location.protocol === 'file:';
-  return local ? 'https://rpc.testnet.arc.io' : '/api/rpc';
+  const direct = /(^|[?&])rpc=direct(&|$)/.test(location.search || '');
+  return local || direct ? DIRECT_RPC : '/api/rpc';
 })();
 
 export const CFG = {
   rpc: RPC_ENDPOINT,
+  directRpc: DIRECT_RPC,
   chainId: 5042002,
   judge: '0x6EFF7d4BB514d341AbEd90bF4c667d0A980173AD',
   hook: '0xfe38bF336148eb3F2E1A5DEE8Ed89AC3B8bcF1c8',
   acp: '0x0747EEf0706327138c69792bF28Cd525089e4583',
   explorer: 'https://testnet.arcscan.app',
-  // Jobs settled by this evaluator, newest first. Verified on-chain.
-  knownJobs: [171925, 171507, 170857, 170856],
+  // Every job this evaluator has settled, newest first. Verified on-chain.
+  knownJobs: [171925, 171507, 170857, 170856, 170855],
 };
+
+/* ------------------------------ input ------------------------------------ */
+/**
+ * Strict job id parser: plain ASCII digits only (spaces around are fine).
+ * Anything else returns null instead of being guessed at ("12abc" is not 12).
+ */
+export function parseJobId(input) {
+  if (typeof input !== 'string') return null;
+  const s = input.trim();
+  if (!/^[0-9]{1,15}$/.test(s)) return null;
+  const n = Number(s);
+  return n > 0 && Number.isSafeInteger(n) ? n : null;
+}
+
+/* ------------------------------ outcome ---------------------------------- */
+// Every one of these must be present AND ok before a result may be called
+// verified. A missing check is never a pass.
+export const REQUIRED_CHECKS = [
+  'evaluator', 'criteriaValid', 'criteriaHash', 'providerCommitment', 'deliverable',
+  'score', 'threshold', 'pass', 'evidenceHash',
+];
+
+/**
+ * 'verified' | 'mismatch' | 'unsupported' | 'incomplete' | 'error'.
+ * A failed check always wins (mismatch). Something the page could not do
+ * (a live http probe, an unreachable deliverable) is never verified and never
+ * mismatch: it is unsupported or incomplete, and says so.
+ */
+export function outcome(r) {
+  if (!r || r.error) return 'error';
+  const checks = r.checks || [];
+  if (checks.some((c) => !c.ok && c.id !== 'deliverableAvailable')) return 'mismatch';
+  if (r.unsupported && r.unsupported.length) return 'unsupported';
+  if (r.incomplete || r.needsDeliverable) return 'incomplete';
+  const ids = new Set(checks.map((c) => c.id));
+  return REQUIRED_CHECKS.every((id) => ids.has(id)) ? 'verified' : 'incomplete';
+}
 
 /* ------------------------------ hashing ---------------------------------- */
 const enc = new TextEncoder();
+// Matches Buffer.toString('utf8') in the service: invalid bytes become U+FFFD
+// and a leading byte-order mark is kept, not stripped.
+const utf8 = new TextDecoder('utf-8', { ignoreBOM: true });
 export const toHex = (u8) => '0x' + [...u8].map((b) => b.toString(16).padStart(2, '0')).join('');
-export const keccakUtf8 = (s) => toHex(keccak_256(enc.encode(s)));
+export const keccakBytes = (u8) => toHex(keccak_256(u8));
+export const keccakUtf8 = (s) => keccakBytes(enc.encode(s));
 
-/** Stable stringify with sorted keys — must match judge-service/src/criteria.js. */
+/** Stable stringify with sorted keys. Must match judge-service/src/criteria.js. */
 export function sortKeys(x) {
   if (Array.isArray(x)) return x.map(sortKeys);
   if (x && typeof x === 'object') {
@@ -43,23 +92,77 @@ export function sortKeys(x) {
 export const canonicalize = (o) => JSON.stringify(sortKeys(o));
 export const criteriaHash = (criteria) => keccakUtf8(canonicalize(criteria));
 
+async function sha256Hex(bytes) {
+  const d = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+  return toHex(new Uint8Array(d)).slice(2);
+}
+
+/**
+ * Base64 decoding that behaves exactly like Node's Buffer.from(s, 'base64'),
+ * which is what the service uses: Node reads each UTF-16 code unit's low byte,
+ * accepts the standard and URL-safe alphabets, skips anything else, and stops
+ * at the first '='. So a non-ASCII character is not simply ignored: U+0141
+ * reads as 'A', and an emoji's high surrogate reads as '=' and ends decoding.
+ */
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+export function decodeBase64(input) {
+  const s = String(input);
+  const out = [];
+  let buf = 0, bits = 0;
+  for (let i = 0; i < s.length; i++) {
+    const ch = String.fromCharCode(s.charCodeAt(i) & 0xff);
+    if (ch === '=') break;
+    let v = B64.indexOf(ch);
+    if (ch === '-') v = 62;
+    if (ch === '_') v = 63;
+    if (v < 0) continue;
+    buf = ((buf << 6) | v) & 0xffffff;
+    bits += 6;
+    if (bits >= 8) { bits -= 8; out.push((buf >> bits) & 0xff); }
+  }
+  return Uint8Array.from(out);
+}
+
+/** Resolve a data: URI to raw bytes, exactly as the service does. No network. */
+export function resolveDataUri(uri) {
+  if (!uri || !uri.startsWith('data:')) return null;
+  return decodeBase64(uri.split(',')[1] || '');
+}
+
 /* ------------------------------ rpc / abi -------------------------------- */
 let rpcId = 0;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function rpc(method, params, tries = 4) {
   for (let attempt = 0; ; attempt++) {
-    const res = await fetch(CFG.rpc, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method, params }),
-    });
-    const j = await res.json();
-    if (!j.error) return j.result;
-    // The public endpoint rate-limits; back off rather than failing the page.
-    const rateLimited = j.error.code === -32005 || /rate limit/i.test(j.error.message || '');
-    if (rateLimited && attempt < tries) { await sleep(600 * (attempt + 1)); continue; }
-    throw new Error(j.error.message || 'rpc error');
+    let j = null, transient = false, why = 'rpc error';
+    try {
+      const res = await fetch(CFG.rpc, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method, params }),
+      });
+      const text = await res.text();
+      try { j = JSON.parse(text); } catch { j = null; }
+      const busy = res.status === 429 || res.status >= 500; // rate limit, relay or upstream failure
+      if (j && j.error) {
+        // -32005 / "rate limit": throttled. -32603 "internal error": the public
+        // endpoint's answer under load, which succeeds on retry.
+        transient = busy || j.error.code === -32005 || j.error.code === -32603
+          || /rate limit|internal error/i.test(j.error.message || '');
+        why = j.error.message || 'rpc error';
+      } else if (!j || busy) {
+        transient = busy; why = `HTTP ${res.status}`;
+        j = null;
+      }
+    } catch (e) {
+      transient = true; why = e.message; // network failure
+    }
+    if (j && !j.error) return j.result;
+    // The public endpoint rate-limits (as JSON-RPC errors, and at its edge as
+    // plain HTTP 429s); back off rather than failing the page.
+    if (transient && attempt < tries) { await sleep(600 * (attempt + 1)); continue; }
+    throw new Error(why);
   }
 }
 const call = (to, data) => rpc('eth_call', [{ to, data }, 'latest']);
@@ -136,44 +239,87 @@ export function extractDeliverableURI(text) {
   const m = (text || '').match(/deliverableURI:\s*(\S+)/);
   return m ? m[1] : null;
 }
+const isUri = (s) => /^(data:|ipfs:\/\/|https?:\/\/)/.test(s);
 
-/** The deterministic checkers, reimplemented for local recomputation. */
+export const KNOWN_KINDS = ['checksum', 'schema', 'contains', 'length', 'http-endpoint'];
+
+/** Mirror of judge-service validateCriteria: criteria the service refuses to score. */
+export function validateCriteria(criteria) {
+  if (!criteria || typeof criteria !== 'object') return { valid: false, reason: 'criteria is not an object' };
+  if (!Array.isArray(criteria.checks) || criteria.checks.length === 0) {
+    return { valid: false, reason: 'criteria.checks must be a non-empty array' };
+  }
+  if (criteria.passThreshold !== undefined) {
+    const t = criteria.passThreshold;
+    if (!Number.isInteger(t) || t < 0 || t > 100) return { valid: false, reason: `passThreshold must be an integer in [0,100], got ${t}` };
+  }
+  for (let i = 0; i < criteria.checks.length; i++) {
+    const c = criteria.checks[i];
+    if (!c || typeof c !== 'object') return { valid: false, reason: `checks[${i}] is not an object` };
+    if (!KNOWN_KINDS.includes(c.kind)) return { valid: false, reason: `checks[${i}] unknown kind "${c.kind}"` };
+    if (c.weight !== undefined && (typeof c.weight !== 'number' || !Number.isFinite(c.weight) || c.weight <= 0)) {
+      return { valid: false, reason: `checks[${i}] weight must be a finite number > 0, got ${c.weight}` };
+    }
+  }
+  return { valid: true, reason: 'ok' };
+}
+
+/**
+ * The deterministic checkers, mirroring judge-service/src/checkers/index.js.
+ * web/test/verify-parity.test.mjs runs both on the same inputs so they cannot
+ * drift. http-endpoint is a live network probe: it cannot be replayed here, so
+ * it is marked unsupported instead of being scored.
+ */
 const CHECKERS = {
-  length: (p, text) => {
-    const n = p.unit === 'chars' ? text.length : text.trim().split(/\s+/).filter(Boolean).length;
+  checksum: async (p, d) => {
+    const actual = await sha256Hex(d.bytes);
+    const pass = actual.toLowerCase() === String(p.sha256 || '').toLowerCase();
+    return { pass, detail: `sha256 ${actual.slice(0, 16)}… ${pass ? '==' : '!='} expected ${String(p.sha256).slice(0, 16)}…` };
+  },
+  schema: (p, d) => {
+    let obj;
+    try { obj = JSON.parse(d.text); } catch { return { pass: false, detail: 'deliverable is not valid JSON' }; }
+    const required = p.required || [];
+    const missing = required.filter((f) => !(f in obj));
+    const typeErrors = [];
+    for (const [field, type] of Object.entries(p.types || {})) {
+      if (field in obj && typeof obj[field] !== type) typeErrors.push(`${field}: expected ${type}, got ${typeof obj[field]}`);
+    }
+    const pass = missing.length === 0 && typeErrors.length === 0;
+    return { pass, detail: pass ? `schema ok (${required.length} required fields present)` : `missing=[${missing.join(',')}] typeErrors=[${typeErrors.join(',')}]` };
+  },
+  contains: (p, d) => {
+    const terms = p.all || [];
+    const missing = terms.filter((t) => !d.text.includes(t));
+    return { pass: missing.length === 0, detail: missing.length ? `missing terms: ${missing.join(', ')}` : `all ${terms.length} terms present` };
+  },
+  length: (p, d) => {
+    const n = p.unit === 'chars' ? d.text.length : d.text.trim().split(/\s+/).filter(Boolean).length;
     const min = p.min ?? 0, max = p.max ?? Infinity;
-    return { pass: n >= min && n <= max, detail: `${p.unit === 'chars' ? 'chars' : 'words'}=${n} (need ${min}–${max === Infinity ? '∞' : max})` };
+    return { pass: n >= min && n <= max, detail: `${p.unit === 'chars' ? 'chars' : 'words'}=${n} (need ${min} to ${max === Infinity ? 'any' : max})` };
   },
-  contains: (p, text) => {
-    const missing = (p.all || []).filter((t) => !text.includes(t));
-    return { pass: missing.length === 0, detail: missing.length ? `missing: ${missing.join(', ')}` : `all ${(p.all || []).length} terms present` };
-  },
-  checksum: () => ({ pass: false, detail: 'checksum needs sha256; verify with the CLI' }),
-  schema: (p, text) => {
-    let o; try { o = JSON.parse(text); } catch { return { pass: false, detail: 'not valid JSON' }; }
-    const missing = (p.required || []).filter((f) => !(f in o));
-    return { pass: missing.length === 0, detail: missing.length ? `missing: ${missing.join(',')}` : 'schema ok' };
-  },
-  'http-endpoint': () => ({ pass: false, detail: 'live probe not reproducible in-browser' }),
+  'http-endpoint': () => ({ pass: false, unsupported: true, detail: 'live network probe, recorded once by the judge' }),
 };
 
-/** Recompute score/pass exactly as the service does. */
-export function runChecks(criteria, text) {
-  const results = [];
+/** Recompute score/pass exactly as the service does, over the raw deliverable bytes. */
+export async function runChecks(criteria, bytes) {
+  const d = { bytes, text: utf8.decode(bytes) };
+  const results = [], unsupported = [];
   let wSum = 0, wPass = 0;
   for (const c of criteria.checks || []) {
     const fn = CHECKERS[c.kind];
-    const r = fn ? fn(c.params || {}, text) : { pass: false, detail: `unknown kind ${c.kind}` };
+    const r = fn ? await fn(c.params || {}, d) : { pass: false, detail: `unknown checker kind: ${c.kind}` };
+    if (r.unsupported) unsupported.push(c.kind);
     const w = c.weight ?? 1;
     results.push({ ...r, kind: c.kind, weight: w });
     wSum += w; if (r.pass) wPass += w;
   }
   const score = wSum === 0 ? 0 : Math.round((wPass / wSum) * 100);
   const threshold = criteria.passThreshold ?? 100;
-  return { results, score, threshold, pass: score >= threshold };
+  return { results, score, threshold, pass: score >= threshold, unsupported };
 }
 
-/** The evidence core — must mirror judge-service/src/evidence.js exactly. */
+/** The evidence core. Must mirror judge-service/src/evidence.js exactly. */
 export function evidenceCore({ jobId, criteriaHash: ch, deliverable, criteria, results, score, threshold, pass }) {
   return {
     jobId: String(jobId), criteriaHash: ch, deliverable, criteria,
@@ -183,116 +329,250 @@ export function evidenceCore({ jobId, criteriaHash: ch, deliverable, criteria, r
 }
 export const evidenceHashOf = (o) => keccakUtf8(canonicalize(evidenceCore(o)));
 
+/* --------------------------- provider submission ------------------------- */
 /**
- * Recover the PROVIDER-authored deliverable straight from chain data: find the
- * JobSubmitted log, load the provider's own submit() transaction, and decode the
- * optParams tail. This is what makes in-browser verification trustless: the page
- * never has to be handed the content by us.
- * The public RPC caps eth_getLogs at 20k blocks, so walk backwards in windows.
+ * Recover the PROVIDER's own submission from chain data: the JobSubmitted log
+ * (whose data is the provider's bytes32 commitment) and the provider's
+ * submit() transaction (whose optParams carry the deliverable URI).
+ *
+ * The public endpoint refuses eth_getLogs ranges wider than 10,000 blocks and
+ * no longer indexes older transactions by hash. So the page jumps to the block
+ * near the verdict's own timestamp, searches backwards from a little past it in
+ * 5,000-block windows, and loads the transaction by block number and index.
+ * None of this is a trust assumption: the transaction must be submit() to the
+ * ACP for this exact job, and its commitment must match the log.
  */
 const JOB_SUBMITTED_TOPIC = keccakUtf8('JobSubmitted(uint256,address,bytes32)');
+const SUBMIT_SELECTOR = '0x9e63798d'; // submit(uint256,bytes32,bytes)
+export const LOG_SPAN = 5000n;
+const LOG_WINDOWS = 13; // one window of slack past the verdict, then about 8 hours before it
 
-export async function fetchProviderDeliverable(jobId, maxWindows = 6) {
+async function blockTs(n) {
+  const b = await rpc('eth_getBlockByNumber', ['0x' + n.toString(16), false]);
+  if (!b) throw new Error(`block ${n} not available`);
+  return BigInt(b.timestamp);
+}
+
+/**
+ * A block a little after unix time `ts`, found by secant search on block
+ * timestamps (a handful of calls on a chain with steady block times), with a
+ * bisection fallback. The verdict timestamp comes from the judge's own clock,
+ * so the result is padded by one log window to absorb clock lag.
+ */
+export async function blockNear(ts) {
+  const target = BigInt(ts);
   const latest = BigInt(await rpc('eth_blockNumber', []));
+  const pad = (b) => (b + LOG_SPAN > latest ? latest : b + LOG_SPAN);
+  let x0 = latest, t0 = await blockTs(x0);
+  if (target >= t0) return latest;
+  let x1 = x0 > 1000000n ? x0 - 1000000n : 1n, t1 = await blockTs(x1);
+  for (let i = 0; i < 8; i++) {
+    const err = t1 - target;
+    if (err >= -30n && err <= 30n) return pad(x1);
+    const dt = t1 - t0;
+    const step = dt === 0n ? err * 2n : (err * (x1 - x0)) / dt;
+    let x2 = x1 - step;
+    if (x2 < 1n) x2 = 1n;
+    if (x2 > latest) x2 = latest;
+    if (x2 === x1) break;
+    x0 = x1; t0 = t1; x1 = x2; t1 = await blockTs(x1);
+  }
+  let lo = 1n, hi = latest;
+  for (let i = 0; i < 64 && hi - lo > LOG_SPAN / 4n; i++) {
+    const mid = (lo + hi) / 2n;
+    if ((await blockTs(mid)) < target) lo = mid; else hi = mid;
+  }
+  return pad(hi);
+}
+
+class TxMismatch extends Error {}
+
+export async function fetchProviderSubmission(jobId, verdictTimestamp) {
+  const top = await blockNear(verdictTimestamp);
   const topic1 = '0x' + BigInt(jobId).toString(16).padStart(64, '0');
-  const SPAN = 20000n;
-  let txHash = null;
-  for (let w = 0; w < maxWindows && !txHash; w++) {
-    const to = latest - SPAN * BigInt(w);
-    if (to <= 0n) break;
-    const from = to > SPAN ? to - SPAN : 0n;
+  let log = null;
+  for (let w = 0n; w < BigInt(LOG_WINDOWS) && !log; w++) {
+    const to = top - LOG_SPAN * w;
+    if (to < 1n) break;
+    const from = to >= LOG_SPAN ? to - LOG_SPAN + 1n : 1n;
     const logs = await rpc('eth_getLogs', [{
       address: CFG.acp, topics: [JOB_SUBMITTED_TOPIC, topic1],
       fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16),
     }]);
-    if (logs.length) txHash = logs[0].transactionHash;
-    if (from === 0n) break;
+    if (logs.length) log = logs[logs.length - 1];
   }
-  if (!txHash) return null;
+  if (!log) return null;
+  // The commitment is what the ACP itself emitted for this job. That is the
+  // binding; the transaction below is only a source for the deliverable URI.
+  const committed = (log.data || '').toLowerCase();
+  if (!/^0x[0-9a-f]{64}$/.test(committed)) throw new TxMismatch('the JobSubmitted log carries no 32-byte commitment');
 
-  const tx = await rpc('eth_getTransactionByHash', [txHash]);
+  let tx = await rpc('eth_getTransactionByBlockNumberAndIndex', [log.blockNumber, log.transactionIndex]);
+  if (!tx) tx = await rpc('eth_getTransactionByHash', [log.transactionHash]);
+  if (tx && tx.hash && tx.hash.toLowerCase() !== log.transactionHash.toLowerCase()) {
+    throw new TxMismatch('the node returned a different transaction than the one that emitted the log');
+  }
+  const input = ((tx && tx.input) || '').toLowerCase();
+  const d = input.slice(10);
+  const direct = !!tx && (tx.to || '').toLowerCase() === CFG.acp.toLowerCase()
+    && input.startsWith(SUBMIT_SELECTOR) && d.length >= 192 && BigInt('0x' + d.slice(0, 64)) === BigInt(jobId);
+  if (!direct) {
+    // Submitted through a contract wallet (or the tx is unavailable). The
+    // service cannot decode the provider's URI from such a call either, and
+    // falls back to the job description; so does this page.
+    return { txHash: log.transactionHash, committed, optParams: '', uri: null, via: tx ? 'contract wallet' : 'unknown' };
+  }
+  if ('0x' + d.slice(64, 128) !== committed) {
+    throw new TxMismatch('the submit() calldata commits to a different deliverable than the log');
+  }
   // submit(uint256 jobId, bytes32 deliverable, bytes optParams)
-  const d = (tx.input || '').slice(10);
-  if (d.length < 192) return null;
   const off = parseInt(d.slice(128, 192), 16) * 2;
   const len = parseInt(d.slice(off, off + 64), 16);
-  if (!Number.isFinite(len) || len === 0) return null;
-  const body = d.slice(off + 64, off + 64 + len * 2);
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) bytes[i] = parseInt(body.substr(i * 2, 2), 16);
-  const s = new TextDecoder().decode(bytes);
-  const uri = extractDeliverableURI(s) || (/^(data|https?|ipfs):/.test(s.trim()) ? s.trim() : null);
-  return { txHash, optParams: s, uri, content: uri ? resolveDataUri(uri) : null };
+  let optParams = '';
+  if (Number.isFinite(len) && len > 0) {
+    const body = d.slice(off + 64, off + 64 + len * 2);
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) bytes[i] = parseInt(body.substr(i * 2, 2), 16);
+    optParams = utf8.decode(bytes);
+  }
+  // Same precedence as judge-service engine.js resolveDeliverableSource.
+  const uri = optParams ? (extractDeliverableURI(optParams) || (isUri(optParams.trim()) ? optParams.trim() : null)) : null;
+  return { txHash: log.transactionHash, committed, optParams, uri, via: 'direct submit()' };
 }
 
-/** Resolve a data: URI locally. Remote fetches are deliberately not attempted. */
-export function resolveDataUri(uri) {
-  if (!uri || !uri.startsWith('data:')) return null;
-  const b64 = uri.split(',')[1] || '';
-  try { return decodeURIComponent(escape(atob(b64))); } catch { return atob(b64); }
-}
-
+/* ------------------------------- verification ---------------------------- */
 /**
  * Full independent verification of one job, using only public inputs.
  * Returns a list of named checks with pass/fail so the UI can show the audit.
  */
 export async function verifyJob(jobId, pastedDeliverable) {
   const out = { jobId, checks: [], job: null, verdict: null };
-  const [job, verdict] = await Promise.all([getJob(jobId), getVerdict(jobId)]);
-  out.job = job; out.verdict = verdict;
+  // The verdict decides whether there is anything to verify; a missing or
+  // unreadable job only matters once a verdict exists.
+  const [jobRes, verdictRes] = await Promise.allSettled([getJob(jobId), getVerdict(jobId)]);
+  if (verdictRes.status === 'rejected') throw verdictRes.reason;
+  const verdict = verdictRes.value;
+  out.verdict = verdict;
   if (!verdict || verdict.timestamp === 0) { out.error = 'No on-chain verdict recorded for this job.'; return out; }
+  if (jobRes.status === 'rejected') throw jobRes.reason;
+  const job = jobRes.value;
+  out.job = job;
   if (!job) { out.error = 'Job not found on the canonical contract.'; return out; }
 
-  const add = (label, ok, got, want) => out.checks.push({ label, ok, got, want });
+  const add = (id, label, ok, got, want) => out.checks.push({ id, label, ok, got, want });
 
   // Compare addresses case-insensitively; show one canonical form so a mere
   // checksum-casing difference does not read as a mismatch.
   const evalOk = job.evaluator.toLowerCase() === CFG.judge.toLowerCase();
-  add('Job named this evaluator', evalOk, evalOk ? CFG.judge : job.evaluator, evalOk ? CFG.judge : CFG.judge);
+  add('evaluator', 'Job named this evaluator', evalOk, evalOk ? CFG.judge : job.evaluator, CFG.judge);
 
   const criteria = extractCriteria(job.description);
   if (!criteria) { out.error = 'No judge-criteria block in the job description.'; return out; }
-  const ch = criteriaHash(criteria);
-  add('criteriaHash recomputed from the immutable job description', ch.toLowerCase() === verdict.criteriaHash.toLowerCase(), ch, verdict.criteriaHash);
   out.criteria = criteria;
+  const valid = validateCriteria(criteria);
+  add('criteriaValid', 'Criteria are well-formed (the service never scores invalid criteria)', valid.valid,
+    valid.valid ? 'valid' : valid.reason, 'valid');
+  const ch = criteriaHash(criteria);
+  add('criteriaHash', 'criteriaHash recomputed from the immutable job description', ch.toLowerCase() === verdict.criteriaHash.toLowerCase(), ch, verdict.criteriaHash);
 
-  // Deliverable: the provider supplies it in their own submit() calldata. Pull it
-  // from chain data so nothing has to be taken on trust; fall back to a data: URI
-  // in the description, then to a pasted copy. Whatever the source, it only counts
-  // if it hashes to the on-chain commitment.
-  let text = pastedDeliverable ?? null;
-  if (text == null) {
-    try {
-      const fetched = await fetchProviderDeliverable(jobId);
-      if (fetched) {
-        out.submitTx = fetched.txHash;
-        out.deliverableSource = 'provider submit() calldata';
-        text = fetched.content;
-      }
-    } catch (e) { out.fetchNote = 'could not read submit calldata: ' + e.message; }
+  // The provider's own on-chain submission: its commitment binds the verdict to
+  // what the provider actually delivered, whatever the content source below.
+  let sub = null;
+  try {
+    sub = await fetchProviderSubmission(jobId, verdict.timestamp);
+    if (!sub) out.incomplete = { reason: 'not-found' };
+  } catch (e) {
+    out.incomplete = e instanceof TxMismatch
+      ? { reason: 'tx-mismatch', note: e.message }
+      : { reason: 'rpc-error', note: e.message };
   }
-  if (text == null) text = resolveDataUri(extractDeliverableURI(job.description));
-  if (text == null) {
-    out.needsDeliverable = true;
-    add('Deliverable content available', false, 'not provided', 'paste the deliverable text');
+  if (sub) {
+    out.submitTx = sub.txHash;
+    out.committed = sub.committed;
+    out.submittedVia = sub.via;
+    add('providerCommitment', "Verdict grades the provider's own on-chain commitment",
+      sub.committed.toLowerCase() === verdict.deliverable.toLowerCase(), sub.committed, verdict.deliverable);
+  }
+
+  // Content: pasted, else the provider's URI, else (only when the provider gave
+  // none) the client-authored description. Remote URIs are not fetched.
+  let bytes = null;
+  if (pastedDeliverable instanceof Uint8Array) {
+    bytes = pastedDeliverable;
+    out.deliverableSource = 'file';
+  } else if (pastedDeliverable != null) {
+    // Browsers normalize line endings in text areas (CRLF becomes LF). If the
+    // CRLF form is what the provider committed to, it is the committed content.
+    const text = String(pastedDeliverable);
+    bytes = enc.encode(text);
+    if (sub && text.includes('\n') && !text.includes('\r')) {
+      const crlf = enc.encode(text.replace(/\n/g, '\r\n'));
+      if (keccakBytes(bytes) !== sub.committed && keccakBytes(crlf) === sub.committed) {
+        bytes = crlf;
+        out.pasteNormalized = 'crlf';
+      }
+    }
+    out.deliverableSource = 'pasted';
+  } else if (sub) {
+    const descUri = extractDeliverableURI(job.description);
+    const src = sub.uri ? { uri: sub.uri, from: 'submit() calldata' }
+      : descUri ? { uri: descUri, from: 'job description (client-authored)' } : null;
+    if (!src) out.incomplete = { reason: 'no-uri' };
+    else if (src.uri.startsWith('data:')) { bytes = resolveDataUri(src.uri); out.deliverableSource = src.from; }
+    else out.incomplete = { reason: 'remote-uri', uri: src.uri, from: src.from };
+  }
+  if (bytes == null) {
+    out.needsDeliverable = !!sub; // pasting only helps when the commitment is known
+    add('deliverableAvailable', 'Deliverable content available', false, null, null);
     return out;
   }
-  const dh = keccakUtf8(text);
+  const dh = keccakBytes(bytes);
   const dOk = dh.toLowerCase() === verdict.deliverable.toLowerCase();
-  add('Deliverable content hashes to the on-chain commitment', dOk, dh, verdict.deliverable);
-  out.deliverable = text;
-  if (!dOk) return out; // wrong content: stop, everything downstream is meaningless
+  add('deliverable', 'Deliverable content hashes to the on-chain commitment', dOk, dh, verdict.deliverable);
+  out.deliverable = utf8.decode(bytes);
+  if (!dOk || !valid.valid) return out; // everything downstream would be meaningless
 
-  const { results, score, threshold, pass } = runChecks(criteria, text);
-  add('Score recomputed', score === verdict.score, String(score), String(verdict.score));
-  add('Threshold matches', threshold === verdict.threshold, String(threshold), String(verdict.threshold));
-  add('Pass/reject decision matches', pass === verdict.pass, String(pass), String(verdict.pass));
+  const { results, score, threshold, pass, unsupported } = await runChecks(criteria, bytes);
+  out.results = results;
+  if (unsupported.length) {
+    // A live probe cannot be replayed, but its pass bit is inside the signed
+    // evidence. Try every outcome of the probes: if one reproduces the on-chain
+    // score, decision and evidenceHash, everything else is verified and we know
+    // what the judge recorded; if none does, the deterministic part is a lie.
+    out.unsupported = unsupported;
+    const probes = results.map((x, i) => (x.unsupported ? i : -1)).filter((i) => i >= 0);
+    if (probes.length > 8) return out; // too many to enumerate; stays not-replayable
+    let match = null, scoreSeen = false, passSeen = false;
+    for (let mask = 0; mask < (1 << probes.length) && !match; mask++) {
+      const trial = results.map((x) => ({ ...x }));
+      probes.forEach((ri, b) => { trial[ri].pass = !!(mask & (1 << b)); });
+      let w = 0, wp = 0;
+      for (const x of trial) { w += x.weight; if (x.pass) wp += x.weight; }
+      const sc = w === 0 ? 0 : Math.round((wp / w) * 100), ps = sc >= threshold;
+      if (sc === verdict.score) scoreSeen = true;
+      if (ps === verdict.pass) passSeen = true;
+      const eh = evidenceHashOf({ jobId, criteriaHash: ch, deliverable: verdict.deliverable, criteria, results: trial, score: sc, threshold, pass: ps });
+      if (eh.toLowerCase() === verdict.evidenceHash.toLowerCase() && sc === verdict.score && ps === verdict.pass) {
+        match = { mask, sc, ps, eh };
+      }
+    }
+    const note = 'for some outcome of the live probe';
+    add('score', `Score recomputed (${note})`, scoreSeen, match ? String(match.sc) : 'no probe outcome gives it', String(verdict.score));
+    add('threshold', 'Threshold matches', threshold === verdict.threshold, String(threshold), String(verdict.threshold));
+    add('pass', `Pass/reject decision matches (${note})`, passSeen, match ? String(match.ps) : 'no probe outcome gives it', String(verdict.pass));
+    add('evidenceHash', `evidenceHash recomputed (${note})`, !!match, match ? match.eh : 'no probe outcome reproduces it', verdict.evidenceHash);
+    if (match) out.probeRecorded = probes.map((_, b) => !!(match.mask & (1 << b)));
+    return out;
+  }
+  add('score', 'Score recomputed', score === verdict.score, String(score), String(verdict.score));
+  add('threshold', 'Threshold matches', threshold === verdict.threshold, String(threshold), String(verdict.threshold));
+  add('pass', 'Pass/reject decision matches', pass === verdict.pass, String(pass), String(verdict.pass));
 
   const eh = evidenceHashOf({ jobId, criteriaHash: ch, deliverable: verdict.deliverable, criteria, results, score, threshold, pass });
-  add('evidenceHash recomputed from inputs', eh.toLowerCase() === verdict.evidenceHash.toLowerCase(), eh, verdict.evidenceHash);
+  add('evidenceHash', 'evidenceHash recomputed from inputs', eh.toLowerCase() === verdict.evidenceHash.toLowerCase(), eh, verdict.evidenceHash);
 
-  out.results = results;
-  out.verified = out.checks.every((c) => c.ok);
+  if (!sub) out.incomplete = out.incomplete || { reason: 'not-found' };
+  out.verified = outcome(out) === 'verified';
   return out;
 }
 

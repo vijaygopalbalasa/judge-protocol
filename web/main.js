@@ -1,6 +1,8 @@
 // Page wiring. All rendering goes through textContent-based helpers because job
 // descriptions and RPC errors are attacker-controlled strings.
-import { CFG, judgeStats, verifyJob, acpJobCounter } from './app.js';
+import { CFG, judgeStats, verifyJob, acpJobCounter, parseJobId } from './app.js';
+import { present, pasteHeadline } from './present.js';
+import { MEASURED } from './measurement.js';
 import { el, set, safeLink } from './ui.js';
 
 const $ = (s) => document.querySelector(s);
@@ -16,15 +18,7 @@ set($('#addrs'), [
 ]);
 
 /* ------------------------------- measurement ------------------------------ */
-const MEASURED = [
-  ['Sample', '2,524 of 171,593 jobs', 'every 68th job id on the canonical contract'],
-  ['Self-evaluated jobs', '70.6% ± 1.8pp', 'the party paying also decides whether the work passed'],
-  ['Delegate to a third party', '29.4% ± 1.8pp', 'across 247 distinct evaluator addresses'],
-  ['Third-party evaluators paid through', '54 addresses, 281 jobs', 'delegated evaluation already settles real money'],
-  ['Rejection rate', '1.56% of decided jobs', 'the reject path is barely exercised in the wild'],
-  ['Jobs using any hook', '0 of 2,524', 'a permission wall: only address(0) is whitelisted'],
-  ['Median funded budget', '1.00 USDC', 'why percentage fees cannot work at this job size'],
-];
+
 set($('#measure'), MEASURED.map(([a, b, c]) => el('tr', {}, [
   el('td', { text: a }),
   el('td', { class: 'mono' }, [el('strong', { text: b })]),
@@ -34,7 +28,9 @@ set($('#measure'), MEASURED.map(([a, b, c]) => el('tr', {}, [
 set($('#limits'), [
   el('strong', { text: 'Honest limits. ' }),
   el('span', {
-    text: 'No third party has named this evaluator on their own job yet: every settled job shown here was '
+    text: 'The judging service is not running right now; the last verdict was issued on Aug 7, 2026. The '
+      + 'contracts and this verifier are live, and every past verdict can still be recomputed here. '
+      + 'No third party has named this evaluator on their own job yet: every settled job shown here was '
       + 'posted by us. The ERC-8004 reputation hook is implemented and tested but not attachable, because the '
       + 'canonical contract gates hooks behind a whitelist that, of the addresses we checked, contains only '
       + 'address(0). There is no per-job fee surface in the contract, so per-evaluation pricing has to sit '
@@ -42,6 +38,17 @@ set($('#limits'), [
       + 'deliberately out of scope for the trust path and is meant to escalate to a dispute layer instead.',
   }),
 ]);
+
+/* -------------------------------- rpc mode ------------------------------- */
+// Say which path the chain data takes, so a visitor who chose direct mode can
+// see it took effect.
+{
+  const relay = CFG.rpc === '/api/rpc';
+  set($('#rpcmode'), relay
+    ? [el('span', { text: 'Chain data from: the read-only /api/rpc relay on this site (' }),
+      el('a', { text: 'read the Arc RPC directly', href: '?rpc=direct' }), el('span', { text: ').' })]
+    : [el('span', { text: `Chain data from: ${CFG.rpc} (direct).` })]);
+}
 
 /* ---------------------------------- stats --------------------------------- */
 const statCard = (k, v, sm) => el('div', { class: 'card' }, [
@@ -95,69 +102,80 @@ function checkRow(c) {
   ]);
 }
 
+function detailList(results) {
+  if (!results || !results.length) return null;
+  return el('div', { class: 'note', style: 'margin-top:10px' }, results.map((x) => el('div', {
+    class: 'mono', text: `${x.kind}${x.weight !== 1 ? ` (weight ${x.weight})` : ''}: ${x.unsupported ? 'not replayable' : x.pass ? 'pass' : 'fail'}, ${x.detail}`,
+  })));
+}
+
 function renderResult(r) {
   const v = r.verdict;
-  const allOk = r.checks.length > 0 && r.checks.every((c) => c.ok);
+  const p = present(r);
 
   const left = el('div', {}, [
     el('div', { class: 'k', text: `job ${r.jobId} · status ${r.job.status}` }),
     el('div', { class: 'big' }, [
       el('span', { text: 'On-chain verdict: ' }),
-      el('span', {
-        class: 'pill ' + (v.pass ? 'pass' : 'fail'),
-        text: v.pass ? 'PASS — escrow released' : 'REJECT — client refunded',
-      }),
+      el('span', { class: 'pill ' + (v.pass ? 'pass' : 'fail'), text: p.pill }),
     ]),
     el('div', { class: 'note', text: `score ${v.score} / threshold ${v.threshold} · budget ${usdc(r.job.budget)} USDC` }),
   ]);
   const right = el('div', { style: 'text-align:right' }, [
-    el('div', { class: 'big', style: `color:${allOk ? 'var(--ok)' : 'var(--bad)'}`, text: allOk ? 'VERIFIED' : 'MISMATCH' }),
-    el('div', { class: 'note', text: allOk ? 'recomputed independently' : 'recomputation disagrees' }),
+    el('div', { class: 'big', style: `color:${p.color}`, text: p.headline }),
+    el('div', { class: 'note', text: p.note }),
   ]);
 
   const box = el('div', { class: 'verdictbox' }, [
     el('div', { class: 'row', style: 'justify-content:space-between' }, [left, right]),
     el('div', { style: 'margin-top:14px' }, r.checks.map(checkRow)),
   ]);
+  const details = detailList(r.results);
+  if (details) box.append(details);
 
-  if (r.deliverableSource) {
-    const p = el('p', { class: 'note', style: 'margin-top:12px' }, [
-      el('span', { text: `Deliverable read from the provider's ${r.deliverableSource}` }),
-    ]);
+  if (p.sourceText) {
+    const para = el('p', { class: 'note', style: 'margin-top:12px' }, [el('span', { text: p.sourceText })]);
     if (r.submitTx) {
-      p.append(el('span', { text: ' (' }), safeLink('submit tx', ex('/tx/' + r.submitTx), CFG.explorer), el('span', { text: ')' }));
+      para.append(el('span', { text: ' (' }), safeLink('submit tx', ex('/tx/' + r.submitTx), CFG.explorer), el('span', { text: ')' }));
     }
-    p.append(el('span', { text: '.' }));
-    box.append(p);
+    para.append(el('span', { text: '.' }));
+    box.append(para);
   }
 
-  if (r.needsDeliverable) {
+  if (p.incompleteText) {
+    box.append(el('p', { class: 'note', style: 'margin-top:12px', text: p.incompleteText }));
+  }
+
+  if (p.canPaste) {
     const ta = el('textarea', { id: 'pasteD', rows: 3, placeholder: 'paste the deliverable text' });
     const btn = el('button', { class: 'ghost', text: 'Verify with pasted text' });
+    // A file is hashed as its exact bytes: the only way to check binary content,
+    // or text whose line endings a text box would normalize.
+    const file = el('input', { id: 'fileD', type: 'file' });
     const out = el('div');
-    btn.addEventListener('click', async () => {
-      btn.disabled = true;
+    const TONE = { ok: 'var(--ok)', warn: 'var(--warn)', bad: 'var(--bad)' };
+    const check = async (input) => {
+      btn.disabled = true; file.disabled = true;
       try {
-        const r2 = await verifyJob(r.jobId, ta.value);
-        const ok2 = r2.checks.every((c) => c.ok);
+        const r2 = await verifyJob(r.jobId, input);
+        const h = pasteHeadline(r2); // never "verified" for an empty or partial check list
+        const src = present(r2).sourceText;
         set(out, [el('div', { class: 'verdictbox' }, [
-          el('div', {
-            class: 'big', style: `color:${ok2 ? 'var(--ok)' : 'var(--bad)'}`,
-            text: ok2 ? 'VERIFIED with pasted deliverable' : 'Pasted content does not match the on-chain commitment',
-          }),
-        ].concat(r2.checks.map(checkRow)))]);
+          el('div', { class: 'big', style: `color:${TONE[h.tone] || TONE.bad}`, text: h.text }),
+        ].concat(r2.checks.map(checkRow), [detailList(r2.results)].filter(Boolean),
+          src ? [el('p', { class: 'note', text: src + '.' })] : []))]);
       } catch (e) {
         set(out, [el('p', { class: 'note', text: e.message })]);
-      } finally { btn.disabled = false; }
+      } finally { btn.disabled = false; file.disabled = false; }
+    };
+    btn.addEventListener('click', () => check(ta.value));
+    file.addEventListener('change', async () => {
+      const f = file.files && file.files[0];
+      if (f) check(new Uint8Array(await f.arrayBuffer()));
     });
     box.append(
-      el('p', {
-        class: 'note', style: 'margin-top:12px',
-        text: "The provider's deliverable is older than the RPC log window, so it could not be pulled "
-          + 'automatically. Paste the deliverable text to finish verifying.',
-      }),
       el('div', { class: 'row', style: 'margin-top:8px' }, [ta]),
-      el('div', { class: 'row', style: 'margin-top:8px' }, [btn]),
+      el('div', { class: 'row', style: 'margin-top:8px' }, [btn, el('span', { class: 'note', text: 'or choose the file:' }), file]),
       out,
     );
   }
@@ -172,8 +190,8 @@ function errBox(title, msg) {
 }
 
 async function run() {
-  const id = parseInt($('#jobInput').value, 10);
-  if (!Number.isFinite(id) || id <= 0) { errBox('Invalid input', 'Enter a numeric job id.'); return; }
+  const id = parseJobId($('#jobInput').value);
+  if (id === null) { errBox('Invalid input', 'Enter a job id as a plain positive number, for example 171925.'); return; }
   $('#goBtn').disabled = true;
   set($('#result'), [el('p', {
     class: 'note',

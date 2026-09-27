@@ -1,89 +1,90 @@
 #!/usr/bin/env node
-// judge verify <jobId> — independently RECOMPUTE a verdict and check it against
-// the on-chain record. This is the point of the whole design: a third party who
-// trusts nobody can re-derive the verdict from public inputs and confirm the
-// judge did not lie. It uses only public data (the job description on the ACP,
-// the deliverable the provider committed) — no access to the judge's server.
+// Independently recompute a Judge Protocol verdict from public chain data.
 //
-//   node src/verify.js <jobId> [--evidence path/to/job-*.json]
+//   node judge-service/src/verify.js <jobId> [--deliverable <file>] [--evidence <file>] [--rpc <url>] [--probe]
 //
-// It:
-//   1. reads the job from the canonical ACP (criteria live in the description)
-//   2. re-resolves the deliverable and checks it hashes to the committed bytes32
-//   3. re-runs the deterministic checkers → recomputes score/pass/threshold
-//   4. recomputes evidenceHash over the canonical core
-//   5. reads the on-chain verdict and asserts recomputed == recorded
-
-import { createPublicClient, http, keccak256 } from "viem";
+// This is a command-line front end over the SAME verification code the
+// in-browser verifier runs (web/app.js), so the page and the CLI can never
+// disagree. It needs no keys, no .env and no access to the judge's server:
+//   1. reads the job and the signed verdict from chain
+//   2. checks the criteria are well-formed and hash to the verdict's criteriaHash
+//   3. finds the provider's own JobSubmitted log and binds the verdict to the
+//      provider's on-chain commitment
+//   4. loads the deliverable (provider calldata, else the job description, else
+//      --deliverable / --evidence) and checks it hashes to that commitment
+//   5. re-runs the deterministic checkers and recomputes score, decision and
+//      evidenceHash, and compares them with the on-chain verdict
+//
+// --deliverable <file>  raw bytes of the deliverable (for https/ipfs deliverables)
+// --evidence <file>     a judge evidence JSON; only its deliverableURI is used, as a hint
+// --rpc <url>           JSON-RPC endpoint (default: ARC_RPC_URL or https://rpc.testnet.arc.io)
+// --probe               re-run any http-endpoint probe NOW (the endpoint as it is today,
+//                       not as the judge saw it, so it can differ from the verdict)
+//
+// Exit codes: 0 verified, 1 mismatch or error, 2 usage, 3 incomplete or not replayable.
 import fs from "node:fs";
-import { config } from "./config.js";
-import { acpAbi, judgeAbi, STATUS } from "./abi.js";
-import { extractCriteria, criteriaHash } from "./criteria.js";
-import { extractDeliverableURI, resolveDeliverable, evidenceHashOf } from "./evidence.js";
-import { runAllChecks } from "./checkers/index.js";
 
-async function main() {
-  const jobId = BigInt(process.argv[2] || 0);
-  if (!jobId) { console.error("usage: node src/verify.js <jobId> [--evidence file]"); process.exit(2); }
-  const evIdx = process.argv.indexOf("--evidence");
-  const evFile = evIdx > -1 ? process.argv[evIdx + 1] : null;
+const app = await import(new URL("../../web/app.js", import.meta.url).href);
+const { present } = await import(new URL("../../web/present.js", import.meta.url).href);
 
-  const pub = createPublicClient({ chain: config.chain, transport: http(config.rpcUrl) });
-  const ok = (b) => (b ? "\x1b[32m✓\x1b[0m" : "\x1b[31m✗\x1b[0m");
-  let allPass = true;
-  const check = (label, cond, extra = "") => { allPass = allPass && cond; console.log(`  ${ok(cond)} ${label}${extra ? "  " + extra : ""}`); };
+const argv = process.argv.slice(2);
+const opt = (name) => { const i = argv.indexOf(name); return i > -1 ? argv[i + 1] : null; };
+const jobId = app.parseJobId(argv[0] ?? "");
+if (jobId === null) {
+  console.error("usage: node judge-service/src/verify.js <jobId> [--deliverable file] [--evidence file] [--rpc url] [--probe]");
+  process.exit(2);
+}
+app.CFG.rpc = opt("--rpc") || process.env.ARC_RPC_URL || app.CFG.directRpc;
 
-  console.log(`\nVerifying job ${jobId} on ${config.rpcUrl}`);
-  console.log(`  ACP=${config.acpAddress}\n  Judge=${config.judgeAddress}\n`);
+const color = { ok: "\x1b[32m", bad: "\x1b[31m", warn: "\x1b[33m", dim: "\x1b[2m", off: "\x1b[0m" };
+const tint = (c, s) => (process.stdout.isTTY ? color[c] + s + color.off : s);
 
-  // 1. Read the job + on-chain verdict.
-  const job = await pub.readContract({ address: config.acpAddress, abi: acpAbi, functionName: "getJob", args: [jobId] });
-  const onchain = await pub.readContract({ address: config.judgeAddress, abi: judgeAbi, functionName: "getVerdict", args: [jobId] });
-  if (onchain.timestamp === 0n) { console.error(`No on-chain verdict recorded for job ${jobId}.`); process.exit(1); }
-  console.log(`Job status: ${STATUS[Number(job.status)]} · on-chain verdict: ${onchain.pass ? "PASS" : "REJECT"} score=${onchain.score} threshold=${onchain.threshold}\n`);
-
-  // 2. Recompute criteriaHash from the (immutable) job description.
-  const criteria = extractCriteria(job.description);
-  if (!criteria) { console.error("No judge-criteria block in job description — cannot verify."); process.exit(1); }
-  const cHash = criteriaHash(criteria);
-  check("criteriaHash recomputed from description matches signed verdict", cHash.toLowerCase() === onchain.criteriaHash.toLowerCase(), `\n      recomputed=${cHash}\n      onchain   =${onchain.criteriaHash}`);
-
-  // 3. Re-resolve deliverable and bind to the on-chain commitment.
-  //    (Provider-authored deliverables live in submit optParams; for verification
-  //    we accept an explicit --evidence file's URL or the description fallback.)
-  let deliverable, resolvedFrom = "description";
-  let uri = extractDeliverableURI(job.description);
-  if (evFile && fs.existsSync(evFile)) {
-    const ev = JSON.parse(fs.readFileSync(evFile, "utf8"));
-    // A provider-authored deliverable lives in the submit calldata, recorded in
-    // evidence as deliverableURI. The bytes32 commitment below is what makes
-    // trusting the evidence file unnecessary: if the recorded URI's content does
-    // not hash to the on-chain commitment, verification fails loudly.
-    if (ev.deliverableURI) { uri = ev.deliverableURI; resolvedFrom = "evidence.deliverableURI"; }
-    else if (ev.deliverableURL) { uri = ev.deliverableURL; resolvedFrom = "evidence.deliverableURL"; }
-  }
-  if (!uri) { console.error("No deliverable URI found (description or --evidence). Provide --evidence."); process.exit(1); }
-  try { deliverable = await resolveDeliverable(uri); }
-  catch (e) { console.error(`deliverable resolution failed: ${e.message}`); process.exit(1); }
-
-  const contentHash = keccak256(deliverable.content);
-  check(`deliverable content (${resolvedFrom}) hashes to the committed bytes32`, contentHash.toLowerCase() === onchain.deliverable.toLowerCase(), `\n      recomputed=${contentHash}\n      committed =${onchain.deliverable}`);
-
-  // 4. Re-run checkers and recompute the verdict.
-  const { results, score, pass, threshold } = await runAllChecks(criteria, deliverable);
-  check(`score recomputed = on-chain score`, score === Number(onchain.score), `(recomputed ${score}, onchain ${onchain.score})`);
-  check(`threshold recomputed = on-chain threshold`, threshold === Number(onchain.threshold), `(recomputed ${threshold}, onchain ${onchain.threshold})`);
-  check(`pass/reject decision matches`, pass === onchain.pass, `(recomputed ${pass}, onchain ${onchain.pass})`);
-
-  // 5. Recompute evidenceHash over the canonical core and compare on-chain.
-  const recomputedEvidence = evidenceHashOf({
-    jobId: jobId.toString(), criteriaHash: cHash, deliverable: onchain.deliverable,
-    criteria, results, score, threshold, pass,
-  });
-  check("evidenceHash recomputed from inputs = on-chain evidenceHash", recomputedEvidence.toLowerCase() === onchain.evidenceHash.toLowerCase(), `\n      recomputed=${recomputedEvidence}\n      onchain   =${onchain.evidenceHash}`);
-
-  console.log(`\n${allPass ? "\x1b[32mVERDICT VERIFIED — recomputed independently from public inputs.\x1b[0m" : "\x1b[31mVERIFICATION FAILED — recomputation does not match the on-chain record.\x1b[0m"}\n`);
-  process.exit(allPass ? 0 : 1);
+async function deliverableFromArgs() {
+  const file = opt("--deliverable");
+  if (file) return new Uint8Array(fs.readFileSync(file));
+  const ev = opt("--evidence");
+  if (!ev) return undefined;
+  const uri = JSON.parse(fs.readFileSync(ev, "utf8")).deliverableURI;
+  if (!uri) return undefined;
+  if (uri.startsWith("data:")) return app.resolveDataUri(uri);
+  // A remote URI from an evidence file is only a hint: whatever it returns must
+  // still hash to the provider's on-chain commitment to count.
+  const { resolveDeliverable } = await import("./evidence.js");
+  return new Uint8Array((await resolveDeliverable(uri)).content);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+async function main() {
+  console.log(`\nVerifying job ${jobId}\n  rpc   ${app.CFG.rpc}\n  judge ${app.CFG.judge}\n  acp   ${app.CFG.acp}\n`);
+  const r = await app.verifyJob(jobId, await deliverableFromArgs());
+  const p = present(r);
+  if (p.state === "error") {
+    console.log(tint("bad", `ERROR: ${r.error}`));
+    return 1;
+  }
+  const v = r.verdict;
+  console.log(`On-chain verdict: ${p.pill}, score ${v.score} / threshold ${v.threshold}\n`);
+  for (const c of r.checks) {
+    console.log(`  ${c.ok ? tint("ok", "✓") : tint("bad", "✗")} ${c.label}`);
+    if (c.got && c.want && c.got !== c.want) console.log(tint("dim", `      recomputed ${c.got}\n      on-chain   ${c.want}`));
+  }
+  for (const x of r.results || []) {
+    console.log(tint("dim", `  ${x.kind}: ${x.unsupported ? "not replayable" : x.pass ? "pass" : "fail"}, ${x.detail}`));
+  }
+  if (p.sourceText) console.log(`\n${p.sourceText}.`);
+  if (p.incompleteText) console.log(`\n${p.incompleteText}`);
+
+  if (argv.includes("--probe") && r.unsupported) {
+    const { runCheck } = await import("./checkers/index.js");
+    console.log(tint("warn", "\nRe-running the live probe NOW (today's endpoint, not what the judge saw):"));
+    for (const c of r.criteria.checks.filter((k) => k.kind === "http-endpoint")) {
+      const res = await runCheck(c, { content: Buffer.from(r.deliverable || "", "utf8") });
+      console.log(`  http-endpoint: ${res.pass ? "pass" : "fail"}, ${res.detail}`);
+    }
+  }
+
+  const tone = p.state === "verified" ? "ok" : p.state === "mismatch" ? "bad" : "warn";
+  console.log(`\n${tint(tone, p.headline)}: ${p.note}\n`);
+  return p.state === "verified" ? 0 : p.state === "mismatch" ? 1 : 3;
+}
+
+main().then((code) => process.exit(code), (e) => { console.error(tint("bad", `ERROR: ${e.message}`)); process.exit(1); });
