@@ -53,6 +53,9 @@ test("the paid path is documented with the terms the code actually charges", asy
   assert.match(INTEGRATION_MD, /before it signs anything/i);
   assert.match(INTEGRATION_MD, /not the amount your client signed/i, "clients must be told what proves a charge");
   assert.doesNotMatch(INTEGRATION_MD, /charged only when a verdict lands/i, "the old promise is gone");
+  for (const f of ["README.md", "judge-service/public/index.html", "judge-service/api/x402/judge.js", "judge-service/src/x402.js", "skills/judge-protocol/SKILL.md"]) {
+    assert.doesNotMatch(read(f), /charged only when a verdict lands|verdict lands on chain\)/i, `${f} still makes the old promise`);
+  }
   assert.match(INTEGRATION_MD, /free[^.]*POST \/api\/judge/i, "the free path must stay documented");
 });
 

@@ -1,6 +1,6 @@
 // POST /api/x402/judge  { "jobId": "123", "submitTx": "0x..." (optional) }
 //   A ruling paid over x402: 0.01 USDC through Circle Gateway on Arc testnet,
-//   charged only when a verdict lands on chain. A job the judge can rule gets
+//   settled only once the judge has a verdict ready, before it signs. A job it can rule gets
 //   402 with the terms until a payment-signature header comes with it; any
 //   other job is answered for free. The free POST /api/judge still works.
 import { createPaidJudge, PRICE_LABEL, ARC_TESTNET_NETWORK } from "../../src/x402.js";
@@ -19,7 +19,7 @@ export function createX402JudgeHandler(opts = {}) {
     res.setHeader("access-control-expose-headers", "PAYMENT-REQUIRED, PAYMENT-RESPONSE");
     if (req.method === "OPTIONS") { res.status(204).end(); return; }
     if (req.method !== "POST") {
-      res.status(405).json({ error: "use POST {\"jobId\": \"<id>\"} from an x402 client", price: `${PRICE_LABEL} per ruling, charged only when a verdict lands`,
+      res.status(405).json({ error: "use POST {\"jobId\": \"<id>\"} from an x402 client", price: `${PRICE_LABEL} per ruling, settled only once a verdict is ready`,
         network: ARC_TESTNET_NETWORK, settlement: "Circle Gateway (batched)", free: "POST /api/judge (testnet)" });
       return;
     }

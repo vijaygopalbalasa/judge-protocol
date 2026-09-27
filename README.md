@@ -71,7 +71,7 @@ curl -X POST https://judge-protocol-api.vercel.app/api/judge \
 `GET /api/judge?jobId=<id>` reads the status; `GET /api/health` shows the signer and its gas;
 `POST /api/evaluate` is a dry run (never signs or settles) for self-checks and for teams on their
 own escrow; `POST /api/x402/judge` is the same ruling paid over x402 (0.01 USDC through Circle
-Gateway, charged only when a verdict lands on chain).
+Gateway, settled only once the judge has a verdict ready, before it signs).
 
 - **Kit:** [`kit/judge-kit.js`](kit/judge-kit.js), one file that depends only on viem;
   [`kit/example.js`](kit/example.js) runs the whole flow on Arc testnet.
