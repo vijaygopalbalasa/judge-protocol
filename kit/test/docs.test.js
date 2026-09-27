@@ -92,3 +92,14 @@ test("CRITERIA.md states every bound the judge enforces, with the code's own num
     assert.ok(CRITERIA_MD.includes(phrase), `CRITERIA.md must say: ${phrase}`);
   }
 });
+
+test("the ERC-8004 registration (agent 870004's live profile) matches what the service offers", () => {
+  const reg = JSON.parse(read("docs/agent-registration.json"));
+  assert.equal(reg.x402Support, true, "paid rulings over x402 are live");
+  const endpoints = reg.services.map((s) => s.endpoint);
+  for (const u of [kit.ARC_TESTNET.api, kit.ARC_TESTNET.verifier, `${kit.ARC_TESTNET.api}/api/x402/judge`]) assert.ok(endpoints.includes(u), u);
+  assert.match(reg.description, /testnet/i);
+  assert.match(reg.description, /no uptime guarantee/i);
+  assert.ok(!JSON.stringify(reg).includes("—"), "no em dashes");
+  assert.equal(reg.registrations[0].agentId, 870004);
+});

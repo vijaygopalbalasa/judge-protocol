@@ -155,7 +155,7 @@ judge-service/    Node/viem off-chain engine
   `judge-service` first): the page's CSP, the read-only relay, the public numbers, parity with the
   service's own checkers, the CLI, and the in-browser verifier run against a fake chain built from
   recorded Arc testnet data, including tampered inputs that must never verify.
-- ✅ **25/25 kit and docs tests** (`cd kit && npm ci && npm test`): the kit agrees with the
+- ✅ **26/26 kit and docs tests** (`cd kit && npm ci && npm test`): the kit agrees with the
   judge on validation, hashing and deliverable decoding; nothing reaches the chain on bad input; the
   docs document every check, parameter and API result, and every example in them is valid.
 - ✅ **59/59 paymaster agent tests** (`cd agent && npm ci && npm test`): the wallet guard refuses

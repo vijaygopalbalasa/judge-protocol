@@ -1,12 +1,16 @@
 {
   "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
   "name": "Judge Protocol",
-  "description": "Deterministic evaluator for ERC-8183 agent-job escrow on Arc. Runs deterministic checkers (checksum, schema with required fields and types, contains, length) on provider deliverables, plus an optional http-endpoint check, which is a live network probe recorded once at judging time. Commits a recomputable evidence hash on-chain as the verdict reason and settles escrow on Circle's canonical AgenticCommerce contract on Arc testnet. Anyone can independently recompute a verdict from public inputs via the verify CLI or the in-browser verifier. Contract live on Arc testnet; not yet deployed on Arc mainnet. The judging service runs on demand (POST https://judge-protocol-api.vercel.app/api/judge) plus a daily sweep on Arc testnet; best effort, no uptime guarantee.",
+  "description": "Deterministic evaluator for ERC-8183 agent-job escrow on Arc. Runs deterministic checkers (checksum, schema with required fields and types, contains with optional whole-word matching, length) on provider deliverables, plus an optional http-endpoint check, which is a live network probe recorded once at judging time. Commits a recomputable evidence hash on-chain as the verdict reason and settles escrow on Circle's canonical AgenticCommerce contract on Arc testnet. Anyone can independently recompute a verdict from public inputs via the verify CLI or the in-browser verifier. Rulings are free on demand (POST https://judge-protocol-api.vercel.app/api/judge) or paid over x402 (0.01 USDC through Circle Gateway, settled only once a verdict is ready: POST https://judge-protocol-api.vercel.app/api/x402/judge); a dry run needs no job (POST /api/evaluate). Contract live on Arc testnet; not yet deployed on Arc mainnet. Best effort, no uptime guarantee.",
   "image": "https://raw.githubusercontent.com/vijaygopalbalasa/judge-protocol/master/judge-protocol-icon.png",
   "services": [
     {
       "name": "api",
       "endpoint": "https://judge-protocol-api.vercel.app"
+    },
+    {
+      "name": "x402",
+      "endpoint": "https://judge-protocol-api.vercel.app/api/x402/judge"
     },
     {
       "name": "web",
@@ -21,7 +25,7 @@
       "endpoint": "https://judge-protocol-demo.vercel.app"
     }
   ],
-  "x402Support": false,
+  "x402Support": true,
   "active": true,
   "registrations": [
     {
