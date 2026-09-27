@@ -87,3 +87,17 @@ test('a job whose evaluator is the zero address reads as no such job, with no bu
 test('the page knows where the judge API is', () => {
   assert.equal(app.CFG.judgeApi, 'https://judge-protocol-api.vercel.app');
 });
+
+test('an unknown job id reads as no such job, from the all-zero job the real contract returns', async () => {
+  const r = await verify({}, 987654321);
+  assert.equal(app.outcome(r), 'error');
+  assert.match(r.error, /No such job/);
+});
+
+test('a job read that fails is an error to try again, never "No such job"', async () => {
+  const jobs = await synthJob({ id: 940009, criteria: LEN, content: TEXT, noVerdict: true });
+  globalThis.fetch = fakeChain({ extraJobs: jobs, jobError: 'rate limit exceeded' }).fetch;
+  const r = await app.verifyJob(940009).catch((e) => ({ jobId: 940009, checks: [], error: e.message }));
+  assert.doesNotMatch(r.error || '', /No such job/);
+  assert.match(r.error || '', /rate limit/);
+});

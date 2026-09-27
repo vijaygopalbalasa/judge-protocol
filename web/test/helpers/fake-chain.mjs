@@ -86,7 +86,10 @@ export function fakeChain(m = {}) {
           return { result: m.verdict ? m.verdict(id, v) : v };
         }
         if (to.toLowerCase() === ACP && data.startsWith(SEL_GET_JOB)) {
-          if (!j) return { error: { code: 3, message: 'execution reverted' } };
+          if (m.jobError) return { error: { code: -32005, message: m.jobError } };
+          // Like the real ACP (checked on Arc testnet): an unknown id is not a
+          // revert, it is an all-zero job with an empty description.
+          if (!j) return { result: '0x' + [0x20, 0, 0, 0, 0, 0x120, 0, 0, 0, 0, 0].map((w) => w.toString(16).padStart(64, '0')).join('') };
           return { result: m.job ? m.job(id, j.getJob) : j.getJob };
         }
         return { error: { code: -32601, message: 'fake chain: unknown eth_call ' + data.slice(0, 10) } };

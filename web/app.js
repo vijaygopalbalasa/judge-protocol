@@ -542,16 +542,17 @@ export async function fetchProviderSubmission(jobId, verdictTimestamp) {
  */
 export async function verifyJob(jobId, pastedDeliverable) {
   const out = { jobId, checks: [], job: null, verdict: null };
-  // The verdict decides whether there is anything to verify; a missing or
-  // unreadable job only matters once a verdict exists.
+  // A read that fails is the RPC failing, never an answer: an unknown id reads
+  // as an all-zero job, so only that means "no such job".
   const [jobRes, verdictRes] = await Promise.allSettled([getJob(jobId), getVerdict(jobId)]);
   if (verdictRes.status === 'rejected') throw verdictRes.reason;
+  if (jobRes.status === 'rejected') throw jobRes.reason;
   const verdict = verdictRes.value;
   out.verdict = verdict;
   if (!verdict || verdict.timestamp === 0) {
     // No ruling yet. Say exactly why, and whether asking the judge could help.
     out.verdict = null;
-    const job = jobRes.status === 'fulfilled' ? jobRes.value : null;
+    const job = jobRes.value;
     if (!job || /^0x0{40}$/i.test(job.evaluator || '')) { out.error = 'No such job on the ERC-8183 contract.'; return out; }
     out.job = job;
     if (job.evaluator.toLowerCase() !== CFG.judge.toLowerCase()) {
@@ -564,7 +565,6 @@ export async function verifyJob(jobId, pastedDeliverable) {
     out.error = 'No on-chain verdict recorded for this job.';
     return out;
   }
-  if (jobRes.status === 'rejected') throw jobRes.reason;
   const job = jobRes.value;
   out.job = job;
   if (!job) { out.error = 'Job not found on the canonical contract.'; return out; }
