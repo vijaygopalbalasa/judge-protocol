@@ -19,3 +19,6 @@ judge-service/state/
 # OS / editor
 .DS_Store
 *.swp
+
+# paymaster: local high-water marks of decision logs (safety files, not evidence)
+agent/runs/*.head

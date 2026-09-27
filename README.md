@@ -158,7 +158,7 @@ judge-service/    Node/viem off-chain engine
 - ✅ **25/25 kit and docs tests** (`cd kit && npm ci && npm test`): the kit agrees with the
   judge on validation, hashing and deliverable decoding; nothing reaches the chain on bad input; the
   docs document every check, parameter and API result, and every example in them is valid.
-- ✅ **57/57 paymaster agent tests** (`cd agent && npm ci && npm test`): the wallet guard refuses
+- ✅ **59/59 paymaster agent tests** (`cd agent && npm ci && npm test`): the wallet guard refuses
   everything but creating, funding and reclaiming judged escrow; hard spend caps and the approval
   band; the drafter refuses to guess; records come only from on-chain verdicts; a lying judge reply
   halts the run; a rerun never pays twice; the judge port against the real x402 handler.

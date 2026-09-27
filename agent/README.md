@@ -56,7 +56,7 @@ funded; one who never quotes costs nothing.
 
 ```bash
 cd agent && npm ci
-npm test                                           # 57 tests, no network
+npm test                                           # 59 tests, no network
 PAYMASTER_KEY=0x... PROVIDER_KEY=0x... CONTRACTOR_B_KEY=0x... node run.js briefs/demo.json
 node approve.js briefs/demo.json review --by "<name>" --note "<why>"
 node verify-log.js runs/arc-docs-sprint-demo.jsonl  # no keys needed

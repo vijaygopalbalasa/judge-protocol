@@ -249,3 +249,11 @@ test("a crash after the work was submitted: the rerun asks for the ruling and fi
   assert.equal(again.milestones[0].outcome, "paid", JSON.stringify(again.milestones[0]));
   assert.equal(s.w.calls.filter((c) => c.fn === "createJob").length, 3 + 1, "the same job was finished, not a new one");
 });
+
+test("a logger that throws cannot interrupt a payment flow", async () => {
+  const s = await setup();
+  const out = await runProject({ brief: s.brief([TEXT_MS("m1", "0.10")]), ports: s.ports, ledger: s.ledger, history: s.historyIds,
+    log: () => { throw new Error("TypeError: Do not know how to serialize a BigInt"); } });
+  assert.equal(out.milestones[0].outcome, "paid");
+  assert.equal(verifyLedger(s.ledger.entries).ok, true);
+});

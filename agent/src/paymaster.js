@@ -70,7 +70,10 @@ export async function runProject({ brief, ports, ledger, history = [], approvals
   }
   const { state, paid: alreadyPaid, jobIds: loggedJobs, approved } = replay(ledger);
   const ctx = { policy, state, approvals: [...approvals, ...approved], allowlist };
-  const note = (type, data) => { ledger.append(type, data); log(type, data); };
+  const note = (type, data) => {
+    ledger.append(type, data);
+    try { log(type, data); } catch { /* a display problem must never interrupt a payment flow */ }
+  };
   const judgeAddress = ports.judgeAddress ?? "0x6EFF7d4BB514d341AbEd90bF4c667d0A980173AD";
   const byId = new Map(brief.milestones.map((m) => [m.id, m]));
 
