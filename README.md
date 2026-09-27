@@ -68,7 +68,16 @@ curl -X POST https://judge-protocol-api.vercel.app/api/judge \
   -H 'content-type: application/json' -d '{"jobId":"<id>","submitTx":"<provider submit tx hash>"}'
 ```
 
-`GET /api/judge?jobId=<id>` reads the status; `GET /api/health` shows the signer and its gas.
+`GET /api/judge?jobId=<id>` reads the status; `GET /api/health` shows the signer and its gas;
+`POST /api/evaluate` is a dry run (never signs or settles) for self-checks and for teams on their
+own escrow.
+
+- **Kit:** [`kit/judge-kit.js`](kit/judge-kit.js), one file that depends only on viem;
+  [`kit/example.js`](kit/example.js) runs the whole flow on Arc testnet.
+- **Guide:** [`docs/INTEGRATION.md`](docs/INTEGRATION.md) (about 10 minutes) and the
+  [criteria reference](docs/CRITERIA.md).
+- **Agent skill:** [`skills/judge-protocol/SKILL.md`](skills/judge-protocol/SKILL.md) teaches a coding
+  agent to write criteria, create judged jobs and check rulings.
 
 ## How it works
 
@@ -120,7 +129,7 @@ judge-service/    Node/viem off-chain engine
   src/verify.js                 independent verdict recomputation CLI
   src/measure-acp.js            on-chain ERC-8183 market measurement
   api/                          hosted judge (Vercel): /api/judge, /api/health, /api/cron/sweep
-  test/                         72 unit tests (checker gate, SSRF, evidence determinism, hosted judge)
+  test/                         83 unit tests (checker gate, SSRF, evidence determinism, hosted judge)
   evidence/                     recomputable verdict evidence (public audit trail)
 ```
 
@@ -131,13 +140,16 @@ judge-service/    Node/viem off-chain engine
   verdict, threshold enforcement, criteria-registration gating, withdraw auth, and the full
   hook feedback flow (7 hook tests; the hook decode bug that these now cover was previously
   untested).
-- ✅ **72/72 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
+- ✅ **83/83 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
   criteria defects, SSRF denylist with DNS pinning, evidence-hash determinism, and the hosted judge
   (on-demand rulings, races, reverted transactions, the daily sweep).
-- ✅ **91/91 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
+- ✅ **98/98 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
   `judge-service` first): the page's CSP, the read-only relay, the public numbers, parity with the
   service's own checkers, the CLI, and the in-browser verifier run against a fake chain built from
   recorded Arc testnet data, including tampered inputs that must never verify.
+- ✅ **20/20 kit and docs tests** (`cd kit && npm ci && npm test`): the kit agrees with the
+  judge on validation, hashing and deliverable decoding; nothing reaches the chain on bad input; the
+  docs document every check, parameter and API result, and every example in them is valid.
 - ✅ **Hosted judge** at https://judge-protocol-api.vercel.app: an on-demand API
   (`POST /api/judge`) plus a daily safety sweep. Best effort, no uptime guarantee; if it does not
   rule, `claimRefund` after `expiredAt` is the protocol backstop.
@@ -151,7 +163,7 @@ judge-service/    Node/viem off-chain engine
 cd contracts && git submodule update --init --recursive && forge test   # 27/27
 
 # service
-cd ../judge-service && npm install && npm test                          # 72/72
+cd ../judge-service && npm install && npm test                          # 83/83
 
 # run the judge against Arc testnet (needs a funded .env, see .env.example)
 node --env-file=.env src/index.js

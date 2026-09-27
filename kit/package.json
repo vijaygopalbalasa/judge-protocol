@@ -1,0 +1,13 @@
+{
+  "name": "@judgeprotocol/kit",
+  "version": "0.1.0",
+  "description": "Plug Judge Protocol into an ERC-8183 job on Arc: criteria, deliverables, rulings, dry runs.",
+  "type": "module",
+  "main": "judge-kit.js",
+  "exports": { ".": "./judge-kit.js" },
+  "files": ["judge-kit.js", "example.js", "README.md"],
+  "license": "MIT",
+  "peerDependencies": { "viem": "^2.21.0" },
+  "devDependencies": { "viem": "^2.55.11" },
+  "scripts": { "test": "node --test 'test/*.test.js'" }
+}

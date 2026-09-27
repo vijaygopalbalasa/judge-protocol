@@ -53,6 +53,24 @@ jobs:
       - name: test
         run: node --test 'web/test/*.test.mjs'
 
+  kit:
+    name: Kit and docs (node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: install service deps (parity tests import the service's own code)
+        working-directory: judge-service
+        run: npm ci
+      - name: install kit deps
+        working-directory: kit
+        run: npm ci
+      - name: test
+        working-directory: kit
+        run: npm test
+
   secrets:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
