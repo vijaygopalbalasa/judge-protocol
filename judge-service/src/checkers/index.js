@@ -109,7 +109,7 @@ const isStringList = (v) => Array.isArray(v) && v.length <= LIMITS.terms
 const isNumberIn = (v, lo, hi) => typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi;
 
 /** True if any object or array nests deeper than `limit` (the root is level 1). No recursion, so no input can overflow the stack. */
-function nestsDeeperThan(value, limit) {
+export function nestsDeeperThan(value, limit) {
   const stack = [[value, 1]];
   while (stack.length) {
     const [v, d] = stack.pop();

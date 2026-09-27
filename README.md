@@ -131,7 +131,7 @@ judge-service/    Node/viem off-chain engine
   src/measure-acp.js            on-chain ERC-8183 market measurement
   api/                          hosted judge (Vercel): /api/judge, /api/x402/judge, /api/evaluate,
                                 /api/health, /api/cron/sweep
-  test/                         107 unit tests (checker gate, SSRF, evidence determinism, hosted judge, x402)
+  test/                         108 unit tests (checker gate, SSRF, evidence determinism, hosted judge, x402)
   evidence/                     recomputable verdict evidence (public audit trail)
 ```
 
@@ -142,7 +142,7 @@ judge-service/    Node/viem off-chain engine
   verdict, threshold enforcement, criteria-registration gating, withdraw auth, and the full
   hook feedback flow (7 hook tests; the hook decode bug that these now cover was previously
   untested).
-- ✅ **107/107 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
+- ✅ **108/108 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
   criteria defects, SSRF denylist with DNS pinning, evidence-hash determinism, and the hosted judge
   (on-demand rulings, races, reverted transactions, the daily sweep), and paid rulings over x402
   (payments signed by Circle's own client; nobody is charged without a verdict).
@@ -166,7 +166,7 @@ judge-service/    Node/viem off-chain engine
 cd contracts && git submodule update --init --recursive && forge test   # 27/27
 
 # service
-cd ../judge-service && npm install && npm test                          # 107/107
+cd ../judge-service && npm install && npm test                          # 108/108
 
 # run the judge against Arc testnet (needs a funded .env, see .env.example)
 node --env-file=.env src/index.js

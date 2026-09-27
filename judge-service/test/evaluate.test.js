@@ -162,15 +162,26 @@ void toHex;
 
 test("malformed params are a 422 from the dry run, never a 500", async () => {
   const h = createEvaluateHandler();
-  for (const criteria of [
-    { checks: [{ kind: "contains", params: { all: "ERC" } }] },
-    { checks: [{ kind: "schema", params: { required: "id" } }] },
-    JSON.parse((await import("./helpers/criteria-cases.js")).DEEP_TEXT),
+  const { DEEP_TEXT } = await import("./helpers/criteria-cases.js");
+  for (const raw of [
+    '{"checks":[{"kind":"contains","params":{"all":"ERC"}}]}',
+    '{"checks":[{"kind":"schema","params":{"required":"id"}}]}',
+    DEEP_TEXT,
   ]) {
-    const r = await call(h, { body: { criteria, deliverable: "ERC text {\"id\":1}" } });
+    // Sent the way a real client sends it: with a content-length.
+    const text = `{"criteria":${raw},"deliverable":"ERC text"}`;
+    const r = await call(h, { body: JSON.parse(text), headers: { "content-length": String(Buffer.byteLength(text)) } });
     assert.equal(r.code, 422, JSON.stringify(r.payload).slice(0, 200));
     assert.equal(r.payload.valid, false);
   }
+});
+
+test("a chunked request that nests absurdly deep is refused plainly (400), the same on every Node version", async () => {
+  const h = createEvaluateHandler();
+  const { DEEP_TEXT } = await import("./helpers/criteria-cases.js");
+  const r = await call(h, { body: JSON.parse(`{"criteria":${DEEP_TEXT},"deliverable":"x"}`) });
+  assert.equal(r.code, 400);
+  assert.match(r.payload.error, /nests too deeply/);
 });
 
 test("a request without content-length (chunked) is still held to the size cap", async () => {
