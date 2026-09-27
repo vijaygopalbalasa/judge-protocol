@@ -1,5 +1,5 @@
 // Persistent watcher cursor. The block cursor survives restarts so a job
-// submitted while the service was down is still picked up — without this,
+// submitted while the service was down is still picked up; without this,
 // anything older than the boot-time lookback window was silently missed.
 import fs from "node:fs";
 import path from "node:path";
@@ -9,7 +9,7 @@ export function loadCursor(file) {
   try {
     const { block } = JSON.parse(fs.readFileSync(file, "utf8"));
     if (typeof block === "string" && /^\d+$/.test(block)) return BigInt(block);
-  } catch { /* missing or corrupt — caller falls back to a bounded lookback */ }
+  } catch { /* missing or corrupt; caller falls back to a bounded lookback */ }
   return null;
 }
 

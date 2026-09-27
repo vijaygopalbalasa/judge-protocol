@@ -1,7 +1,7 @@
 {
   "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
   "name": "Judge Protocol",
-  "description": "Deterministic evaluator for ERC-8183 agent-job escrow on Arc. Runs reproducible checkers (checksum, json-schema, contains, length, http) on provider deliverables, commits a recomputable evidence hash on-chain as the verdict reason, and settles escrow on Circle's canonical AgenticCommerce contract. Anyone can independently recompute a verdict from public inputs via the verify CLI or the in-browser verifier. Live on Arc testnet, day-one ready for Arc mainnet.",
+  "description": "Deterministic evaluator for ERC-8183 agent-job escrow on Arc. Runs deterministic checkers (checksum, schema with required fields and types, contains, length) on provider deliverables, plus an optional http-endpoint check, which is a live network probe recorded once at judging time. Commits a recomputable evidence hash on-chain as the verdict reason and settles escrow on Circle's canonical AgenticCommerce contract on Arc testnet. Anyone can independently recompute a verdict from public inputs via the verify CLI or the in-browser verifier. Contract live on Arc testnet; not yet deployed on Arc mainnet. The judging service is currently offline (last verdict Aug 7, 2026).",
   "image": "https://raw.githubusercontent.com/vijaygopalbalasa/judge-protocol/master/judge-protocol-icon.png",
   "services": [
     {
@@ -18,8 +18,13 @@
     }
   ],
   "x402Support": false,
-  "active": true,
-  "registrations": [],
+  "active": false,
+  "registrations": [
+    {
+      "agentId": 870004,
+      "agentRegistry": "eip155:5042002:0x8004A818BFB912233c491871b3d84c89A494BD9e"
+    }
+  ],
   "supportedTrust": [
     "reputation"
   ]

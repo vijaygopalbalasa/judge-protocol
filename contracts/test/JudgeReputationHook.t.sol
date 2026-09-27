@@ -8,7 +8,7 @@ import "../src/mocks/MockUSDC.sol";
 import "../src/interfaces/IReputationRegistry.sol";
 
 /// @notice Records giveFeedback calls so tests can assert the hook posts correct
-///         feedback — and, critically, that the afterAction data decode matches
+///         feedback, and, critically, that the afterAction data decode matches
 ///         what the ACP actually encodes: (address, bytes32, bytes).
 contract MockReputationRegistry is IReputationRegistry {
     struct Call { uint256 agentId; uint8 score; bytes32 tag1; bytes32 tag2; bytes32 filehash; }
@@ -67,7 +67,7 @@ contract JudgeReputationHookTest is Test {
 
     /// The regression test for the decode bug: BEFORE the fix, afterAction
     /// decoded (bytes32,bytes) against ACP's (address,bytes32,bytes) encoding,
-    /// which reverts — and because complete() calls the hook, it would brick the
+    /// which reverts, and because complete() calls the hook, it would brick the
     /// settlement. This asserts a real complete() flows through the hook and
     /// posts feedback with the correct evidence hash.
     function test_afterComplete_postsFeedback_withCorrectDecode() public {
@@ -98,7 +98,7 @@ contract JudgeReputationHookTest is Test {
     }
 
     /// A failing registry must never roll back a settlement that already moved
-    /// funds — the try/catch swallows it.
+    /// funds; the try/catch swallows it.
     function test_registryRevert_doesNotBrickSettlement() public {
         registry.setRevert(true);
         uint256 jobId = _jobToSubmitted();

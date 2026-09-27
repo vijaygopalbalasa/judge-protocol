@@ -4,7 +4,7 @@
 //   GET  /verdict/:jobId     on-chain verdict readback from JudgeEvaluator
 //   GET  /evidence/:jobId    the committed evidence JSON for a judged job
 //   POST /evaluate           DRY RUN: score criteria against an inline
-//                            deliverable. No signing, no settlement — returns
+//                            deliverable. No signing, no settlement; returns
 //                            exactly the score/pass/evidenceHash a real run
 //                            would produce for those bytes.
 //
@@ -23,7 +23,7 @@ import { runAllChecks, InvalidCriteriaError } from "./checkers/index.js";
 import { criteriaHash } from "./criteria.js";
 import { evidenceHashOf } from "./evidence.js";
 
-const MAX_BODY_BYTES = 1_048_576; // 1 MB — same ceiling as deliverable fetches
+const MAX_BODY_BYTES = 1_048_576; // 1 MB, same ceiling as deliverable fetches
 
 const jsonify = (obj) => JSON.stringify(obj, (_, v) => (typeof v === "bigint" ? v.toString() : v));
 
@@ -54,9 +54,9 @@ function readBody(req, cap) {
 
 /**
  * Build the API server. deps (all optional, for tests):
- *   publicClient — viem public client for /verdict reads
- *   evidenceDir  — where committed evidence JSON lives
- *   getState     — () => watcher state merged into /healthz
+ *   publicClient: viem public client for /verdict reads
+ *   evidenceDir:  where committed evidence JSON lives
+ *   getState:     () => watcher state merged into /healthz
  */
 export function createJudgeApi(deps = {}) {
   const evidenceDir = deps.evidenceDir ?? config.evidenceDir;
@@ -171,7 +171,7 @@ export function createJudgeApi(deps = {}) {
   });
 }
 
-// Standalone runner: `npm run api` (watcher not required — read endpoints and
+// Standalone runner: `npm run api` (watcher not required; read endpoints and
 // dry-run evaluation work with no keys configured).
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const srv = createJudgeApi();

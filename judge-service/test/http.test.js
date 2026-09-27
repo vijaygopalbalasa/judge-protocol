@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-// /verdict requires a configured judge address — set BEFORE importing http.js
+// /verdict requires a configured judge address; set BEFORE importing http.js
 // (config.js reads env at import time).
 process.env.JUDGE_ADDRESS = "0x6EFF7d4BB514d341AbEd90bF4c667d0A980173AD";
 
@@ -57,7 +57,7 @@ test("GET /healthz reports ok + chain identity + injected watcher state", async 
   });
 });
 
-test("GET /verdict/:jobId — 400 on junk, 404 when unrecorded, 200 with fields", async () => {
+test("GET /verdict/:jobId: 400 on junk, 404 when unrecorded, 200 with fields", async () => {
   await withApi({ publicClient: verdictStub(0) }, async (base) => {
     assert.equal((await fetch(`${base}/verdict/abc`)).status, 400);
     assert.equal((await fetch(`${base}/verdict/7`)).status, 404);
@@ -126,12 +126,12 @@ test("POST /evaluate dry-runs checkers and returns the recomputable evidenceHash
   });
 });
 
-test("POST /evaluate — 422 invalid criteria, 400 missing fields/bad JSON, 413 oversize", async () => {
+test("POST /evaluate: 422 invalid criteria, 400 missing fields/bad JSON, 413 oversize", async () => {
   await withApi({}, async (base) => {
     const post = (body, headers = { "content-type": "application/json" }) =>
       fetch(`${base}/evaluate`, { method: "POST", headers, body });
 
-    // empty checks — the DEFECT-2 class must be refused, never scored
+    // empty checks: the DEFECT-2 class must be refused, never scored
     let r = await post(JSON.stringify({ criteria: { checks: [] }, deliverable: "x" }));
     assert.equal(r.status, 422);
 

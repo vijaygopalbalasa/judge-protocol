@@ -38,6 +38,6 @@ test("pollOnce with an up-to-date cursor issues a single bounded query", async (
 test("pollOnce past the tip scans nothing and does not move backwards", async () => {
   const ranges = [];
   const tip = await pollOnce(stubClients(100n, ranges), 101n);
-  assert.equal(tip, 100n); // caller resumes from tip+1 == 101 — cursor stays put
+  assert.equal(tip, 100n); // caller resumes from tip+1 == 101, cursor stays put
   assert.deepEqual(ranges, []);
 });

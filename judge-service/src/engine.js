@@ -27,7 +27,7 @@ const MAX_BLOCK_RANGE = 10_000n;
 // make the relayer pay gas for unlimited junk verdicts. 0.01 USDC default.
 const MIN_BUDGET = BigInt(process.env.MIN_JOB_BUDGET || 10_000);
 
-// ACP submit(jobId, bytes32 deliverable, bytes optParams) — used to recover the
+// ACP submit(jobId, bytes32 deliverable, bytes optParams): used to recover the
 // PROVIDER-authored deliverable URI from their own submit-transaction calldata,
 // rather than trusting the client-authored job description.
 const acpSubmitAbi = [{
@@ -42,8 +42,8 @@ const acpSubmitAbi = [{
 
 /**
  * Recover the deliverable URI. Preference order:
- *   1. the provider's `submit` calldata optParams (provider-authored — correct)
- *   2. a `deliverableURI:` line in the job description (client-authored — legacy)
+ *   1. the provider's `submit` calldata optParams (provider-authored, correct)
+ *   2. a `deliverableURI:` line in the job description (client-authored, legacy)
  * Returns { uri, authoredBy }.
  */
 export async function resolveDeliverableSource(publicClient, submitTxHash, description) {
@@ -85,22 +85,22 @@ export async function evaluateJob(jobId, deliverableHash, clients, submitTxHash)
   const description = job.description ?? job[4];
   const budget = BigInt(job.budget ?? job[5] ?? 0n);
   if (evaluator.toLowerCase() !== config.judgeAddress.toLowerCase()) {
-    return null; // not our job — silent (this is the vast majority of chain traffic)
+    return null; // not our job, silent (this is the vast majority of chain traffic)
   }
   if (STATUS[status] !== "Submitted") {
-    log(`skip — status ${STATUS[status]}`);
+    log(`skip: status ${STATUS[status]}`);
     return null;
   }
   // Gas-drain guard: refuse to spend a verdict tx on a sub-threshold job.
   if (budget < MIN_BUDGET) {
-    log(`skip — budget ${budget} < MIN_BUDGET ${MIN_BUDGET} (spam guard)`);
+    log(`skip: budget ${budget} < MIN_BUDGET ${MIN_BUDGET} (spam guard)`);
     return null;
   }
 
   // 2. Criteria (committed in the immutable job description).
   const criteria = extractCriteria(description);
   if (!criteria) {
-    log("abstain — no judge-criteria block in description");
+    log("abstain: no judge-criteria block in description");
     return null;
   }
   const cHash = criteriaHash(criteria);
@@ -109,17 +109,17 @@ export async function evaluateJob(jobId, deliverableHash, clients, submitTxHash)
   //    commitment. If the content does not hash to what the provider submitted,
   //    we refuse to judge (never grade unverified/substituted content).
   const { uri, authoredBy } = await resolveDeliverableSource(publicClient, submitTxHash, description);
-  if (!uri) { log("abstain — no deliverable URI (provider optParams or description)"); return null; }
+  if (!uri) { log("abstain: no deliverable URI (provider optParams or description)"); return null; }
   let deliverable;
   try {
     deliverable = await resolveDeliverable(uri);
   } catch (e) {
-    log(`abstain — deliverable resolution failed: ${e.message}`);
+    log(`abstain: deliverable resolution failed: ${e.message}`);
     return null;
   }
   const contentHash = keccak256(deliverable.content);
   if (contentHash.toLowerCase() !== String(deliverableHash).toLowerCase()) {
-    log(`abstain — deliverable hash mismatch: ${contentHash} != committed ${deliverableHash}`);
+    log(`abstain: deliverable hash mismatch: ${contentHash} != committed ${deliverableHash}`);
     return null;
   }
   log(`deliverable resolved (${authoredBy}-authored, ${deliverable.source}), hash matches commitment`);
@@ -130,7 +130,7 @@ export async function evaluateJob(jobId, deliverableHash, clients, submitTxHash)
     checkResult = await runAllChecks(criteria, deliverable);
   } catch (e) {
     if (e instanceof InvalidCriteriaError) {
-      log(`abstain — invalid criteria: ${e.message}`);
+      log(`abstain: invalid criteria: ${e.message}`);
       return null;
     }
     throw e;
@@ -200,7 +200,7 @@ export async function pollOnce(clients, fromBlock) {
         await evaluateJob(jobId, log.args.deliverable, { publicClient, signerAccount, relayerWallet }, log.transactionHash);
       } catch (e) {
         console.error(`[job ${jobId}] evaluation error:`, e.message);
-        processed.delete(key); // transient failure — allow retry next pass
+        processed.delete(key); // transient failure, allow retry next pass
       }
     }
   }
@@ -218,7 +218,7 @@ export async function run() {
   let fromBlock = saved ?? (latest > 5000n ? latest - 5000n : 0n);
   console.log(saved !== null
     ? `resuming from persisted cursor: block ${fromBlock}`
-    : `no cursor — starting from block ${fromBlock} (bounded lookback)`);
+    : `no cursor, starting from block ${fromBlock} (bounded lookback)`);
   for (;;) {
     try {
       const tip = await pollOnce(clients, fromBlock);

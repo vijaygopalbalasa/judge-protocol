@@ -50,7 +50,7 @@ export async function resolveDeliverable(uri) {
  * The recomputable core of a verdict: exactly the fields a third party can
  * re-derive from (criteria + deliverable bytes) alone. Wall-clock timestamps
  * and non-reproducible probe outputs (http status, bodySha) are DELIBERATELY
- * excluded so `evidenceHash` is a pure function of the inputs — that is what
+ * excluded so `evidenceHash` is a pure function of the inputs; that is what
  * makes a verdict independently verifiable. Serialized via canonicalize
  * (sorted keys, no whitespace) so the bytes are stable across machines.
  */
@@ -72,7 +72,7 @@ export function evidenceCore(verdictObj) {
   };
 }
 
-/** keccak256 of the canonical core — the value signed and posted on-chain. */
+/** keccak256 of the canonical core: the value signed and posted on-chain. */
 export function evidenceHashOf(verdictObj) {
   return keccak256(toHex(canonicalize(evidenceCore(verdictObj))));
 }
@@ -95,7 +95,7 @@ export function storeEvidence(verdictObj) {
 }
 
 export function keccakOfString(s) {
-  // keccak256 of the UTF-8 bytes — matches on-chain `reason`/evidenceHash.
+  // keccak256 of the UTF-8 bytes, matches on-chain `reason`/evidenceHash.
   return keccak256(toHex(s));
 }
 

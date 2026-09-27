@@ -35,7 +35,7 @@ const TYPES = { Verdict: [{ name: "jobId", type: "uint256" }, { name: "criteriaH
 const ok = (s) => console.log("  ✓", s);
 
 async function main() {
-  console.log("=== Judge Protocol — integrated local proof ===\n");
+  console.log("=== Judge Protocol: integrated local proof ===\n");
 
   // fund client USDC
   let h = await deployer.writeContract({ address: USDC, abi: erc20, functionName: "mint", args: [client.account.address, parseUnits("10", 6)] });
@@ -64,7 +64,7 @@ async function main() {
   const criteria = extractCriteria(job.description);
   const deliverable = await resolveDeliverable(`data:text/plain;base64,${Buffer.from(payload).toString("base64")}`);
   const { results, score, pass } = await runAllChecks(criteria, deliverable);
-  results.forEach((r) => ok(`check ${r.kind}: ${r.pass ? "pass" : "fail"} — ${r.detail}`));
+  results.forEach((r) => ok(`check ${r.kind}: ${r.pass ? "pass" : "fail"}, ${r.detail}`));
 
   const cHash = criteriaHash(criteria);
   const verdictObj = { jobId: jobId.toString(), criteriaHash: cHash, deliverable: deliverableHash, results, score, pass, judge: deployer.account.address, finishedAt: new Date().toISOString() };
@@ -84,6 +84,6 @@ async function main() {
   console.log(`\n  FINAL STATUS: ${STATUS[Number(final.status)]}`);
   console.log(`  PROVIDER USDC: ${Number(balBefore) / 1e6} → ${Number(balAfter) / 1e6}`);
   console.log(`  VERDICT TX: ${h}`);
-  console.log(`\n=== ${STATUS[Number(final.status)] === "Completed" && balAfter > balBefore ? "E2E PASS ✓ — escrow released by deterministic judge" : "E2E UNEXPECTED"} ===`);
+  console.log(`\n=== ${STATUS[Number(final.status)] === "Completed" && balAfter > balBefore ? "E2E PASS ✓: escrow released by deterministic judge" : "E2E UNEXPECTED"} ===`);
 }
 main().catch((e) => { console.error(e.shortMessage || e.message || e); process.exit(1); });

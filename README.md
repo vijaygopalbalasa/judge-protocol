@@ -1,7 +1,8 @@
 # Judge Protocol
-### Deterministic Evaluator-as-a-Service for ERC-8183 agent escrow
+### Deterministic evaluator for ERC-8183 agent escrow
 
-**A neutral, evidence-backed judgment layer for agent-to-agent work, live on Arc testnet.**
+**A neutral, evidence-backed judgment layer for agent-to-agent work, deployed on Arc testnet.**
+*(The judging service is currently offline; the contracts and the in-browser verifier are live.)*
 
 When AI agents hire each other, escrow alone isn't enough: someone must decide *did the
 provider deliver what was promised?* ERC-8183 defines an `evaluator` role for exactly this
@@ -10,17 +11,19 @@ ERC-8183 client can name as their job's evaluator. It runs reproducible checkers
 **recomputable** evidence, signs an EIP-712 verdict, and settles escrow on Circle's canonical
 ERC-8183 contract: pass → provider paid, fail → client refunded.
 
-> Built on Circle's canonical ERC-8183 deployment on **Arc**. We never fork the escrow
+> Built on Circle's canonical ERC-8183 deployment on **Arc testnet**. We never fork the escrow
 > contract. Every judged job is a real job on the official protocol.
 
 ## See it work
 
 A real job posted on Circle's canonical contract, judged, escrow settled, then the verdict
-**recomputed from public inputs** and matched against the on-chain record. Unedited capture:
+**recomputed from public inputs** and matched against the on-chain record. Terminal capture from
+Aug 7, 2026 (punctuation and one narration line edited on Sep 27, 2026; see git history):
 
-![Judge Protocol demo: a real ERC-8183 job judged on Arc, then independently recomputed](docs/demo.svg)
+![Judge Protocol demo: a real ERC-8183 job judged on Arc testnet, then independently recomputed](docs/demo.svg)
 
-*(Raw terminal recording: [`docs/demo.cast`](docs/demo.cast), replay with `asciinema play docs/demo.cast`.)*
+*(Terminal recording: [`docs/demo.cast`](docs/demo.cast), replay with `asciinema play docs/demo.cast`;
+same edits as above.)*
 
 ---
 
@@ -36,11 +39,16 @@ A real job posted on Circle's canonical contract, judged, escrow settled, then t
 **Real judged jobs on Circle's canonical ERC-8183 contract, with provider-authored deliverables:**
 - Job **170857**: PASS → escrow released to provider ([job](https://testnet.arcscan.app/tx/0x13507d31df322c43473de6965b5180db0aff53a0959514f44e9cba047b9f83bd))
 - Job **170856**: REJECT (deliverable violated criteria) → client refunded
-- Jobs **171507** and **171925**: PASS → escrow released (both re-verifiable in the browser verifier under `web/`)
+- Jobs **171507** and **171925** (and the first test job, **170855**): PASS → escrow released
 
-Every verdict is independently checkable: `node judge-service/src/verify.js <jobId> --evidence <file>`
-recomputes the score, decision, and evidence hash from public inputs and asserts they match
-the on-chain record.
+All five settled verdicts re-verify end to end in the browser verifier under `web/`.
+
+Every verdict is independently checkable: `node judge-service/src/verify.js <jobId>` (no keys or
+`.env` needed; it shares its code with the in-browser verifier) binds the verdict to the provider's
+on-chain commitment, recomputes the score, decision and evidence hash from public inputs, and
+asserts they match the on-chain record. For `http-endpoint` checks, which are a live network probe
+recorded once at judging time, verifiers confirm everything else and report what the judge
+recorded, but the probe itself cannot be re-verified later.
 
 ## How it works
 
@@ -63,9 +71,12 @@ JudgeEvaluator.sol (on-chain)
                                            · fail → acp.reject()   (refund → client)
 ```
 
-**Key property: recomputable determinism.** The same deliverable + criteria always yield the
-same verdict, and `evidenceHash` is a pure function of the reproducible inputs (it excludes
-wall-clock timestamps and live-probe output). No LLM in the trust path: an LLM may summarize
+**Key property: recomputable determinism.** For the `checksum`, `schema`, `contains` and `length`
+checkers, the same deliverable + criteria always yield the same verdict, and `evidenceHash` is a
+pure function of the reproducible inputs (it excludes wall-clock timestamps and live-probe output).
+An `http-endpoint` check is a live network probe recorded once at judging time: its pass bit is
+inside the signed evidence, so a verifier can confirm everything else and see what the judge
+recorded, but cannot re-run the probe as the judge saw it. No LLM in the trust path: an LLM may summarize
 evidence for humans, never decide.
 
 ## Repository layout
@@ -101,6 +112,12 @@ judge-service/    Node/viem off-chain engine
   untested).
 - ✅ **31/31 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
   criteria defects, SSRF denylist, and evidence-hash determinism.
+- ✅ **63/63 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
+  `judge-service` first): the page's CSP, the read-only relay, the public numbers, parity with the
+  service's own checkers, and the in-browser verifier run against a fake chain built from recorded
+  Arc testnet data, including tampered inputs that must never verify.
+- ⏸ **The judging service is not running right now** (last verdict Aug 7, 2026). The contracts and
+  the in-browser verifier are live, and every past verdict can still be recomputed.
 - ✅ **Live end-to-end on Arc testnet**: provider-authored PASS and REJECT jobs on the
   canonical contract, verdicts independently recomputed and matched on-chain.
 
@@ -120,8 +137,8 @@ node --env-file=.env src/index.js
 node --env-file=.env src/e2e.js            # PASS path
 node --env-file=.env src/e2e.js --reject   # REJECT path
 
-# independently verify any settled job
-node --env-file=.env src/verify.js <jobId> --evidence evidence/job-<jobId>-<hash>.json
+# independently verify any settled job (no keys needed; --deliverable <file> for https/ipfs deliverables)
+node src/verify.js <jobId>
 ```
 
 ## HTTP API
@@ -162,7 +179,8 @@ chunks to stay inside RPC limits.
   intended path for contested/subjective work is escalation to a dispute layer (e.g. UMA /
   GenLayer Internet Court), not an LLM in the settlement path.
 - The ERC-8004 reputation hook is implemented and tested but **not yet attachable** on the
-  canonical ACP: hooks other than `address(0)` are not whitelisted there yet.
+  canonical ACP: no sampled job used a hook, and of the hook addresses we checked, `address(0)` is
+  the only one whitelisted there.
 - Per-evaluation fees are charged **out of band**: the canonical ACP exposes no per-job fee
   surface (`evaluatorFeeBP` is a single global rate only Circle can set). `withdraw()` is a
   rescue hatch, not the pricing mechanism.

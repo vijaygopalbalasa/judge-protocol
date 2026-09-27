@@ -1,4 +1,4 @@
-# Secrets — never commit
+# Secrets: never commit
 .env
 .env.*
 !.env.example
@@ -13,7 +13,7 @@ judge-service/judge-service.log
 judge-service/state/
 
 # NOTE: contracts/broadcast/ (deploy receipts) and judge-service/evidence/
-# (verdict evidence) are intentionally COMMITTED — they are public on-chain
+# (verdict evidence) are intentionally COMMITTED; they are public on-chain
 # data and serve as the audit trail. They contain no secrets.
 
 # OS / editor

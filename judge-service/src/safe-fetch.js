@@ -65,7 +65,7 @@ export async function assertPublicUrl(rawUrl) {
 /**
  * Fetch a client-controlled URL safely. Returns { content: Buffer, status,
  * headers }. Enforces the SSRF denylist, a timeout, and a hard byte cap
- * (streamed — a malicious server cannot exhaust memory by lying about length).
+ * (streamed: a malicious server cannot exhaust memory by lying about length).
  */
 export async function safeFetch(rawUrl, { timeoutMs = FETCH_TIMEOUT_MS, maxBytes = MAX_BYTES } = {}) {
   await assertPublicUrl(rawUrl);

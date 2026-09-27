@@ -76,7 +76,7 @@ async function main() {
   const median = budgets.length ? budgets[Math.floor(budgets.length / 2)] : 0;
 
   // 95% confidence interval for a sample proportion, with finite-population
-  // correction. Published numbers MUST carry these — a bare percentage from a
+  // correction. Published numbers MUST carry these; a bare percentage from a
   // sample invites (correct) accusations of an unsourced statistic.
   const ci95 = (pct) => {
     const p = pct / 100, n = jobs.length;

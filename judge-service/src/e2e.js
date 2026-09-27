@@ -43,7 +43,7 @@ async function main() {
   const signer = wc(process.env.JUDGE_SIGNER_KEY);
   const providerAddr = provider.account.address;
 
-  // CLIENT authors ONLY the acceptance criteria — never the deliverable.
+  // CLIENT authors ONLY the acceptance criteria, never the deliverable.
   const description = [
     "Analyze ERC-8183 escrow on Arc.",
     "```judge-criteria",
@@ -66,7 +66,7 @@ async function main() {
 
   const budget = parseUnits("1", 6);
 
-  console.log(`\n=== E2E (${rejectMode ? "REJECT" : "PASS"} path) — provider-authored deliverable ===`);
+  console.log(`\n=== E2E (${rejectMode ? "REJECT" : "PASS"} path): provider-authored deliverable ===`);
   console.log("1) client createJob (criteria only, evaluator = JudgeEvaluator)");
   const createHash = await client.writeContract({ address: config.acpAddress, abi: ACP, functionName: "createJob",
     args: [providerAddr, config.judgeAddress, BigInt(Math.floor(Date.now() / 1000) + 3600), description, "0x0000000000000000000000000000000000000000"] });
@@ -87,12 +87,12 @@ async function main() {
   await pub.waitForTransactionReceipt({ hash: await client.writeContract({ address: USDC, abi: erc20Abi, functionName: "approve", args: [config.acpAddress, budget] }) });
   await pub.waitForTransactionReceipt({ hash: await client.writeContract({ address: config.acpAddress, abi: ACP, functionName: "fund", args: [jobId, "0x"] }) });
 
-  console.log("5) PROVIDER submit — deliverable hash + deliverable URI in optParams");
+  console.log("5) PROVIDER submit: deliverable hash + deliverable URI in optParams");
   await pub.waitForTransactionReceipt({ hash: await provider.writeContract({ address: config.acpAddress, abi: ACP, functionName: "submit", args: [jobId, deliverableHash, optParams] }) });
 
   const before = Number(await pub.readContract({ address: USDC, abi: erc20Abi, functionName: "balanceOf", args: [providerAddr] })) / 1e6;
   const cBefore = Number(await pub.readContract({ address: USDC, abi: erc20Abi, functionName: "balanceOf", args: [client.account.address] })) / 1e6;
-  console.log(`   provider ${before} USDC | client ${cBefore} USDC — waiting for judge…`);
+  console.log(`   provider ${before} USDC | client ${cBefore} USDC, waiting for judge…`);
 
   for (let i = 0; i < 120; i++) {
     await new Promise((r) => setTimeout(r, 2000));

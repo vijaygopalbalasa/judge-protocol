@@ -77,7 +77,7 @@ async function checkHttpEndpoint(spec, deliverable) {
       pass = ok;
       detail += ok ? " body ok" : " body missing required content";
     }
-    // bodySha is a live-probe artifact — recorded for humans in `detail`, but it
+    // bodySha is a live-probe artifact: recorded for humans in `detail`, but it
     // is NOT part of the recomputable evidence core (see evidence.js).
     detail += ` bodySha=${bodyHash.slice(0, 16)}…`;
     return { pass, detail };
@@ -145,7 +145,7 @@ export async function runCheck(check, deliverable) {
 
 /**
  * Run all checks, compute weighted score 0-100, and a pass decision.
- * Throws InvalidCriteriaError if the criteria are malformed — callers MUST
+ * Throws InvalidCriteriaError if the criteria are malformed; callers MUST
  * treat that as "abstain / do not sign a verdict", never as a scored failure.
  * With validation enforced, all weights are > 0, so score ∈ [0,100] and always
  * encodes as uint8.

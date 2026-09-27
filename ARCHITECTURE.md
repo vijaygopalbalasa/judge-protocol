@@ -47,17 +47,17 @@ Be the neutral judgment layer between agent Clients and Providers: given a job's
 ## Data model
 - **AcceptanceCriteria** (in the immutable job description, hashed as `criteriaHash`): `version`, `jobType`, ordered `checks[]` (each `{kind, params, weight}`), `passThreshold`. Validated by `validateCriteria()` before any scoring.
 - **Verdict** (EIP-712-signed, recorded on-chain): `jobId`, `criteriaHash`, `deliverable`, `score`, `threshold`, `pass`, `evidenceHash`, `timestamp`.
-- **evidenceHash** = keccak256 of the canonical *recomputable core* (criteriaHash, deliverable, ordered per-check `{kind, pass, weight}`, score, threshold, pass), excludes wall-clock timestamps and live-probe output, so a third party can recompute it from public inputs. `judge verify <jobId>` does exactly this and asserts equality with the on-chain value.
+- **evidenceHash** = keccak256 of the canonical *recomputable core*: jobId (as a string), criteriaHash, deliverable, criteria, checks (ordered `{kind, pass, weight}`), score, threshold, pass. It excludes wall-clock timestamps and live-probe output, so a third party can recompute it from public inputs; `node judge-service/src/verify.js <jobId>` (which shares its code with the in-browser verifier) does exactly this and asserts equality with the on-chain value. An `http-endpoint` check is a live network probe: its recorded pass bit is inside the core, so verifiers confirm everything else and report what the judge recorded, but cannot re-run the probe as the judge saw it.
 
 ## Security model
-- Judge service holds **no custody**: it can only submit verdicts to `JudgeEvaluator`, which alone calls ACP. A compromised signer key can submit a *wrong verdict*, caught by: (a) evidence recomputation (`judge verify`), (b) guardian pause, (c) on-chain signer allowlist revocation.
+- Judge service holds **no custody**: it can only submit verdicts to `JudgeEvaluator`, which alone calls ACP. A compromised signer key can submit a *wrong verdict*, caught by: (a) evidence recomputation (`node judge-service/src/verify.js`), (b) guardian pause, (c) on-chain signer allowlist revocation.
 - `JudgeEvaluator` is **non-upgradeable** (the spec warns against mid-job behavior change); a new version deploys a new address and clients opt in.
 - The judge only grades **provider-authored** content, bound to the on-chain commitment: it aborts unless `keccak256(deliverable) == submitted bytes32`.
 - All outbound fetches (deliverable resolution + http-endpoint checker) pass through an SSRF denylist (private/loopback/link-local/metadata ranges), a timeout, and a size cap.
 - Reentrancy: all state-changing paths `nonReentrant`; SafeERC20 for token movement; CEI ordering.
 
 ## Latency / liveness
-Verdicts are produced within a few polling intervals of `JobSubmitted`. Liveness is **best-effort, not guaranteed**: if the service is down, `claimRefund` after `expiredAt` is the protocol-level backstop; judge downtime can never lock funds. (A managed-hosting / alerting story is deliberately out of scope for this version.)
+When the service is running, verdicts are produced within a few polling intervals of `JobSubmitted` (it is not running at the moment; the last verdict was issued on Aug 7, 2026). Liveness is **best-effort, not guaranteed**: if the service is down, `claimRefund` after `expiredAt` is the protocol-level backstop; judge downtime can never lock funds. (A managed-hosting / alerting story is deliberately out of scope for this version.)
 
 ## What v1 is NOT
 - Not a dispute/arbitration court (escalation to UMA/Internet Court is Act 2)
