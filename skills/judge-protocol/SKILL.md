@@ -27,10 +27,12 @@ client). Every ruling is recomputable from public chain data.
 1. **Turn the brief into criteria.** Map each requirement to a check kind
    (`length`, `contains`, `schema`, `checksum`, `http-endpoint`). List anything
    that cannot be checked mechanically and tell the user it is not covered.
-   Validate before use with `validateCriteria(criteria)`. Example:
+   Validate before use with `validateCriteria(criteria)`. For required terms, set
+   `wholeWords: true` so a short term like "Arc" is not satisfied by "Architecture".
+   Example:
 
    ```json
-   {"version":1,"passThreshold":100,"checks":[{"kind":"length","params":{"min":50,"max":300}},{"kind":"contains","params":{"all":["invoice","USDC"]}}]}
+   {"version":1,"passThreshold":100,"checks":[{"kind":"length","params":{"min":50,"max":300}},{"kind":"contains","params":{"all":["invoice","USDC"],"wholeWords":true}}]}
    ```
 
 2. **Dry run the criteria** against a sample with `dryRun({ criteria, content })`
@@ -40,8 +42,19 @@ client). Every ruling is recomputable from public chain data.
 4. **Provider:** `setBudget({ ... jobId, amount })`, do the work, optionally `dryRun`
    it, then `submitDeliverable({ walletClient, publicClient, jobId, content })`.
 5. **Rule:** `requestRuling({ jobId, submitTx })`, then `waitForRuling({ jobId })`.
+   To pay per ruling instead (0.01 USDC over x402 through Circle Gateway), call
+   `POST /api/x402/judge` with Circle's `GatewayClient.pay()`: the payment settles
+   only once the judge has a verdict ready, before it signs. Trust `charged` in the
+   answer, not the amount your client signed.
 6. **Report honestly:** give the user the job id, PASS or REJECT, the score, and the
    verifier link `https://judge-protocol-verifier.vercel.app`.
+
+## If you are building an agent that pays for work
+
+`agent/` in the repo is a reference paymaster: its wallet can only create, fund
+and reclaim judged escrow (it cannot pay anyone directly), spend limits are
+enforced in code with a human-approval band, and every decision goes into a
+hash-chained log anchored on chain.
 
 ## Rules
 

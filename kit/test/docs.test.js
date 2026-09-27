@@ -76,6 +76,9 @@ test("the agent skill is well-formed and points at the real kit and API", () => 
   }
   for (const v of [kit.ARC_TESTNET.acp, kit.ARC_TESTNET.judge, kit.ARC_TESTNET.api]) assert.ok(SKILL_MD.includes(v), v);
   assert.match(SKILL_MD, /never (claim|say|report)[^.]*verified/i, "the skill must forbid claiming verification without the verifier");
+  assert.match(SKILL_MD, /wholeWords/, "the skill must teach whole-word terms");
+  assert.ok(SKILL_MD.includes("POST /api/x402/judge"), "the skill must mention the paid path");
+  assert.match(SKILL_MD, /trust `charged`/i, "the skill must say what proves a charge");
 });
 
 test("CRITERIA.md states every bound the judge enforces, with the code's own numbers", async () => {
