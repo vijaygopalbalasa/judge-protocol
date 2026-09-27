@@ -114,3 +114,14 @@ test("defense in depth: a checker that throws anyway becomes an abstention, neve
   const { runCheck } = await import("../src/checkers/index.js");
   await assert.rejects(runCheck({ kind: "contains", params: { all: "not a list" } }, deliverable), InvalidCriteriaError);
 });
+
+test("contains with wholeWords: a term must stand on its own, so \"Arc\" does not match inside \"Architecture\"", async () => {
+  const c = (text, all, wholeWords = true) => runAllChecks({ checks: [{ kind: "contains", params: { all, wholeWords } }] }, { content: Buffer.from(text), source: "t" });
+  assert.equal((await c("A software Architecture paid in USDC.", ["Arc"])).pass, false);
+  assert.equal((await c("A software Architecture paid in USDC.", ["Arc"], false)).pass, true, "the default is still a plain substring");
+  for (const ok of ["Built on Arc.", "Arc, the chain", "(Arc)", "Arc-based", "ERC-8183 on Arc"]) assert.equal((await c(ok, ["Arc"])).pass, true, ok);
+  for (const no of ["Arcade", "reArc", "Arc_2", "Arcé", "ARC"]) assert.equal((await c(no, ["Arc"])).pass, false, no);
+  assert.equal((await c("Pays in USDC, settles on ERC-8183.", ["ERC-8183", "USDC"])).pass, true, "terms with punctuation");
+  assert.equal((await c("a.b?c", ["b?c"])).pass, true, "regex characters in a term are literal");
+  assert.equal((await c("abbc", ["b?c"])).pass, false);
+});

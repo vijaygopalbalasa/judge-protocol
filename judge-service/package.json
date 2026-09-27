@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/index.js",
     "api": "node src/http.js",
-    "test": "node --test 'test/*.test.js'",
+    "test": "node --test --test-timeout=60000 'test/*.test.js'",
     "verify": "node src/verify.js",
     "measure": "node src/measure-acp.js"
   },

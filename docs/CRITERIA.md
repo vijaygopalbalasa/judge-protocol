@@ -51,11 +51,13 @@ Counts words (default) or characters of the deliverable decoded as UTF-8.
 | `unit` | `"chars"`, `"words"` or omitted | words | `"chars"` counts UTF-16 code units (JavaScript `length`); otherwise whitespace-separated words. |
 
 ### `contains`
-Every term must appear. Literal, case-sensitive substring match (not a regex).
+Every term must appear. Literal, case-sensitive match (not a regex): a plain substring by
+default, or a whole word with `wholeWords`.
 
 | Param | Type | Meaning |
 |---|---|---|
 | `all` | list of up to 256 strings, each up to 1024 characters | Terms that must all be present. An empty list passes. |
+| `wholeWords` | `true` or `false` (default `false`) | When `true`, each term must stand on its own: not preceded or followed by a letter, digit or underscore, so `"Arc"` does not match inside `"Architecture"`. Terms stay case-sensitive. |
 
 ### `schema`
 The deliverable must parse as a JSON object. Valid JSON that is not a JSON object

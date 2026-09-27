@@ -17,7 +17,9 @@ const TYPES = { TransferWithAuthorization: [
 
 export function fakeGateway({ balances = {}, supported = true, fail = {} } = {}) {
   const bal = new Map(Object.entries(balances).map(([a, v]) => [a.toLowerCase(), BigInt(v)]));
-  const usedNonces = new Set();
+  const usedNonces = new Set(); // lower-cased: a nonce is a number, not a string
+  const transfers = new Map();   // nonce -> the settled transfer, as Gateway's transfer search returns it
+  const never = () => new Promise(() => {});
   const calls = { getSupported: 0, verify: [], settle: [], balanceOf: [] };
   let tx = 0;
 
@@ -47,6 +49,7 @@ export function fakeGateway({ balances = {}, supported = true, fail = {} } = {})
     async verify(payload, req) {
       calls.verify.push({ payload, req });
       if (fail.verify) throw new Error("gateway verify unreachable");
+      if (fail.verifyHang) return never();
       const a = payload.payload.authorization;
       const ok = await sigOk(payload, req);
       return ok ? { isValid: true, payer: a.from.toLowerCase() } : { isValid: false, invalidReason: "invalid_signature", payer: a?.from };
@@ -54,14 +57,19 @@ export function fakeGateway({ balances = {}, supported = true, fail = {} } = {})
     async settle(payload, req) {
       calls.settle.push({ payload, req });
       if (fail.settle) throw new Error("gateway settle unreachable");
+      if (fail.settleHang) return never();
       const a = payload.payload.authorization;
+      const nonce = String(a.nonce).toLowerCase();
       if (!(await sigOk(payload, req))) return { success: false, errorReason: "invalid_signature", transaction: "", network: req.network };
-      if (usedNonces.has(a.nonce)) return { success: false, errorReason: "nonce_already_used", transaction: "", network: req.network };
+      if (usedNonces.has(nonce)) return { success: false, errorReason: "nonce_already_used", transaction: "", network: req.network };
       const have = bal.get(a.from.toLowerCase()) ?? 0n;
       if (have < BigInt(a.value)) return { success: false, errorReason: "insufficient_balance", transaction: "", network: req.network };
       bal.set(a.from.toLowerCase(), have - BigInt(a.value));
-      usedNonces.add(a.nonce);
-      return { success: true, transaction: `gw-transfer-${++tx}`, network: req.network, payer: a.from.toLowerCase() };
+      usedNonces.add(nonce);
+      const t = { id: `gw-transfer-${++tx}`, status: "received", fromAddress: a.from.toLowerCase(), toAddress: String(a.to).toLowerCase(), amount: String(a.value), nonce };
+      transfers.set(nonce, t);
+      if (fail.settleProcessedThenHang) return never(); // processed, but the answer never comes back
+      return { success: true, transaction: t.id, network: req.network, payer: a.from.toLowerCase() };
     },
   };
 
@@ -71,5 +79,11 @@ export function fakeGateway({ balances = {}, supported = true, fail = {} } = {})
     return bal.get(String(address).toLowerCase()) ?? 0n;
   }
 
-  return { facilitator, balanceOf, calls, balance: (a) => bal.get(a.toLowerCase()) ?? 0n, drain: (a) => bal.set(a.toLowerCase(), 0n) };
+  /** Gateway's transfer search by nonce (GET /v1/x402/transfers?nonce=...). */
+  async function lookupTransfer(nonce) {
+    calls.lookup = (calls.lookup ?? 0) + 1;
+    return transfers.get(String(nonce).toLowerCase()) ?? null;
+  }
+
+  return { facilitator, balanceOf, lookupTransfer, calls, balance: (a) => bal.get(a.toLowerCase()) ?? 0n, drain: (a) => bal.set(a.toLowerCase(), 0n) };
 }

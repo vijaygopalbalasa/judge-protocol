@@ -276,6 +276,7 @@ function paramsProblem(kind, p) {
       return null;
     case 'contains':
       if (has(p.all) && !isStringList(p.all)) return `all must be a list of at most ${LIMITS.terms} strings of at most ${LIMITS.termChars} characters`;
+      if (has(p.wholeWords) && typeof p.wholeWords !== "boolean") return "wholeWords must be true or false";
       return null;
     case 'schema':
       if (has(p.required) && !isStringList(p.required)) return `required must be a list of at most ${LIMITS.terms} field names`;
@@ -335,6 +336,12 @@ export function validateCriteria(criteria) {
  * drift. http-endpoint is a live network probe: it cannot be replayed here, so
  * it is marked unsupported instead of being scored.
  */
+const escapeRegExp = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** Mirror of the judge's hasWholeWord: the term must not touch a letter, digit or underscore. */
+export function hasWholeWord(text, term) {
+  return new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(term)}(?![\\p{L}\\p{N}_])`, 'u').test(text);
+}
+
 const CHECKERS = {
   checksum: async (p, d) => {
     const actual = await sha256Hex(d.bytes);
@@ -356,8 +363,9 @@ const CHECKERS = {
   },
   contains: (p, d) => {
     const terms = p.all || [];
-    const missing = terms.filter((t) => !d.text.includes(t));
-    return { pass: missing.length === 0, detail: missing.length ? `missing terms: ${missing.join(', ')}` : `all ${terms.length} terms present` };
+    const found = p.wholeWords === true ? (t) => hasWholeWord(d.text, t) : (t) => d.text.includes(t);
+    const missing = terms.filter((t) => !found(t));
+    return { pass: missing.length === 0, detail: missing.length ? `missing terms: ${missing.join(', ')}` : `all ${terms.length} terms present${p.wholeWords === true ? ' as whole words' : ''}` };
   },
   length: (p, d) => {
     const n = p.unit === 'chars' ? d.text.length : d.text.trim().split(/\s+/).filter(Boolean).length;

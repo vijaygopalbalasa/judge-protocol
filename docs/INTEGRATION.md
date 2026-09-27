@@ -109,19 +109,24 @@ Dry run, see Path B. Body: `criteria` plus exactly one of `deliverable` (text) o
 
 ### `POST /api/x402/judge` (paid over x402)
 The same ruling, paid for over [x402](https://x402.org): 0.01 USDC through Circle Gateway
-on Arc testnet (`eip155:5042002`), charged only when a verdict lands on chain. This is
-the fee model, since Circle's ERC-8183 contract has no evaluator fee; the free
-`POST /api/judge` keeps working on testnet.
+on Arc testnet (`eip155:5042002`). The judge prepares the verdict first and settles your payment
+only when a verdict is ready, before it signs anything. This is the fee model, since Circle's
+ERC-8183 contract has no evaluator fee; the free `POST /api/judge` keeps working on testnet.
 
-- A job the judge can rule right now gets `402` with the terms in the `PAYMENT-REQUIRED`
-  header (x402 v2). Any other job is answered for free, with the same `result` values
-  as above and `charged: false`.
-- Send the signed payment in a `payment-signature` header. The judge checks it locally
-  (terms, recipient, amount, signature), asks Circle Gateway to verify it, checks your
-  Gateway balance, rules, and only then settles. The receipt comes back in the
-  `PAYMENT-RESPONSE` header and as `payment` in the body.
-- No verdict from your request (the judge abstained, a transient failure, another
-  request ruled first): the payment is never settled and the body says `not charged`.
+- A job waiting for a ruling (it names the judge, is Submitted, has no verdict yet, a budget of
+  at least 0.01 USDC and valid criteria) gets `402` with the terms in the `PAYMENT-REQUIRED`
+  header (x402 v2). Any other job is answered for free, with the same `result` values as above.
+- Send the signed payment in a `payment-signature` header. The judge checks it locally (terms,
+  recipient, amount, canonical numbers, signature), asks Circle Gateway to verify it, checks your
+  Gateway balance, prepares the verdict, and only then settles the payment and signs.
+- Every answer carries `charged`: `true`, `false`, or `"unknown"` if Gateway could not confirm.
+  A settled payment's receipt comes back in the `PAYMENT-RESPONSE` header and as `payment` in the
+  body. Trust those, not the amount your client signed: Circle's `GatewayClient.pay()` reports
+  the signed amount even when the payment was not settled.
+- Nothing is settled when no verdict is ready (the judge abstains, a transient failure, the job
+  was already judged). `payment-failed` (402) means Gateway refused the settlement (for example
+  an empty balance or a payment already used) and nothing was signed. If the verdict transaction
+  fails after your payment settled, the answer says so and the daily sweep settles the verdict.
 
 With Circle's client (`npm install @circle-fin/x402-batching`):
 
@@ -153,6 +158,8 @@ the relayer's gas balance.
 - `http-endpoint` checks are live probes and cannot be re-run later as the judge saw them.
 - Inline `data:` deliverables are for small content (the kit caps them at 48 KB);
   host larger work at an https or ipfs URI.
-- Paid rulings settle in Circle Gateway batches, so the transfer completes minutes
-  later. The judge settles only after a verdict; if a payer empties its Gateway balance
-  in between, that ruling goes unpaid. The judge carries that risk, never the payer.
+- Paid rulings settle in Circle Gateway batches, so the transfer completes minutes later.
+  Gateway refuses to settle a used payment or an empty balance, and the judge signs only after
+  a payment settled, so a replayed payment or a burst against one balance buys at most one
+  ruling. If Gateway cannot confirm a settlement, the judge rules anyway and answers
+  `charged: "unknown"`: that risk is the judge's, not the payer's.

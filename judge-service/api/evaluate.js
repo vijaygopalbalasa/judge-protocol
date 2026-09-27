@@ -9,6 +9,11 @@ const MAX_REQUEST_BYTES = Math.ceil(MAX_DELIVERABLE_BYTES * 1.4) + 16 * 1024; //
 
 export function createEvaluateHandler() {
   return async function handler(req, res) {
+    try { await handle(req, res); } catch (e) {
+      if (!res.headersSent) res.status(503).json({ error: "temporary failure; try again shortly" });
+    }
+  };
+  async function handle(req, res) {
     cors(res);
     if (req.method === "OPTIONS") { res.status(204).end(); return; }
     if (req.method !== "POST") { res.status(405).json({ error: "use POST" }); return; }
@@ -16,7 +21,7 @@ export function createEvaluateHandler() {
     if (!body.ok) { res.status(body.status).json({ error: body.error }); return; }
     const r = await dryRunEvaluate(body.value, { allowLiveProbes: false });
     res.status(r.status).json(r.body);
-  };
+  }
 }
 
 export default createEvaluateHandler();

@@ -17,6 +17,7 @@ export const ARC_TESTNET = {
   judge: "0x6EFF7d4BB514d341AbEd90bF4c667d0A980173AD", // JudgeEvaluator
   usdc: "0x3600000000000000000000000000000000000000",  // USDC (ERC-20 view, 6 decimals)
   api: "https://judge-protocol-api.vercel.app",
+  feeAddress: "0xf493CF092768a4B7a533359F28Db82B06D259Dc2", // where paid rulings (x402) are credited
   verifier: "https://judge-protocol-verifier.vercel.app",
 };
 
@@ -73,6 +74,7 @@ function paramsProblem(kind, p) {
       return null;
     case "contains":
       if (has(p.all) && !isStringList(p.all)) return `all must be a list of at most ${LIMITS.terms} strings of at most ${LIMITS.termChars} characters`;
+      if (has(p.wholeWords) && typeof p.wholeWords !== "boolean") return "wholeWords must be true or false";
       return null;
     case "schema":
       if (has(p.required) && !isStringList(p.required)) return `required must be a list of at most ${LIMITS.terms} field names`;

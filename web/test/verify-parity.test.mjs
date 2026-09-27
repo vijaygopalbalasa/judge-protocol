@@ -169,6 +169,7 @@ test('an HTTP 429 with a non-JSON body (Cloudflare style) is retried, not surfac
 test('browser checkers and validation agree with the judge-service on a battery of inputs', async () => {
   const contents = ['', 'hello', '{"a":1,"b":"x"}', '{"a":"1"}', 'not json', 'ERC-8183 USDC Arc', '  many   words here  ',
     '42', 'null', '"a string"', 'true', '[1,2]', // valid JSON that is not an object: a failed schema check, never a crash
+    'A software Architecture in USDC', 'built on Arc, a USDC chain', 'Arcé USDCs a', // whole-word edges
     Buffer.from([0xff, 0xfe, 0x00]).toString('latin1'), Buffer.from([0xef, 0xbb, 0xbf, 0x41]).toString('latin1')];
   const criteriaList = [
     { checks: [{ kind: 'length', params: { min: 2, max: 3 } }] },
@@ -177,6 +178,7 @@ test('browser checkers and validation agree with the judge-service on a battery 
     { checks: [{ kind: 'checksum', params: { sha256: '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824' } }] },
     { passThreshold: 0, checks: [{ kind: 'contains', params: { all: [] } }] },
     { checks: [{ kind: 'length', params: { min: 2, max: 2, unit: 'chars' } }] }, // a UTF-8 BOM must be kept, as Buffer does
+    { checks: [{ kind: 'contains', params: { all: ['Arc', 'a', 'USDC'], wholeWords: true } }] }, // whole words, same as the judge
   ];
   for (const criteria of criteriaList) {
     for (const c of contents) {

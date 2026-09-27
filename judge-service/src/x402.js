@@ -1,22 +1,26 @@
 // Paid rulings over x402, settled by Circle Gateway (batched, gasless for the
-// payer) on Arc testnet: 0.01 USDC per ruling, charged only when a verdict
-// lands on chain. The free POST /api/judge keeps working on testnet; this is
-// the fee model, since Circle's ERC-8183 contract has no evaluator fee.
+// payer) on Arc testnet: 0.01 USDC per ruling. The free POST /api/judge keeps
+// working on testnet; this is the fee model, since Circle's ERC-8183 contract
+// has no evaluator fee.
 //
-//   1. Only a job the judge can rule right now (names the judge, Submitted, no
-//      verdict yet) is ever asked to pay. Everything else is answered free.
-//   2. A payment is checked here first (terms, recipient, amount, validity and
-//      the EIP-712 signature), then by Gateway's verify, then against the
-//      payer's Gateway balance. Gateway's verify checks the signature only: it
-//      passes a payer with no balance, who would otherwise get a paid ruling
-//      for nothing.
-//   3. The judge rules, then settles. No verdict from this request (abstain,
-//      retry later, a lost race, a failed relay) means the payment is never
-//      settled, so the payer is not charged.
+//   1. Only a job waiting for a ruling (names the judge, Submitted, no verdict,
+//      a budget above the floor, valid criteria) is asked to pay. Everything
+//      else is answered free.
+//   2. A payment is checked here first (terms, recipient, amount, validity,
+//      canonical numbers, the EIP-712 signature), then by Gateway's verify,
+//      then against the payer's Gateway balance.
+//   3. The judge prepares the verdict (loads the deliverable, runs the checks)
+//      without signing anything. Only then is the payment settled, and only a
+//      settled payment gets the verdict signed and sent. Gateway refuses to
+//      settle a used nonce or an empty balance, so a replayed payment or a
+//      burst against one balance buys at most one ruling, across instances.
+//   4. No verdict ready (abstain, retry later, not found): nothing is settled.
+//      If the verdict transaction fails after the payment settled, the answer
+//      says so and the daily sweep settles the verdict.
 import { formatUnits, getAddress, isAddress, parseUnits, recoverTypedDataAddress } from "viem";
 import { BatchFacilitatorClient, GATEWAY_AUTH_VALIDITY_WINDOW_SECONDS } from "@circle-fin/x402-batching/server";
 import { config } from "./config.js";
-import { judgeNow as defaultJudgeNow, jobStatus as defaultJobStatus, parseJobIdInput } from "./judge-now.js";
+import { judgeNow as defaultJudgeNow, jobStatus as defaultJobStatus, rulingPrecheck as defaultPrecheck, parseJobIdInput } from "./judge-now.js";
 
 export const ARC_TESTNET_NETWORK = "eip155:5042002";
 export const USDC_ARC_TESTNET = "0x3600000000000000000000000000000000000000";
@@ -26,6 +30,7 @@ export const GATEWAY_TESTNET_URL = "https://gateway-api-testnet.circle.com";
 export const RESOURCE_URL = "https://judge-protocol-api.vercel.app/api/x402/judge";
 const ARC_GATEWAY_DOMAIN = 26;
 const MAX_HEADER_BYTES = 8 * 1024;
+const DECIMAL = /^(0|[1-9][0-9]{0,77})$/; // canonical uint256 in decimal: no sign, spaces, hex or leading zeros
 const FREE_PATH = "the free POST /api/judge still works on testnet";
 const BATCHING = { name: "GatewayWalletBatched", version: "1" };
 const TYPES = { TransferWithAuthorization: [
@@ -37,6 +42,13 @@ const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64");
 const jsonable = (v) => JSON.parse(JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x)));
 const out = (status, body, headers = {}) => ({ status, body: jsonable(body), headers });
 const same = (x, y) => String(x ?? "").toLowerCase() === String(y ?? "").toLowerCase();
+function withTimeout(promise, ms, what) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise).finally(() => clearTimeout(timer)),
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms} ms`)), ms); }),
+  ]);
+}
 
 /** A depositor's available Circle Gateway balance on Arc testnet, in USDC atomic units. */
 export async function gatewayBalance(address, { url = GATEWAY_TESTNET_URL, fetchImpl = fetch } = {}) {
@@ -46,14 +58,23 @@ export async function gatewayBalance(address, { url = GATEWAY_TESTNET_URL, fetch
     signal: AbortSignal.timeout(8000),
   });
   const data = await res.json().catch(() => null);
-  const balance = data?.balances?.[0]?.balance;
-  if (!res.ok || typeof balance !== "string") throw new Error(`Gateway balance lookup failed (${res.status})`);
-  return parseUnits(balance, 6);
+  const entry = (data?.balances || []).find((b) => b.domain === ARC_GATEWAY_DOMAIN && same(b.depositor, address));
+  if (!res.ok || typeof entry?.balance !== "string") throw new Error(`Gateway balance lookup failed (${res.status})`);
+  return parseUnits(entry.balance, 6);
+}
+
+/** Gateway's record of a payment, by its nonce (null if Gateway has never seen it). */
+export async function gatewayTransfer(nonce, { url = GATEWAY_TESTNET_URL, fetchImpl = fetch } = {}) {
+  const res = await fetchImpl(`${url}/v1/x402/transfers?nonce=${encodeURIComponent(nonce)}&network=${ARC_TESTNET_NETWORK}`, { signal: AbortSignal.timeout(8000) });
+  if (!res.ok) throw new Error(`Gateway transfer lookup failed (${res.status})`);
+  const data = await res.json().catch(() => null);
+  return (data?.transfers || []).find((t) => same(t.nonce, nonce) && t.status !== "failed") ?? null;
 }
 
 /** Local checks on a payment-signature header, before anything leaves this process. */
 async function checkPayment(header, terms, nowSec) {
-  if (typeof header !== "string" || header.length > MAX_HEADER_BYTES) return { status: 400, error: "the payment-signature header is too large" };
+  if (typeof header !== "string") return { status: 400, error: "send exactly one payment-signature header, as a single string" };
+  if (header.length > MAX_HEADER_BYTES) return { status: 400, error: "the payment-signature header is too large" };
   let p;
   try { p = JSON.parse(Buffer.from(header, "base64").toString("utf8")); } catch { p = null; }
   const a = p?.payload?.authorization, sig = p?.payload?.signature, acc = p?.accepted;
@@ -69,13 +90,13 @@ async function checkPayment(header, terms, nowSec) {
     return { status: 400, error: "malformed payment authorization" };
   }
   if (!same(a.to, terms.payTo)) return { status: 402, error: "the payment is not addressed to the judge's fee address" };
-  let value, after, before;
-  try { value = BigInt(a.value); after = BigInt(a.validAfter); before = BigInt(a.validBefore); } catch {
-    return { status: 400, error: "malformed payment authorization numbers" };
+  if (![a.value, a.validAfter, a.validBefore].every((x) => typeof x === "string" && DECIMAL.test(x))) {
+    return { status: 400, error: "authorization value, validAfter and validBefore must be canonical decimal strings" };
   }
-  if (value !== BigInt(terms.amount)) return { status: 402, error: `the payment must be exactly ${PRICE_LABEL}` };
+  const value = BigInt(a.value), after = BigInt(a.validAfter), before = BigInt(a.validBefore);
+  if (a.value !== terms.amount) return { status: 402, error: `the payment must be exactly ${PRICE_LABEL}` };
   const t = BigInt(nowSec);
-  if (after > t + 60n || before <= t) return { status: 402, error: "the payment authorization is not valid now" };
+  if (after > t || before <= t) return { status: 402, error: "the payment authorization is not valid now" };
   let signer = null;
   try {
     signer = await recoverTypedDataAddress({
@@ -92,20 +113,23 @@ async function checkPayment(header, terms, nowSec) {
 export function createPaidJudge({
   facilitator = new BatchFacilitatorClient({ url: GATEWAY_TESTNET_URL }),
   balanceOf = gatewayBalance,
+  lookupTransfer = gatewayTransfer,
   payTo = config.feeAddress,
   resourceUrl = RESOURCE_URL,
   deps = {},
   judgeNow = defaultJudgeNow,
   jobStatus = defaultJobStatus,
+  precheck = defaultPrecheck,
   now = () => Math.floor(Date.now() / 1000),
+  timeoutMs = 8000,
 } = {}) {
   let arcKind = null;          // Gateway's Arc testnet entry, fetched once per instance
-  const inFlight = new Set();  // nonces being processed right now
+  const inFlight = new Set();  // nonces being processed right now (a cheap first line; Gateway is the real one)
   const spent = new Set();     // nonces this instance has settled
 
   async function terms() {
     if (!arcKind) {
-      const s = await facilitator.getSupported();
+      const s = await withTimeout(facilitator.getSupported(), timeoutMs, "Gateway supported list");
       arcKind = (s?.kinds || []).find((k) => k.network === ARC_TESTNET_NETWORK && k.scheme === "exact" && k.extra?.verifyingContract) || null;
       if (!arcKind) throw new Error("Circle Gateway does not list Arc testnet");
     }
@@ -114,18 +138,35 @@ export function createPaidJudge({
       extra: { ...BATCHING, verifyingContract: getAddress(arcKind.extra.verifyingContract) } };
   }
 
+  /** Settle, and if the answer never comes back, ask Gateway whether it went through. */
+  async function settle(c, t) {
+    let s;
+    try { s = await withTimeout(facilitator.settle(c.payload, t), timeoutMs, "Gateway settle"); } catch (e) {
+      let found;
+      try { found = await withTimeout(lookupTransfer(c.nonce), timeoutMs, "Gateway transfer lookup"); } catch {
+        return { charged: "unknown", reason: `${e.message}; the payment could not be looked up` };
+      }
+      return found ? { charged: true, transaction: found.id, payer: found.fromAddress ?? c.from, via: "lookup" }
+        : { charged: false, reason: `${e.message}; Gateway has no record of the payment` };
+    }
+    if (s?.success) return { charged: true, transaction: s.transaction, payer: s.payer || c.from };
+    return { charged: false, reason: s?.errorReason || "unknown" };
+  }
+
   return async function paidJudge({ jobId, submitTx, paymentHeader } = {}) {
     if (parseJobIdInput(jobId) === null) return out(400, { error: "jobId must be a positive integer", charged: false });
     if (submitTx !== undefined && !/^0x[0-9a-fA-F]{64}$/.test(String(submitTx))) {
       return out(400, { error: "submitTx must be a 32-byte transaction hash", charged: false });
     }
 
-    // 1. Anything to rule? If not, answer for free.
-    let st;
-    try { st = await jobStatus({ jobId }, deps); } catch {
-      return out(503, { error: "could not read the job from Arc testnet right now; try again", charged: false });
+    // 1. Is a ruling possible? If not, answer free and never ask for money.
+    const st = await jobStatus({ jobId }, deps);
+    if (st.status === 200 && st.body.result === "judged") {
+      return out(200, { result: "already-judged", jobId: st.body.jobId, verdict: st.body.verdict, charged: false });
     }
     if (st.status !== 200 || st.body.result !== "pending") return out(st.status, { ...st.body, charged: false });
+    const pre = await precheck({ jobId }, deps);
+    if (pre) return out(pre.status, { ...pre.body, charged: false });
 
     // 2. The terms, straight from Circle Gateway's supported list.
     let t;
@@ -133,7 +174,7 @@ export function createPaidJudge({
       return out(503, { error: `the payment service (Circle Gateway) is unavailable; ${FREE_PATH}`, charged: false });
     }
     const required = { x402Version: 2, accepts: [t], resource: { url: resourceUrl, mimeType: "application/json",
-      description: `One Judge Protocol ruling on an ERC-8183 job: ${PRICE_LABEL}, charged only when a verdict lands on chain` } };
+      description: `One Judge Protocol ruling on an ERC-8183 job: ${PRICE_LABEL}, settled only when the judge has a verdict ready` } };
     const again = { "PAYMENT-REQUIRED": b64(required) };
     if (paymentHeader === undefined || paymentHeader === null || paymentHeader === "") {
       return out(402, { ...required, error: `payment required: ${PRICE_LABEL} through Circle Gateway on Arc testnet`, charged: false }, again);
@@ -148,12 +189,12 @@ export function createPaidJudge({
     inFlight.add(c.nonce);
     try {
       let v;
-      try { v = await facilitator.verify(c.payload, t); } catch {
+      try { v = await withTimeout(facilitator.verify(c.payload, t), timeoutMs, "Gateway verify"); } catch {
         return out(503, { error: `could not verify the payment with Circle Gateway; ${FREE_PATH}`, charged: false });
       }
       if (!v?.isValid) return out(402, { error: `payment rejected by Circle Gateway: ${v?.invalidReason || "invalid"}`, accepts: [t], charged: false }, again);
       let have;
-      try { have = await balanceOf(c.from); } catch {
+      try { have = await withTimeout(balanceOf(c.from), timeoutMs, "Gateway balance"); } catch {
         return out(503, { error: `could not read the payer's Circle Gateway balance; ${FREE_PATH}`, charged: false });
       }
       if (have < BigInt(t.amount)) {
@@ -161,23 +202,32 @@ export function createPaidJudge({
           accepts: [t], charged: false }, again);
       }
 
-      // 4. Rule. Only a verdict issued by this request is paid for.
-      const r = await judgeNow({ jobId, submitTx }, deps);
-      if (r.body.result !== "judged") {
-        const why = r.body.reason || r.body.error;
-        return out(r.status, { ...r.body, charged: false, error: `not charged: ${r.body.result}${why ? ` (${why})` : ""}` });
-      }
+      // 4. Prepare the verdict; settle the payment; only then sign and send it.
+      let receipt = null;
+      const r = await judgeNow({ jobId, submitTx }, { ...deps, beforeSettle: async () => {
+        const s = await settle(c, t);
+        if (s.charged === false) {
+          return { ok: false, status: 402, body: { result: "payment-failed", jobId: String(jobId), charged: false, error: `payment could not be settled: ${s.reason}` } };
+        }
+        receipt = s;
+        spent.add(c.nonce);
+        return { ok: true };
+      } });
 
-      // 5. Settle. The verdict is on chain either way; say plainly if the charge failed.
-      let s;
-      try { s = await facilitator.settle(c.payload, t); } catch (e) {
-        s = { success: false, errorReason: String(e?.message || e).slice(0, 200) };
+      if (!receipt) {
+        if (r.body.result === "payment-failed") return out(402, { ...r.body, accepts: [t] }, again);
+        const why = r.body.reason || r.body.error;
+        return out(r.status, { ...r.body, charged: false, error: `not charged: ${r.body.result ?? "error"}${why ? ` (${why})` : ""}` });
       }
-      if (!s?.success) return out(200, { ...r.body, payment: { charged: false, reason: `settlement failed: ${s?.errorReason || "unknown"}` } });
-      spent.add(c.nonce);
-      const receipt = { success: true, transaction: s.transaction, network: t.network, payer: s.payer || c.from };
-      return out(200, { ...r.body, payment: { charged: true, amount: "0.01", asset: "USDC", network: t.network,
-        transaction: s.transaction, payer: receipt.payer } }, { "PAYMENT-RESPONSE": b64(receipt) });
+      const payment = { charged: receipt.charged, amount: "0.01", asset: "USDC", network: t.network, transaction: receipt.transaction ?? null,
+        payer: receipt.payer ?? c.from, ...(receipt.charged === "unknown" ? { note: `Gateway did not confirm the payment; look up nonce ${c.nonce}` } : {}) };
+      const headers = receipt.charged === true ? { "PAYMENT-RESPONSE": b64({ success: true, transaction: receipt.transaction, network: t.network, payer: payment.payer }) } : {};
+      if (r.body.result === "judged") return out(200, { ...r.body, charged: receipt.charged, payment }, headers);
+      if (r.body.result === "already-judged") {
+        return out(200, { ...r.body, charged: receipt.charged, payment, note: "another request settled the same verdict first; your payment covered this ruling" }, headers);
+      }
+      return out(r.status, { ...r.body, charged: receipt.charged, payment,
+        error: "your payment settled but the verdict transaction failed; the daily sweep settles this job within a day" }, headers);
     } finally {
       inFlight.delete(c.nonce);
     }

@@ -13,7 +13,7 @@ const SKILL_MD = read("skills/judge-protocol/SKILL.md");
 
 const PARAMS = {
   length: ["min", "max", "unit"],
-  contains: ["all"],
+  contains: ["all", "wholeWords"],
   schema: ["required", "types"],
   checksum: ["sha256"],
   "http-endpoint": ["url", "expectStatus", "bodyIncludes", "timeoutMs"],
@@ -49,7 +49,10 @@ test("the paid path is documented with the terms the code actually charges", asy
   for (const v of [x.PRICE_LABEL, x.ARC_TESTNET_NETWORK, "Circle Gateway", "payment-signature", "PAYMENT-REQUIRED", "PAYMENT-RESPONSE"]) {
     assert.ok(INTEGRATION_MD.includes(v), `INTEGRATION.md must mention ${v}`);
   }
-  assert.match(INTEGRATION_MD, /charged only when a verdict/i, "the no-verdict-no-charge rule must be stated");
+  assert.match(INTEGRATION_MD, /settles your payment\s+only when a verdict is ready/i, "the settle-before-sign rule must be stated");
+  assert.match(INTEGRATION_MD, /before it signs anything/i);
+  assert.match(INTEGRATION_MD, /not the amount your client signed/i, "clients must be told what proves a charge");
+  assert.doesNotMatch(INTEGRATION_MD, /charged only when a verdict lands/i, "the old promise is gone");
   assert.match(INTEGRATION_MD, /free[^.]*POST \/api\/judge/i, "the free path must stay documented");
 });
 

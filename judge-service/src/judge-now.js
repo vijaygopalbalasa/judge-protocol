@@ -12,7 +12,9 @@
 import { parseAbiItem, decodeEventLog } from "viem";
 import { config } from "./config.js";
 import { acpAbi, judgeAbi, STATUS } from "./abi.js";
-import { evaluateJob, pollOnce } from "./engine.js";
+import { prepareRuling, settleRuling, pollOnce, MIN_BUDGET } from "./engine.js";
+import { extractCriteria } from "./criteria.js";
+import { validateCriteria } from "./checkers/index.js";
 import { makeClients as defaultMakeClients, makePublicClient as defaultMakePublicClient } from "./signer.js";
 
 const JOB_SUBMITTED = parseAbiItem("event JobSubmitted(uint256 indexed jobId, address indexed provider, bytes32 deliverable)");
@@ -90,6 +92,11 @@ async function findSubmission(publicClient, jobId, submitTx) {
   return null;
 }
 
+/**
+ * Rule on one job now. `deps.beforeSettle(prepared)`, if given, runs after the
+ * verdict is ready and before anything is signed; returning { ok: false, status,
+ * body } stops there (the paid path takes payment in this hook).
+ */
 export async function judgeNow(input = {}, deps = {}) {
   const jobId = parseJobIdInput(input.jobId);
   if (jobId === null) return reply(400, { error: "jobId must be a positive integer" });
@@ -100,8 +107,16 @@ export async function judgeNow(input = {}, deps = {}) {
   try { clients = clientsFrom(deps); } catch (e) {
     return reply(503, { error: "the judge signer is not configured on this deployment" });
   }
-  const { publicClient } = clients;
+  try {
+    return await ruleOn(jobId, input, clients, deps);
+  } catch (e) {
+    // A chain read failed (rate limit, RPC outage): temporary, never a crash.
+    return reply(503, { result: "retry-later", jobId, reason: "could not read Arc testnet right now; try again shortly" });
+  }
+}
 
+async function ruleOn(jobId, input, clients, deps) {
+  const { publicClient } = clients;
   let job;
   try {
     job = await publicClient.readContract({ address: config.acpAddress, abi: acpAbi, functionName: "getJob", args: [jobId] });
@@ -128,7 +143,12 @@ export async function judgeNow(input = {}, deps = {}) {
 
   let outcome;
   try {
-    outcome = await evaluateJob(jobId, sub.deliverable, clients, sub.txHash);
+    const prepared = await prepareRuling(jobId, sub.deliverable, clients, sub.txHash);
+    if (prepared.outcome === "ready" && deps.beforeSettle) {
+      const gate = await deps.beforeSettle(prepared);
+      if (!gate || gate.ok !== true) return reply(gate?.status ?? 402, gate?.body ?? { result: "payment-failed", jobId });
+    }
+    outcome = prepared.outcome === "ready" ? await settleRuling(prepared, clients) : prepared;
   } catch (e) {
     // Most often a concurrent caller settled first; report their verdict.
     const now = await readVerdict(publicClient, jobId).catch(() => null);
@@ -151,8 +171,43 @@ export async function judgeNow(input = {}, deps = {}) {
   return reply(200, { result: outcome.outcome, jobId });
 }
 
+/**
+ * Cheap checks, before anyone is asked to pay: would the judge actually rule
+ * on this job? Returns null if yes, or the answer to give instead.
+ */
+export async function rulingPrecheck(input = {}, deps = {}) {
+  const jobId = parseJobIdInput(input.jobId);
+  if (jobId === null) return reply(400, { error: "jobId must be a positive integer" });
+  try { clientsFrom(deps); } catch {
+    return reply(503, { error: "the judge signer is not configured on this deployment" });
+  }
+  const publicClient = deps.clients ? deps.clients.publicClient : (deps.publicClient || (deps.makePublicClient || defaultMakePublicClient)());
+  let job;
+  try {
+    job = await publicClient.readContract({ address: config.acpAddress, abi: acpAbi, functionName: "getJob", args: [jobId] });
+  } catch {
+    return reply(503, { result: "retry-later", jobId, reason: "could not read Arc testnet right now; try again shortly" });
+  }
+  if (BigInt(job.budget ?? 0n) < MIN_BUDGET) {
+    return reply(200, { result: "skipped", jobId, reason: `budget ${job.budget} is below the minimum of ${MIN_BUDGET} (USDC 6-decimal units)` });
+  }
+  const criteria = extractCriteria(job.description);
+  if (!criteria) return reply(422, { result: "abstained", jobId, reason: "no judge-criteria block in the job description" });
+  const v = validateCriteria(criteria);
+  if (!v.valid) return reply(422, { result: "abstained", jobId, reason: `invalid criteria: ${v.reason}` });
+  return null;
+}
+
 /** Read-only status for GET requests: never signs anything. */
 export async function jobStatus(input = {}, deps = {}) {
+  try {
+    return await readStatus(input, deps);
+  } catch {
+    return reply(503, { result: "retry-later", jobId: String(input.jobId ?? ""), reason: "could not read Arc testnet right now; try again shortly" });
+  }
+}
+
+async function readStatus(input, deps) {
   const jobId = parseJobIdInput(input.jobId);
   if (jobId === null) return reply(400, { error: "jobId must be a positive integer" });
   const publicClient = deps.clients ? deps.clients.publicClient : (deps.publicClient || (deps.makePublicClient || defaultMakePublicClient)());

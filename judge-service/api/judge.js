@@ -7,6 +7,12 @@ import { cors, readJsonBody } from "../src/vercel-util.js";
 
 export function createJudgeHandler(deps = {}) {
   return async function handler(req, res) {
+    try { await handle(req, res); } catch (e) {
+      // Defense in depth: every known failure is answered above; nothing unexpected becomes a 500.
+      if (!res.headersSent) res.status(503).json({ result: "retry-later", error: "temporary failure; try again shortly" });
+    }
+  };
+  async function handle(req, res) {
     cors(res);
     if (req.method === "OPTIONS") { res.status(204).end(); return; }
     if (req.method === "GET") {
@@ -19,7 +25,7 @@ export function createJudgeHandler(deps = {}) {
     if (!body.ok) { res.status(body.status).json({ error: body.error }); return; }
     const r = await judgeNow({ jobId: body.value.jobId, submitTx: body.value.submitTx }, deps);
     res.status(r.status).json(r.body);
-  };
+  }
 }
 
 export default createJudgeHandler();

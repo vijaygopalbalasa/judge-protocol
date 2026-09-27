@@ -133,3 +133,19 @@ test("POST /api/judge without content-length is still held to the 4 KB cap", asy
   assert.equal(r.code, 413);
   assert.equal(m.calls.writeContract.length, 0);
 });
+
+test("an unexpected failure inside any handler is a 503, never a 500 or a crash", async () => {
+  const { createX402JudgeHandler } = await import("../api/x402/judge.js");
+  const { createEvaluateHandler } = await import("../api/evaluate.js");
+  for (const h of [createJudgeHandler({}), createX402JudgeHandler({}), createEvaluateHandler()]) {
+    const res = { code: 0, payload: undefined, headers: {} };
+    res.status = (c) => { res.code = c; return res; };
+    res.json = (o) => { res.payload = o; return res; };
+    res.end = () => res;
+    res.setHeader = (k, v) => { res.headers[k] = v; };
+    const req = { method: "POST", query: {} };
+    Object.defineProperty(req, "headers", { get() { throw new Error("boom"); } });
+    await h(req, res);
+    assert.equal(res.code, 503);
+  }
+});

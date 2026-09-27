@@ -2,8 +2,9 @@
 // Payments here are signed by Circle's own client code (BatchEvmScheme and
 // GatewayClient from @circle-fin/x402-batching), so these tests prove wire
 // compatibility with the real buyer, not just agreement with ourselves.
-// The rules: only a job that can actually be ruled is ever asked to pay, and
-// nobody is charged unless a verdict lands on chain.
+// The rules: only a job waiting for a ruling is asked to pay; the payment is
+// settled when the judge has a verdict ready and BEFORE it signs anything, so
+// nothing is ever signed for a payment that did not settle.
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -28,11 +29,11 @@ const FEE_TO = "0xf493CF092768a4B7a533359F28Db82B06D259Dc2";
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64");
 const unb64 = (s) => JSON.parse(Buffer.from(s, "base64").toString("utf8"));
 
-function setup({ jobs, relay, balances = { [PAYER.address]: 1_000_000n }, gateway = {} } = {}) {
+function setup({ jobs, relay, balances = { [PAYER.address]: 1_000_000n }, gateway = {}, timeoutMs } = {}) {
   const m = mockChain({ jobs, relay });
   const gw = fakeGateway({ balances, ...gateway });
-  const paid = createPaidJudge({ facilitator: gw.facilitator, balanceOf: gw.balanceOf, payTo: FEE_TO,
-    resourceUrl: "https://judge.test/api/x402/judge", deps: { clients: m.clients } });
+  const paid = createPaidJudge({ facilitator: gw.facilitator, balanceOf: gw.balanceOf, lookupTransfer: gw.lookupTransfer, payTo: FEE_TO,
+    resourceUrl: "https://judge.test/api/x402/judge", deps: { clients: m.clients }, ...(timeoutMs ? { timeoutMs } : {}) });
   return { m, gw, paid };
 }
 
@@ -78,7 +79,7 @@ test("jobs that cannot be ruled are never asked to pay", async () => {
     { id: 304, status: "Expired", submitted: false },
     { id: 305, status: "Completed", verdict },
   ] });
-  const want = { 302: "not-ours", 303: "not-submitted", 304: "expired", 305: "judged", 399: "not-found" };
+  const want = { 302: "not-ours", 303: "not-submitted", 304: "expired", 305: "already-judged", 399: "not-found" };
   for (const [id, result] of Object.entries(want)) {
     const r = await paid({ jobId: id });
     assert.notEqual(r.status, 402, `${id} must not be asked to pay`);
@@ -91,7 +92,7 @@ test("jobs that cannot be ruled are never asked to pay", async () => {
   assert.equal(gw.calls.getSupported + gw.calls.verify.length + gw.calls.settle.length, 0);
 });
 
-test("a payment signed by Circle's own client is accepted: the judge rules, then settles exactly once", async () => {
+test("a payment signed by Circle's own client is accepted: settled once, then the verdict is signed", async () => {
   const { m, gw, paid } = setup({ jobs: [{ id: 310 }] });
   const header = await payHeader(await required(paid, "310"));
   const r = await paid({ jobId: "310", paymentHeader: header });
@@ -109,15 +110,13 @@ test("a payment signed by Circle's own client is accepted: the judge rules, then
   assert.equal(gw.balance(PAYER.address), 1_000_000n - 10_000n);
 });
 
-test("no verdict, no charge: abstain, retry-later, a lost race and a failed relay all leave the payment unsettled", async () => {
+test("no ruling possible, no charge: an abstention or a retry-later leaves the payment unsettled", async () => {
   const cases = [
-    { job: { id: 320, description: describe({ checks: [] }) }, status: 422, result: "abstained" },
-    { job: { id: 321, uri: "https://deliverable-host.invalid/report.txt" }, status: 503, result: "retry-later" },
-    { job: { id: 322 }, relay: "revert-then-judged", status: 200, result: "already-judged" },
-    { job: { id: 323 }, relay: "revert", status: 502, result: "error" },
+    { job: { id: 320, description: describe({ checks: [{ kind: "length" }, { kind: "contains", params: { all: ["x"] } }] }), content: "no" , uri: "https://deliverable-host.invalid/r.txt" }, status: 503, result: "retry-later" },
+    { job: { id: 324, content: "different bytes", logDeliverable: "0x" + "ab".repeat(32) }, status: 422, result: "abstained" },
   ];
   for (const c of cases) {
-    const { gw, paid } = setup({ jobs: [c.job], relay: c.relay });
+    const { gw, paid } = setup({ jobs: [c.job] });
     const id = String(c.job.id);
     const r = await paid({ jobId: id, paymentHeader: await payHeader(await required(paid, id)) });
     assert.equal(r.status, c.status, `${id} ${JSON.stringify(r.body)}`);
@@ -128,6 +127,25 @@ test("no verdict, no charge: abstain, retry-later, a lost race and a failed rela
     assert.equal(gw.calls.settle.length, 0, `${id} must not settle`);
     assert.equal(gw.balance(PAYER.address), 1_000_000n, id);
   }
+});
+
+test("the payment settles before the verdict is signed; if the verdict transaction then fails, the answer says so", async () => {
+  // a lost race: another request settled the same deterministic verdict first
+  const race = setup({ jobs: [{ id: 322 }], relay: "revert-then-judged" });
+  const r1 = await race.paid({ jobId: "322", paymentHeader: await payHeader(await required(race.paid, "322")) });
+  assert.equal(r1.status, 200, JSON.stringify(r1.body));
+  assert.equal(r1.body.result, "already-judged");
+  assert.equal(r1.body.charged, true);
+  assert.ok(r1.body.verdict, "the verdict that landed is returned");
+  // a failed relay: charged, and the daily sweep settles the verdict
+  const fail = setup({ jobs: [{ id: 323 }], relay: "revert" });
+  const r2 = await fail.paid({ jobId: "323", paymentHeader: await payHeader(await required(fail.paid, "323")) });
+  assert.equal(r2.status, 502, JSON.stringify(r2.body));
+  assert.equal(r2.body.charged, true);
+  assert.match(r2.body.error, /sweep/);
+  assert.ok(r2.body.payment.transaction);
+  // in both, the payment settled once and only after the verdict was ready
+  for (const x of [race, fail]) assert.equal(x.gw.calls.settle.length, 1);
 });
 
 test("control: Gateway's verify passes an unfunded payer, exactly like the real testnet API", async () => {
@@ -239,19 +257,132 @@ test("one payment cannot buy two rulings", async () => {
   assert.equal(gw.calls.settle.length, 1);
 });
 
-test("if settlement fails after the verdict, the ruling stands and the answer says not charged", async () => {
+test("if the payment does not settle, nothing is signed and nobody is charged", async () => {
   const m = mockChain({ jobs: [{ id: 380 }] });
   const gw = fakeGateway({ balances: { [PAYER.address]: 1_000_000n } });
   // The payer empties its Gateway balance between our balance check and settlement.
-  const paid = createPaidJudge({ facilitator: gw.facilitator, payTo: FEE_TO, resourceUrl: "https://judge.test/api/x402/judge",
+  const paid = createPaidJudge({ facilitator: gw.facilitator, lookupTransfer: gw.lookupTransfer, payTo: FEE_TO, resourceUrl: "https://judge.test/api/x402/judge",
     balanceOf: async (a) => { const b = await gw.balanceOf(a); gw.drain(PAYER.address); return b; }, deps: { clients: m.clients } });
   const r = await paid({ jobId: "380", paymentHeader: await payHeader(await required(paid, "380")) });
-  assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.equal(r.body.result, "judged");
-  assert.equal(r.body.payment.charged, false);
-  assert.match(r.body.payment.reason, /insufficient_balance/);
-  assert.equal(r.headers["PAYMENT-RESPONSE"], undefined);
-  assert.equal(m.calls.writeContract.length, 1);
+  assert.equal(r.status, 402, JSON.stringify(r.body));
+  assert.equal(r.body.charged, false);
+  assert.match(r.body.error, /insufficient_balance/);
+  assert.equal(m.calls.writeContract.length, 0, "no verdict was signed for an unsettled payment");
+});
+
+test("a payment already settled at Gateway (by anyone) buys nothing here", async () => {
+  const { m, gw, paid } = setup({ jobs: [{ id: 381 }] });
+  const header = await payHeader(await required(paid, "381"));
+  const p = unb64(header);
+  const direct = await gw.facilitator.settle(p, p.accepted); // the payer settles it directly
+  assert.equal(direct.success, true);
+  const r = await paid({ jobId: "381", paymentHeader: header });
+  assert.equal(r.status, 402, JSON.stringify(r.body));
+  assert.match(r.body.error, /nonce_already_used/);
+  assert.equal(m.calls.writeContract.length, 0);
+});
+
+test("the same payment on two server instances rules at most once", async () => {
+  const m = mockChain({ jobs: [{ id: 382 }, { id: 383 }] });
+  const gw = fakeGateway({ balances: { [PAYER.address]: 1_000_000n } });
+  const make = () => createPaidJudge({ facilitator: gw.facilitator, balanceOf: gw.balanceOf, lookupTransfer: gw.lookupTransfer, payTo: FEE_TO,
+    resourceUrl: "https://judge.test/api/x402/judge", deps: { clients: m.clients } });
+  const a = make(), b = make();
+  const header = await payHeader(await required(a, "382"));
+  assert.equal((await a({ jobId: "382", paymentHeader: header })).body.charged, true);
+  const second = await b({ jobId: "383", paymentHeader: header });
+  assert.equal(second.status, 402, JSON.stringify(second.body));
+  assert.equal(m.calls.writeContract.length, 1, "the replayed payment bought no second ruling");
+});
+
+test("a burst of payments against one balance buys exactly one ruling", async () => {
+  const m = mockChain({ jobs: [{ id: 384 }, { id: 385 }, { id: 386 }] });
+  const gw = fakeGateway({ balances: { [PAYER.address]: 10_000n } }); // exactly one ruling's worth
+  const paid = createPaidJudge({ facilitator: gw.facilitator, balanceOf: gw.balanceOf, lookupTransfer: gw.lookupTransfer, payTo: FEE_TO,
+    resourceUrl: "https://judge.test/api/x402/judge", deps: { clients: m.clients } });
+  const headers = [];
+  for (const id of ["384", "385", "386"]) headers.push([id, await payHeader(await required(paid, id))]);
+  const rs = await Promise.all(headers.map(([jobId, paymentHeader]) => paid({ jobId, paymentHeader })));
+  assert.equal(rs.filter((r) => r.body.charged === true).length, 1, JSON.stringify(rs.map((r) => [r.status, r.body.result, r.body.error])));
+  assert.equal(m.calls.writeContract.length, 1, "only the settled payment got a ruling");
+});
+
+test("jobs the judge will not rule are not asked to pay: too small, invalid criteria, no signer", async () => {
+  const { gw, paid } = setup({ jobs: [{ id: 387, budget: 5_000n }, { id: 388, description: describe({ checks: [] }) }] });
+  const small = await paid({ jobId: "387" });
+  assert.notEqual(small.status, 402, JSON.stringify(small.body));
+  assert.equal(small.body.result, "skipped");
+  const invalid = await paid({ jobId: "388" });
+  assert.equal(invalid.status, 422, JSON.stringify(invalid.body));
+  assert.equal(invalid.body.result, "abstained");
+  const m = mockChain({ jobs: [{ id: 389 }] });
+  const keyless = createPaidJudge({ facilitator: gw.facilitator, balanceOf: gw.balanceOf, payTo: FEE_TO, resourceUrl: "x",
+    deps: { makeClients: () => { throw new Error("JUDGE_SIGNER_KEY is not set"); }, makePublicClient: () => m.clients.publicClient } });
+  const nokey = await keyless({ jobId: "389" });
+  assert.equal(nokey.status, 503, JSON.stringify(nokey.body));
+  assert.match(nokey.body.error, /signer/);
+  for (const r of [small, invalid, nokey]) { assert.equal(r.headers["PAYMENT-REQUIRED"], undefined); assert.equal(r.body.charged, false); }
+});
+
+test("a verdict that lands between the 402 and the paid retry: already-judged, not charged, same as the free path", async () => {
+  const { m, gw, paid } = setup({ jobs: [{ id: 390 }] });
+  const header = await payHeader(await required(paid, "390"));
+  const { judgeNow } = await import("../src/judge-now.js");
+  assert.equal((await judgeNow({ jobId: "390" }, { clients: m.clients })).body.result, "judged"); // the free path rules first
+  const r = await paid({ jobId: "390", paymentHeader: header });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.result, "already-judged");
+  assert.equal(r.body.charged, false);
+  assert.ok(r.body.verdict);
+  assert.equal(gw.calls.settle.length, 0);
+});
+
+test("a chain read failing after the 402 is a 503 (paid and free), never a crash", async () => {
+  const { m, paid } = setup({ jobs: [{ id: 391 }] });
+  const header = await payHeader(await required(paid, "391"));
+  m.clients.publicClient.getLogs = async () => { throw new Error("HTTP 429 Too Many Requests"); };
+  const r = await paid({ jobId: "391", paymentHeader: header });
+  assert.equal(r.status, 503, JSON.stringify(r.body));
+  assert.equal(r.body.charged, false);
+  const { judgeNow } = await import("../src/judge-now.js");
+  const free = await judgeNow({ jobId: "391" }, { clients: m.clients });
+  assert.equal(free.status, 503);
+  assert.equal(free.body.result, "retry-later");
+});
+
+test("a Gateway that hangs is cut off quickly; a settle that hangs is resolved by asking Gateway", async () => {
+  // verify hangs: 503 fast, no ruling
+  const hangV = setup({ jobs: [{ id: 392 }], gateway: { fail: { verifyHang: true } }, timeoutMs: 150 });
+  const t0 = Date.now();
+  const rv = await hangV.paid({ jobId: "392", paymentHeader: await payHeader(await required(hangV.paid, "392")) });
+  assert.equal(rv.status, 503, JSON.stringify(rv.body));
+  assert.ok(Date.now() - t0 < 2000, "cut off by the timeout");
+  assert.equal(hangV.m.calls.writeContract.length, 0);
+  // settle processed by Gateway but the call hangs: the lookup finds it, so it counts as charged and the ruling proceeds
+  const hangS = setup({ jobs: [{ id: 393 }], gateway: { fail: { settleProcessedThenHang: true } }, timeoutMs: 150 });
+  const rs = await hangS.paid({ jobId: "393", paymentHeader: await payHeader(await required(hangS.paid, "393")) });
+  assert.equal(rs.status, 200, JSON.stringify(rs.body));
+  assert.equal(rs.body.result, "judged");
+  assert.equal(rs.body.payment.charged, true);
+  // settle hangs and Gateway has no record: not charged, nothing signed
+  const lost = setup({ jobs: [{ id: 394 }], gateway: { fail: { settleHang: true } }, timeoutMs: 150 });
+  const rl = await lost.paid({ jobId: "394", paymentHeader: await payHeader(await required(lost.paid, "394")) });
+  assert.equal(rl.body.charged, false, JSON.stringify(rl.body));
+  assert.equal(lost.m.calls.writeContract.length, 0);
+});
+
+test("payment numbers must be canonical decimal strings, and the header a single value", async () => {
+  const { gw, paid } = setup({ jobs: [{ id: 395 }] });
+  const p = unb64(await payHeader(await required(paid, "395")));
+  for (const v of [" 10000", "010000", "0x2710", "10000.0", 10000]) {
+    const q = structuredClone(p); q.payload.authorization.value = v;
+    const r = await paid({ jobId: "395", paymentHeader: b64(q) });
+    assert.equal(r.status, 400, `value ${JSON.stringify(v)}: ${JSON.stringify(r.body)}`);
+  }
+  const arr = await paid({ jobId: "395", paymentHeader: ["a", "b"] });
+  assert.equal(arr.status, 400);
+  assert.match(arr.body.error, /single/);
+  assert.equal(gw.calls.verify.length, 0);
 });
 
 test("Gateway unreachable: fail closed with 503 and no ruling", async () => {
@@ -323,7 +454,8 @@ test("end to end with Circle's real GatewayClient.pay() over HTTP: 402, sign, re
     assert.equal(out.amount, 10_000n);
     // Paying again for the same (now judged) job is answered without asking for money.
     const again = await client.pay(url, { method: "POST", body: { jobId: "410" } });
-    assert.equal(again.data.result, "judged");
+    assert.equal(again.data.result, "already-judged");
+    assert.equal(again.data.charged, false);
     assert.equal(again.amount, 0n);
     assert.equal(gw.calls.settle.length, 1);
   } finally {

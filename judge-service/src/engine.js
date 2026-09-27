@@ -3,7 +3,7 @@ import { createPublicClient, http, parseAbiItem, keccak256, decodeFunctionData, 
 import { config } from "./config.js";
 import { acpAbi, STATUS } from "./abi.js";
 import { extractCriteria, criteriaHash } from "./criteria.js";
-import { extractDeliverableURI, resolveDeliverable, storeEvidence } from "./evidence.js";
+import { extractDeliverableURI, resolveDeliverable, storeEvidence, evidenceHashOf } from "./evidence.js";
 import { runAllChecks, validateCriteria, InvalidCriteriaError } from "./checkers/index.js";
 import { makeClients, signVerdict, submitVerdictOnChain } from "./signer.js";
 import { loadCursor, saveCursor } from "./cursor.js";
@@ -25,7 +25,7 @@ const MAX_BLOCK_RANGE = 10_000n;
 // Minimum job budget (in USDC 6-dp units) we will spend gas to judge. Anyone can
 // name our address as evaluator on a zero-value job; without this floor they can
 // make the relayer pay gas for unlimited junk verdicts. 0.01 USDC default.
-const MIN_BUDGET = BigInt(process.env.MIN_JOB_BUDGET || 10_000);
+export const MIN_BUDGET = BigInt(process.env.MIN_JOB_BUDGET || 10_000);
 
 // ACP submit(jobId, bytes32 deliverable, bytes optParams): used to recover the
 // PROVIDER-authored deliverable URI from their own submit-transaction calldata,
@@ -71,8 +71,22 @@ function isUri(s) {
   return s.startsWith("data:") || s.startsWith("ipfs://") || s.startsWith("http://") || s.startsWith("https://");
 }
 
+/** Rule on a job end to end: prepare the verdict, then sign and settle it. */
 export async function evaluateJob(jobId, deliverableHash, clients, submitTxHash) {
-  const { publicClient, signerAccount, relayerWallet } = clients;
+  const prepared = await prepareRuling(jobId, deliverableHash, clients, submitTxHash);
+  if (prepared.outcome !== "ready") return prepared;
+  return settleRuling(prepared, clients);
+}
+
+/**
+ * Everything up to the verdict, without signing, storing or sending anything:
+ * read the job, validate the criteria, load the provider's deliverable, check
+ * it against the commitment and run the checks. A paid ruling takes payment
+ * between this and settleRuling(), so nothing is signed for a payment that
+ * did not settle.
+ */
+export async function prepareRuling(jobId, deliverableHash, clients, submitTxHash) {
+  const { publicClient, signerAccount } = clients;
   const startedAt = Date.now();
   const log = (...a) => console.log(`[job ${jobId}]`, ...a);
 
@@ -175,24 +189,30 @@ export async function evaluateJob(jobId, deliverableHash, clients, submitTxHash)
     finishedAt: new Date().toISOString(),
     judge: signerAccount.address,
   };
-  const { evidenceHash, file } = storeEvidence(verdictObj);
-  log(`evidence stored: ${file} (hash ${evidenceHash.slice(0, 18)}…)`);
+  return { outcome: "ready", jobId, verdictObj, criteriaHash: cHash, deliverable: deliverableHash, pass, score, threshold,
+    evidenceHash: evidenceHashOf(verdictObj) };
+}
 
-  // 6. Sign (EIP-712) and submit.
+/** Store the evidence, sign the verdict (EIP-712) and settle it on chain. */
+export async function settleRuling(prepared, clients) {
+  const { publicClient, signerAccount, relayerWallet } = clients;
+  const log = (...a) => console.log(`[job ${prepared.jobId}]`, ...a);
+  const { evidenceHash, file } = storeEvidence(prepared.verdictObj);
+  log(`evidence stored: ${file} (hash ${evidenceHash.slice(0, 18)}…)`);
   const verdict = {
-    jobId,
-    criteriaHash: cHash,
-    deliverable: deliverableHash,
-    score,
-    threshold,
-    pass,
+    jobId: prepared.jobId,
+    criteriaHash: prepared.criteriaHash,
+    deliverable: prepared.deliverable,
+    score: prepared.score,
+    threshold: prepared.threshold,
+    pass: prepared.pass,
     evidenceHash,
     timestamp: BigInt(Math.floor(Date.now() / 1000)),
   };
   const sig = await signVerdict(signerAccount, verdict);
   const { hash } = await submitVerdictOnChain(relayerWallet, publicClient, verdict, sig);
-  log(`verdict submitted: ${pass ? "COMPLETE" : "REJECT"} tx=${hash}`);
-  return { outcome: "judged", pass, score, threshold, txHash: hash, evidenceHash };
+  log(`verdict submitted: ${prepared.pass ? "COMPLETE" : "REJECT"} tx=${hash}`);
+  return { outcome: "judged", pass: prepared.pass, score: prepared.score, threshold: prepared.threshold, txHash: hash, evidenceHash };
 }
 
 /** One polling pass: find recent JobSubmitted events and evaluate them.

@@ -43,13 +43,20 @@ function checkSchema(spec, deliverable) {
   };
 }
 
-/** regex / keyword presence against a text deliverable. */
+const escapeRegExp = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** True if `term` occurs in `text` not touching a letter, digit or underscore on either side. */
+export function hasWholeWord(text, term) {
+  return new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(term)}(?![\\p{L}\\p{N}_])`, "u").test(text);
+}
+
+/** Required terms, literal and case-sensitive; with wholeWords, each must stand on its own. */
 function checkContains(spec, deliverable) {
   const text = deliverable.content.toString("utf8");
   const terms = spec.all || [];
-  const missing = terms.filter((t) => !text.includes(t));
+  const found = spec.wholeWords === true ? (t) => hasWholeWord(text, t) : (t) => text.includes(t);
+  const missing = terms.filter((t) => !found(t));
   const pass = missing.length === 0;
-  return { pass, detail: pass ? `all ${terms.length} terms present` : `missing terms: ${missing.join(", ")}` };
+  return { pass, detail: pass ? `all ${terms.length} terms present${spec.wholeWords === true ? " as whole words" : ""}` : `missing terms: ${missing.join(", ")}` };
 }
 
 /** length bounds on a text deliverable (words or chars). */
@@ -130,6 +137,7 @@ function paramsProblem(kind, p) {
       return null;
     case "contains":
       if (has(p.all) && !isStringList(p.all)) return `all must be a list of at most ${LIMITS.terms} strings of at most ${LIMITS.termChars} characters`;
+      if (has(p.wholeWords) && typeof p.wholeWords !== "boolean") return "wholeWords must be true or false";
       return null;
     case "schema":
       if (has(p.required) && !isStringList(p.required)) return `required must be a list of at most ${LIMITS.terms} field names`;
