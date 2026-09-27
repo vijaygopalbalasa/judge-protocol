@@ -107,6 +107,33 @@ not ruled yet), `not-submitted`, `expired`, `closed`, `not-ours`, or `not-found`
 Dry run, see Path B. Body: `criteria` plus exactly one of `deliverable` (text) or
 `deliverableBase64`; optional `jobId` (only used in the `evidenceHash`).
 
+### `POST /api/x402/judge` (paid over x402)
+The same ruling, paid for over [x402](https://x402.org): 0.01 USDC through Circle Gateway
+on Arc testnet (`eip155:5042002`), charged only when a verdict lands on chain. This is
+the fee model, since Circle's ERC-8183 contract has no evaluator fee; the free
+`POST /api/judge` keeps working on testnet.
+
+- A job the judge can rule right now gets `402` with the terms in the `PAYMENT-REQUIRED`
+  header (x402 v2). Any other job is answered for free, with the same `result` values
+  as above and `charged: false`.
+- Send the signed payment in a `payment-signature` header. The judge checks it locally
+  (terms, recipient, amount, signature), asks Circle Gateway to verify it, checks your
+  Gateway balance, rules, and only then settles. The receipt comes back in the
+  `PAYMENT-RESPONSE` header and as `payment` in the body.
+- No verdict from your request (the judge abstained, a transient failure, another
+  request ruled first): the payment is never settled and the body says `not charged`.
+
+With Circle's client (`npm install @circle-fin/x402-batching`):
+
+```js
+import { GatewayClient } from "@circle-fin/x402-batching/client";
+
+const gateway = new GatewayClient({ chain: "arcTestnet", privateKey: process.env.AGENT_KEY });
+await gateway.deposit("0.50"); // once: fund your Gateway balance
+const { data } = await gateway.pay("https://judge-protocol-api.vercel.app/api/x402/judge",
+  { method: "POST", body: { jobId: "186760" } });
+```
+
 ### `GET /api/health`
 The judge address, its signer and whether the signer is authorized on chain, and
 the relayer's gas balance.
@@ -126,3 +153,6 @@ the relayer's gas balance.
 - `http-endpoint` checks are live probes and cannot be re-run later as the judge saw them.
 - Inline `data:` deliverables are for small content (the kit caps them at 48 KB);
   host larger work at an https or ipfs URI.
+- Paid rulings settle in Circle Gateway batches, so the transfer completes minutes
+  later. The judge settles only after a verdict; if a payer empties its Gateway balance
+  in between, that ruling goes unpaid. The judge carries that risk, never the payer.

@@ -41,7 +41,16 @@ test("every criteria example in the docs is one the judge would accept", () => {
 
 test("INTEGRATION.md uses the real addresses and documents every endpoint", () => {
   for (const v of [kit.ARC_TESTNET.acp, kit.ARC_TESTNET.judge, kit.ARC_TESTNET.api, kit.ARC_TESTNET.verifier]) assert.ok(INTEGRATION_MD.includes(v), v);
-  for (const e of ["POST /api/judge", "GET /api/judge?jobId=", "POST /api/evaluate", "GET /api/health", "submitTx"]) assert.ok(INTEGRATION_MD.includes(e), e);
+  for (const e of ["POST /api/judge", "GET /api/judge?jobId=", "POST /api/evaluate", "GET /api/health", "submitTx", "POST /api/x402/judge"]) assert.ok(INTEGRATION_MD.includes(e), e);
+});
+
+test("the paid path is documented with the terms the code actually charges", async () => {
+  const x = await import("../../judge-service/src/x402.js");
+  for (const v of [x.PRICE_LABEL, x.ARC_TESTNET_NETWORK, "Circle Gateway", "payment-signature", "PAYMENT-REQUIRED", "PAYMENT-RESPONSE"]) {
+    assert.ok(INTEGRATION_MD.includes(v), `INTEGRATION.md must mention ${v}`);
+  }
+  assert.match(INTEGRATION_MD, /charged only when a verdict/i, "the no-verdict-no-charge rule must be stated");
+  assert.match(INTEGRATION_MD, /free[^.]*POST \/api\/judge/i, "the free path must stay documented");
 });
 
 test("INTEGRATION.md explains every result the hosted judge can return", () => {

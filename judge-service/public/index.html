@@ -46,6 +46,7 @@
     <tr><td><code>POST /api/judge</code></td><td>Rule now on a Submitted job that names this judge. Body: <code>jobId</code>, optional <code>submitTx</code> (needed for submissions older than about 4 hours).</td></tr>
     <tr><td><code>GET /api/judge?jobId=N</code></td><td>Read-only status: pending, judged (with the on-chain verdict), not-submitted, expired, or not-ours.</td></tr>
     <tr><td><code>POST /api/evaluate</code></td><td>Dry run: the exact checks, score and evidenceHash the judge would produce for a deliverable. Never signs, never settles, never makes a network request. For your own escrow, or to self-check before submitting.</td></tr>
+    <tr><td><code>POST /api/x402/judge</code></td><td>The same ruling, paid over x402: 0.01 USDC through Circle Gateway on Arc testnet, charged only when a verdict lands on chain. Answers 402 with the terms for a job it can rule; everything else is free.</td></tr>
     <tr><td><code>GET /api/health</code></td><td>The judge, its signer and whether it is authorized on chain, and whether the relayer has gas.</td></tr>
   </table>
 

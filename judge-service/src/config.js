@@ -20,6 +20,10 @@ export const config = {
   // Relayer that submits signed verdicts on-chain (may equal signer in v1).
   relayerKey: process.env.JUDGE_RELAYER_KEY || process.env.JUDGE_SIGNER_KEY || "",
 
+  // Where paid rulings (x402 through Circle Gateway) are credited: the hosted
+  // relayer's Gateway balance, which can be withdrawn to pay for verdict gas.
+  feeAddress: process.env.JUDGE_FEE_ADDRESS || "0xf493CF092768a4B7a533359F28Db82B06D259Dc2",
+
   pollIntervalMs: Number(process.env.POLL_INTERVAL_MS || 4000),
   slaSeconds: Number(process.env.SLA_SECONDS || 300),
   evidenceDir: process.env.EVIDENCE_DIR || "./evidence",
