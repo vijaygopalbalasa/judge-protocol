@@ -44,6 +44,8 @@ let slot = 0;
  * @param {boolean[]} [o.assumePass]            per-check pass flags to use instead of running the service checkers (for http-endpoint)
  * @param {number} [o.clockSkewSec]             service clock lag: verdict timestamp minus this many seconds
  * @param {boolean} [o.viaWallet]               provider submits through a contract wallet (execute(ACP, 0, submit(...)))
+ * @param {boolean} [o.noVerdict]               no verdict on chain yet (getVerdict returns the empty struct)
+ * @param {string} [o.status]                   job status name override (Open, Funded, Submitted, Completed, Rejected, Expired)
  */
 export async function synthJob(o) {
   const content = typeof o.content === 'string' ? Buffer.from(o.content, 'utf8') : Buffer.from(o.content);
@@ -74,12 +76,15 @@ export async function synthJob(o) {
   slot++;
   const submitBlock = FIXTURE.latest - 400000 - slot * 1000;
   const verdictTs = timestampAt(submitBlock + 5) - (o.clockSkewSec || 0);
-  const getVerdict = '0x' + [o.id, ch, v.deliverable, v.score, v.threshold, v.pass ? 1 : 0, evidenceHash, verdictTs].map(word).join('');
+  const getVerdict = o.noVerdict ? '0x' + '0'.repeat(64 * 8)
+    : '0x' + [o.id, ch, v.deliverable, v.score, v.threshold, v.pass ? 1 : 0, evidenceHash, verdictTs].map(word).join('');
+  const STATUS_INDEX = { Open: 0, Funded: 1, Submitted: 2, Completed: 3, Rejected: 4, Expired: 5 };
+  const statusIndex = o.status ? STATUS_INDEX[o.status] : o.noVerdict ? 2 : v.pass ? 3 : 4;
   const getJob = encodeAbiParameters(
     [{ type: 'tuple', components: [
       { type: 'uint256' }, { type: 'address' }, { type: 'address' }, { type: 'address' }, { type: 'string' },
       { type: 'uint256' }, { type: 'uint256' }, { type: 'uint8' }, { type: 'address' }] }],
-    [[BigInt(o.id), CLIENT, PROVIDER, o.evaluator || JUDGE, description, 1000000n, 0n, v.pass ? 3 : 4, '0x' + '0'.repeat(40)]],
+    [[BigInt(o.id), CLIENT, PROVIDER, o.evaluator || JUDGE, description, 1000000n, 0n, statusIndex, '0x' + '0'.repeat(40)]],
   );
   const input = '0x9e63798d' + encodeAbiParameters(
     [{ type: 'uint256' }, { type: 'bytes32' }, { type: 'bytes' }],

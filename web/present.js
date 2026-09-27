@@ -6,6 +6,7 @@ const STATES = {
   verified: ['VERIFIED', 'var(--ok)', 'recomputed independently'],
   mismatch: ['MISMATCH', 'var(--bad)', 'recomputation disagrees with the on-chain verdict'],
   incomplete: ['INCOMPLETE', 'var(--warn)', 'could not finish; see below'],
+  awaiting: ['AWAITING RULING', 'var(--warn)', 'the provider has submitted; the judge has not ruled yet'],
   error: ['ERROR', 'var(--bad)', 'could not read this job'],
 };
 
@@ -59,10 +60,11 @@ export function present(r) {
   if (sourceText && r.submittedVia === 'contract wallet') sourceText += '; the provider submitted through a contract wallet';
   return {
     state, headline, color, note,
-    pill: r.verdict && r.verdict.pass ? 'PASS (escrow released)' : 'REJECT (client refunded)',
+    pill: !r.verdict ? null : r.verdict.pass ? 'PASS (escrow released)' : 'REJECT (client refunded)',
     sourceText,
     incompleteText: state === 'incomplete' ? incompleteText(r) : null,
     canPaste: state === 'incomplete' && !!r.needsDeliverable,
+    canRequestRuling: state === 'awaiting',
   };
 }
 

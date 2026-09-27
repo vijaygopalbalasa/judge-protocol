@@ -41,6 +41,12 @@ test('deployed page: the RPC endpoint the app calls is allowed by connect-src', 
   assert.ok(allowedByConnectSrc(ep, origin), `connect-src blocks ${ep}: ${meta[1]}`);
 });
 
+test('the judge API the page asks for rulings is allowed by connect-src', async () => {
+  const origin = 'https://judge-protocol-verifier.vercel.app';
+  const mod = await import('../app.js?judge-api');
+  assert.ok(allowedByConnectSrc(mod.CFG.judgeApi + '/api/judge', origin), `connect-src blocks ${mod.CFG.judgeApi}`);
+});
+
 test('local static hosting: the RPC endpoint the app calls is allowed by connect-src', async () => {
   const origin = 'http://localhost:8787';
   const ep = await endpointFor('localhost', 'http:');
@@ -57,5 +63,5 @@ test('CSP stays strict: nothing is loosened to make the fix pass', () => {
   for (const loose of ['*', "'unsafe-eval'", 'http:', 'https:', 'data:', 'blob:']) {
     assert.ok(!all.split(/[\s;]+/).includes(loose), `CSP must not contain ${loose}`);
   }
-  assert.deepEqual([...d['connect-src']].sort(), ["'self'", 'https://rpc.testnet.arc.io'].sort());
+  assert.deepEqual([...d['connect-src']].sort(), ["'self'", 'https://rpc.testnet.arc.io', 'https://judge-protocol-api.vercel.app'].sort());
 });

@@ -184,6 +184,46 @@ function renderResult(r) {
   set($('#result'), [box]);
 }
 
+function renderAwaiting(r) {
+  const p = present(r);
+  const status = el('div', { class: 'note' });
+  const btn = el('button', { text: 'Ask the judge to rule now' });
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    set(status, [el('span', { text: 'Asking the judge… it checks the delivery and settles on chain.' })]);
+    try {
+      const res = await fetch(`${CFG.judgeApi}/api/judge`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jobId: String(r.jobId) }),
+      });
+      const out = await res.json().catch(() => ({}));
+      const said = out.result === 'judged' ? `Ruled: ${out.pass ? 'PASS' : 'REJECT'} (score ${out.score}). Re-checking it now…`
+        : out.result === 'already-judged' ? 'Already ruled. Re-checking it now…'
+          : `The judge answered: ${out.result || 'error'}${out.reason ? `, ${out.reason}` : out.error ? `, ${out.error}` : ''}.`;
+      set(status, [el('span', { text: said })]);
+      if (out.result === 'judged' || out.result === 'already-judged') setTimeout(run, 1500);
+      else btn.disabled = false;
+    } catch (e) {
+      set(status, [el('span', { text: `Could not reach the judge: ${e.message}` })]);
+      btn.disabled = false;
+    }
+  });
+  set($('#result'), [el('div', { class: 'verdictbox' }, [
+    el('div', { class: 'row', style: 'justify-content:space-between' }, [
+      el('div', {}, [
+        el('div', { class: 'k', text: `job ${r.jobId} · status ${r.job.status}` }),
+        el('div', { class: 'note', text: `budget ${usdc(r.job.budget)} USDC · evaluator is Judge Protocol` }),
+      ]),
+      el('div', { style: 'text-align:right' }, [
+        el('div', { class: 'big', style: `color:${p.color}`, text: p.headline }),
+        el('div', { class: 'note', text: p.note }),
+      ]),
+    ]),
+    el('p', { class: 'note', style: 'margin-top:12px', text: 'Anyone can ask: the ruling is a pure function of the criteria in the job and the provider\'s commitment, so it does not matter who asks.' }),
+    el('div', { class: 'row', style: 'margin-top:8px' }, [btn]),
+    status,
+  ])]);
+}
+
 function errBox(title, msg) {
   set($('#result'), [el('div', { class: 'verdictbox' }, [
     el('div', { class: 'big', style: 'color:var(--bad)', text: title }),
@@ -202,6 +242,7 @@ async function run() {
   try {
     const r = await verifyJob(id);
     if (r.error) errBox('Cannot verify', r.error);
+    else if (r.awaiting) renderAwaiting(r);
     else renderResult(r);
   } catch (e) {
     errBox('Error', e.message);

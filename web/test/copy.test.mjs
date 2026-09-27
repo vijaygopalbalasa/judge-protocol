@@ -186,7 +186,9 @@ test('test counts quoted in the README match the suites that actually exist', ()
     .reduce((n, f) => n + (read(dir + f).match(/^\s*test\(/gm) || []).length, 0);
   const svc = count('judge-service/test/', '.test.js');
   const web = count('web/test/', '.test.mjs');
+  const kit = count('kit/test/', '.test.js');
   const readme = read('README.md');
+  assert.match(readme, new RegExp(`\\*\\*${kit}/${kit} kit and docs tests\\*\\*`));
   assert.match(readme, new RegExp(`\\*\\*${svc}/${svc} service unit tests\\*\\*`));
   assert.match(readme, new RegExp(`\\*\\*${web}/${web} web verifier tests\\*\\*`));
   assert.match(readme, new RegExp(`${svc} unit tests \\(`));

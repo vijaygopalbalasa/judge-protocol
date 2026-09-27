@@ -31,6 +31,7 @@ export const CFG = {
   hook: '0xfe38bF336148eb3F2E1A5DEE8Ed89AC3B8bcF1c8',
   acp: '0x0747EEf0706327138c69792bF28Cd525089e4583',
   explorer: 'https://testnet.arcscan.app',
+  judgeApi: 'https://judge-protocol-api.vercel.app',
   // Every job this evaluator has settled, newest first. Verified on-chain.
   knownJobs: [186741, 186740, 171925, 171507, 170857, 170856, 170855],
 };
@@ -64,6 +65,7 @@ export const REQUIRED_CHECKS = [
  */
 export function outcome(r) {
   if (!r || r.error) return 'error';
+  if (r.awaiting) return 'awaiting'; // named the judge, submitted, not ruled yet: never verified
   const checks = r.checks || [];
   if (checks.some((c) => !c.ok && c.id !== 'deliverableAvailable')) return 'mismatch';
   if (r.unsupported && r.unsupported.length) return 'unsupported';
@@ -453,7 +455,22 @@ export async function verifyJob(jobId, pastedDeliverable) {
   if (verdictRes.status === 'rejected') throw verdictRes.reason;
   const verdict = verdictRes.value;
   out.verdict = verdict;
-  if (!verdict || verdict.timestamp === 0) { out.error = 'No on-chain verdict recorded for this job.'; return out; }
+  if (!verdict || verdict.timestamp === 0) {
+    // No ruling yet. Say exactly why, and whether asking the judge could help.
+    out.verdict = null;
+    const job = jobRes.status === 'fulfilled' ? jobRes.value : null;
+    if (!job || /^0x0{40}$/i.test(job.evaluator || '')) { out.error = 'No such job on the ERC-8183 contract.'; return out; }
+    out.job = job;
+    if (job.evaluator.toLowerCase() !== CFG.judge.toLowerCase()) {
+      out.error = `This job names a different evaluator (${job.evaluator}), so Judge Protocol does not rule on it.`;
+      return out;
+    }
+    if (job.status === 'Submitted') { out.awaiting = { status: job.status }; return out; }
+    if (job.status === 'Open' || job.status === 'Funded') { out.error = 'This job has not been submitted yet, so there is nothing to rule on.'; return out; }
+    if (job.status === 'Expired') { out.error = 'This job expired without a ruling; the client can claim a refund.'; return out; }
+    out.error = 'No on-chain verdict recorded for this job.';
+    return out;
+  }
   if (jobRes.status === 'rejected') throw jobRes.reason;
   const job = jobRes.value;
   out.job = job;
