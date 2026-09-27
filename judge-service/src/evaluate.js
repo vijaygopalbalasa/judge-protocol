@@ -9,7 +9,7 @@
 import { keccak256 } from "viem";
 import { criteriaHash } from "./criteria.js";
 import { evidenceHashOf } from "./evidence.js";
-import { runCheck, validateCriteria } from "./checkers/index.js";
+import { runCheck, validateCriteria, InvalidCriteriaError } from "./checkers/index.js";
 
 export const MAX_DELIVERABLE_BYTES = 256 * 1024;
 const LIVE = new Set(["http-endpoint"]);
@@ -44,7 +44,11 @@ export async function dryRunEvaluate(input = {}, { allowLiveProbes = false } = {
       results.push({ kind: check.kind, weight: w, pass: null, detail: "live network probe: not run in the dry run" });
       continue;
     }
-    const r = await runCheck(check, { content, source: "inline" });
+    let r;
+    try { r = await runCheck(check, { content, source: "inline" }); } catch (e) {
+      if (e instanceof InvalidCriteriaError) return { status: 422, body: { valid: false, reason: e.message } };
+      throw e;
+    }
     results.push(r);
     wSum += w; if (r.pass) wPass += w;
   }

@@ -159,3 +159,23 @@ test("the dry run can never sign: it does not import the signer at all", () => {
 });
 
 void toHex;
+
+test("malformed params are a 422 from the dry run, never a 500", async () => {
+  const h = createEvaluateHandler();
+  for (const criteria of [
+    { checks: [{ kind: "contains", params: { all: "ERC" } }] },
+    { checks: [{ kind: "schema", params: { required: "id" } }] },
+    JSON.parse((await import("./helpers/criteria-cases.js")).DEEP_TEXT),
+  ]) {
+    const r = await call(h, { body: { criteria, deliverable: "ERC text {\"id\":1}" } });
+    assert.equal(r.code, 422, JSON.stringify(r.payload).slice(0, 200));
+    assert.equal(r.payload.valid, false);
+  }
+});
+
+test("a request without content-length (chunked) is still held to the size cap", async () => {
+  const h = createEvaluateHandler();
+  const terms = Array.from({ length: 200 }, (_, i) => `${i}`.padEnd(1000, "x"));
+  const r = await call(h, { body: { criteria: { checks: [{ kind: "contains", params: { all: terms } }] }, deliverable: "y".repeat(250_000) } });
+  assert.equal(r.code, 413, JSON.stringify(r.payload).slice(0, 120));
+});

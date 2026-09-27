@@ -46,41 +46,42 @@ Counts words (default) or characters of the deliverable decoded as UTF-8.
 
 | Param | Type | Default | Meaning |
 |---|---|---|---|
-| `min` | number | 0 | Inclusive lower bound. |
-| `max` | number | no limit | Inclusive upper bound. |
-| `unit` | `"chars"` or omitted | words | `"chars"` counts UTF-16 code units (JavaScript `length`); otherwise whitespace-separated words. |
+| `min` | number, 0 or more | 0 | Inclusive lower bound. |
+| `max` | number, 0 or more, not below `min` | no limit | Inclusive upper bound. |
+| `unit` | `"chars"`, `"words"` or omitted | words | `"chars"` counts UTF-16 code units (JavaScript `length`); otherwise whitespace-separated words. |
 
 ### `contains`
 Every term must appear. Literal, case-sensitive substring match (not a regex).
 
 | Param | Type | Meaning |
 |---|---|---|
-| `all` | array of strings | Terms that must all be present. An empty list passes. |
+| `all` | list of up to 256 strings, each up to 1024 characters | Terms that must all be present. An empty list passes. |
 
 ### `schema`
-The deliverable must parse as JSON.
+The deliverable must parse as a JSON object. Valid JSON that is not a JSON object
+(for example `42` or `null`) fails the check.
 
 | Param | Type | Meaning |
 |---|---|---|
-| `required` | array of strings | Keys that must exist on the parsed object. |
-| `types` | object `{ key: type }` | For keys that exist, `typeof value` must equal `type` (`"string"`, `"number"`, `"boolean"`, `"object"`). |
+| `required` | list of up to 256 field names | Keys that must exist on the parsed object. |
+| `types` | object `{ key: type }`, up to 256 fields | For keys that exist, `typeof value` must equal `type`, one of `"string"`, `"number"`, `"boolean"`, `"object"`. |
 
 ### `checksum`
 The SHA-256 of the exact deliverable bytes must match. Useful for files.
 
 | Param | Type | Meaning |
 |---|---|---|
-| `sha256` | hex string | Expected digest (case-insensitive, no `0x`). |
+| `sha256` | 64 hex characters | Expected digest (case-insensitive, no `0x`). Required. |
 
 ### `http-endpoint`
 A live network probe: the judge fetches a URL once, at judging time.
 
 | Param | Type | Default | Meaning |
 |---|---|---|---|
-| `url` | string | the deliverable's URL | Address to probe (http or https only; internal addresses are blocked). |
-| `expectStatus` | number | 200 | Required HTTP status. |
-| `bodyIncludes` | array of strings | none | Substrings the response body must contain. |
-| `timeoutMs` | number | 5000 | Probe timeout. |
+| `url` | string, up to 2048 characters | the deliverable's URL | Address to probe (http or https only; internal addresses are blocked). |
+| `expectStatus` | integer from 100 to 599 | 200 | Required HTTP status. |
+| `bodyIncludes` | list of up to 256 strings | none | Substrings the response body must contain. |
+| `timeoutMs` | number from 1 to 10000 | 5000 | Probe timeout in milliseconds. |
 
 This is the one kind that is **not** recomputable later: a URL can change after
 the judge probed it. Its pass or fail is recorded inside the signed evidence, so
@@ -93,7 +94,14 @@ cannot re-run the probe as the judge saw it. Prefer the other kinds when you can
 - a check that is not an object, or an unknown `kind` (for example `code-test`)
 - a `weight` that is 0, negative, non-numeric or not finite
 - a `passThreshold` that is not an integer from 0 to 100
+- `params` that are not an object, or a param of the wrong type or out of range (the
+  tables above say what each kind accepts; a param set to `null` counts as absent)
+- too many checks: the judge takes at most 64 checks, and at most 4 `http-endpoint` checks
+- criteria nested deeper than 12 levels
 - no `judge-criteria` block, or a block that is not valid JSON
+
+These bounds keep every ruling small and fast. A check the judge would have to
+guess about is refused rather than scored, because a guessed score moves escrow.
 
 If the judge abstains, nobody is paid by it; after `expiredAt` the client can
 call `claimRefund` on the ACP.

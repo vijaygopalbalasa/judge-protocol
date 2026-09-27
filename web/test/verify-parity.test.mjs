@@ -168,6 +168,7 @@ test('an HTTP 429 with a non-JSON body (Cloudflare style) is retried, not surfac
 
 test('browser checkers and validation agree with the judge-service on a battery of inputs', async () => {
   const contents = ['', 'hello', '{"a":1,"b":"x"}', '{"a":"1"}', 'not json', 'ERC-8183 USDC Arc', '  many   words here  ',
+    '42', 'null', '"a string"', 'true', '[1,2]', // valid JSON that is not an object: a failed schema check, never a crash
     Buffer.from([0xff, 0xfe, 0x00]).toString('latin1'), Buffer.from([0xef, 0xbb, 0xbf, 0x41]).toString('latin1')];
   const criteriaList = [
     { checks: [{ kind: 'length', params: { min: 2, max: 3 } }] },
@@ -196,4 +197,17 @@ test('browser checkers and validation agree with the judge-service on a battery 
   for (const c of invalid) {
     assert.equal(app.validateCriteria(c).valid, service.checkers.validateCriteria(c).valid, JSON.stringify(c));
   }
+});
+
+test('the verifier refuses exactly what the judge refuses, on every shared criteria case', async () => {
+  const { CRITERIA_CASES } = await import('../../judge-service/test/helpers/criteria-cases.js');
+  for (const [label, c, valid] of CRITERIA_CASES) {
+    let v;
+    assert.doesNotThrow(() => { v = app.validateCriteria(c); }, label);
+    assert.equal(v.valid, valid, `${label}: ${v.reason}`);
+  }
+});
+
+test('the verifier and the judge enforce the same bounds', () => {
+  assert.deepEqual(app.LIMITS, service.checkers.LIMITS);
 });

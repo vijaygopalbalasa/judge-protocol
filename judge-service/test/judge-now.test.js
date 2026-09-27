@@ -267,3 +267,17 @@ test("reading a job's status needs no signer key: a deployment without keys stil
   assert.equal(r.body.result, "pending");
   assert.equal(m.calls.writeContract.length, 0);
 });
+
+test("criteria that are malformed or absurdly deep make the judge abstain (422), never fail forever (502)", async () => {
+  const { DEEP_TEXT } = await import("./helpers/criteria-cases.js");
+  const deep = ["Deep criteria.", "```judge-criteria", DEEP_TEXT, "```"].join("\n");
+  const stringTerms = describe({ checks: [{ kind: "contains", params: { all: "ERC" } }] });
+  const m = mockChain({ jobs: [{ id: 96, description: deep }, { id: 97, description: stringTerms }] });
+  for (const id of ["96", "97"]) {
+    const r = await judgeNow({ jobId: id }, { clients: m.clients });
+    assert.equal(r.status, 422, `${id}: ${JSON.stringify(r.body)}`);
+    assert.equal(r.body.result, "abstained");
+    assert.match(r.body.reason, /invalid criteria/);
+  }
+  assert.equal(m.calls.writeContract.length, 0);
+});

@@ -74,3 +74,12 @@ test("the agent skill is well-formed and points at the real kit and API", () => 
   for (const v of [kit.ARC_TESTNET.acp, kit.ARC_TESTNET.judge, kit.ARC_TESTNET.api]) assert.ok(SKILL_MD.includes(v), v);
   assert.match(SKILL_MD, /never (claim|say|report)[^.]*verified/i, "the skill must forbid claiming verification without the verifier");
 });
+
+test("CRITERIA.md states every bound the judge enforces, with the code's own numbers", async () => {
+  const { LIMITS } = await import("../../judge-service/src/checkers/index.js");
+  for (const phrase of [`at most ${LIMITS.checks} checks`, `at most ${LIMITS.probes} \`http-endpoint\` checks`,
+    `deeper than ${LIMITS.depth} levels`, `up to ${LIMITS.terms}`, `${LIMITS.termChars} characters`, `${LIMITS.urlChars} characters`,
+    `1 to ${LIMITS.probeTimeoutMs}`, "not a JSON object"]) {
+    assert.ok(CRITERIA_MD.includes(phrase), `CRITERIA.md must say: ${phrase}`);
+  }
+});

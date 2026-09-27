@@ -126,3 +126,10 @@ test("the cron sweep is closed entirely when no secret is configured", async () 
   assert.equal((await call(h, { method: "GET", headers: { authorization: "Bearer " } })).code, 401);
   assert.equal(m.calls.writeContract.length, 0);
 });
+
+test("POST /api/judge without content-length is still held to the 4 KB cap", async () => {
+  const m = mockChain({ jobs: [{ id: 48 }] });
+  const r = await call(createJudgeHandler({ clients: m.clients }), { body: { jobId: "48", padding: "x".repeat(10_000) } });
+  assert.equal(r.code, 413);
+  assert.equal(m.calls.writeContract.length, 0);
+});

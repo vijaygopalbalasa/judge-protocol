@@ -56,6 +56,34 @@ test('a job id that does not exist is an error, never awaiting', async () => {
   assert.equal(present(r).canRequestRuling, false);
 });
 
+test('an Open job (not funded yet) is not awaiting and gets no ruling button', async () => {
+  const jobs = await synthJob({ id: 940005, criteria: LEN, content: TEXT, noVerdict: true, status: 'Open' });
+  const r = await verify(jobs, 940005);
+  assert.equal(app.outcome(r), 'error');
+  assert.match(r.error, /not been submitted/);
+  assert.equal(present(r).canRequestRuling, false);
+});
+
+test('Completed or Rejected with no verdict from this judge: never verified, never awaiting, no pill', async () => {
+  for (const [i, status] of [[940006, 'Completed'], [940007, 'Rejected']]) {
+    const jobs = await synthJob({ id: i, criteria: LEN, content: TEXT, noVerdict: true, status });
+    const r = await verify(jobs, i);
+    assert.equal(app.outcome(r), 'error', status);
+    const p = present(r);
+    assert.equal(p.canRequestRuling, false, status);
+    assert.equal(p.pill, null, status);
+    assert.notEqual(p.state, 'verified', status);
+  }
+});
+
+test('a job whose evaluator is the zero address reads as no such job, with no button', async () => {
+  const jobs = await synthJob({ id: 940008, criteria: LEN, content: TEXT, noVerdict: true, evaluator: '0x0000000000000000000000000000000000000000' });
+  const r = await verify(jobs, 940008);
+  assert.equal(app.outcome(r), 'error');
+  assert.match(r.error, /No such job/);
+  assert.equal(present(r).canRequestRuling, false);
+});
+
 test('the page knows where the judge API is', () => {
   assert.equal(app.CFG.judgeApi, 'https://judge-protocol-api.vercel.app');
 });

@@ -80,3 +80,37 @@ test("passThreshold may be omitted and defaults to all-must-pass (100)", async (
   const r = await runAllChecks(criteria, deliverable);
   assert.equal(r.threshold, 100);
 });
+
+/* ---- one shared list of cases: the judge, the kit and the verifier must agree ---- */
+import { CRITERIA_CASES } from "./helpers/criteria-cases.js";
+
+test("every shared criteria case gets the expected answer, and invalid ones abstain instead of crashing", async () => {
+  for (const [label, criteria, valid] of CRITERIA_CASES) {
+    let v;
+    assert.doesNotThrow(() => { v = validateCriteria(criteria); }, `${label}: the validator itself must never throw`);
+    assert.equal(v.valid, valid, `${label}: ${v.reason}`);
+    if (!valid) {
+      await assert.rejects(runAllChecks(criteria, deliverable), InvalidCriteriaError, `${label}: must abstain, not crash`);
+    } else if (!criteria.checks.some((c) => c.kind === "http-endpoint")) {
+      const r = await runAllChecks(criteria, deliverable);
+      assert.ok(Number.isInteger(r.score) && r.score >= 0 && r.score <= 100, label);
+    }
+  }
+});
+
+test("a JSON deliverable that is not an object fails the schema check instead of crashing the judge", async () => {
+  const criteria = { checks: [{ kind: "schema", params: { required: ["invoiceId"], types: { total: "number" } } }] };
+  for (const text of ["42", "null", "\"a string\"", "true"]) {
+    const r = await runAllChecks(criteria, { content: Buffer.from(text), source: "test" });
+    assert.equal(r.pass, false, text);
+    assert.equal(r.score, 0, text);
+    assert.match(r.results[0].detail, /not a JSON object/, text);
+  }
+  const ok = await runAllChecks(criteria, { content: Buffer.from('{"invoiceId":"A-1","total":3}'), source: "test" });
+  assert.equal(ok.pass, true);
+});
+
+test("defense in depth: a checker that throws anyway becomes an abstention, never a score", async () => {
+  const { runCheck } = await import("../src/checkers/index.js");
+  await assert.rejects(runCheck({ kind: "contains", params: { all: "not a list" } }, deliverable), InvalidCriteriaError);
+});

@@ -39,6 +39,26 @@ test("criteria validation agrees with the judge on valid and invalid criteria", 
   for (const c of cases) assert.equal(kit.validateCriteria(c).valid, svcCheckers.validateCriteria(c).valid, JSON.stringify(c));
 });
 
+test("the kit refuses exactly what the judge refuses, on every shared criteria case", async () => {
+  const { CRITERIA_CASES } = await import("../../judge-service/test/helpers/criteria-cases.js");
+  for (const [label, c, valid] of CRITERIA_CASES) {
+    let v;
+    assert.doesNotThrow(() => { v = kit.validateCriteria(c); }, label);
+    assert.equal(v.valid, valid, `${label}: ${v.reason}`);
+    assert.equal(svcCheckers.validateCriteria(c).valid, valid, `${label} (judge)`);
+  }
+});
+
+test("the kit and the judge enforce the same bounds", () => {
+  assert.deepEqual(kit.LIMITS, svcCheckers.LIMITS);
+});
+
+test("criteriaBlock refuses criteria the judge would abstain on, before any transaction", () => {
+  for (const bad of [{ checks: [{ kind: "contains", params: { all: "ERC" } }] }, { checks: [{ kind: "checksum", params: { sha256: "0xabc" } }] }]) {
+    assert.throws(() => kit.criteriaBlock(bad), /invalid criteria/);
+  }
+});
+
 test("criteriaHash matches the judge, independent of key order", () => {
   const reordered = { checks: CRITERIA.checks.map((c) => Object.fromEntries(Object.entries(c).reverse())), passThreshold: 100, version: 1 };
   for (const c of [CRITERIA, reordered]) assert.equal(kit.criteriaHash(c), svcCriteria.criteriaHash(c));

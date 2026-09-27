@@ -4,7 +4,7 @@ import { config } from "./config.js";
 import { acpAbi, STATUS } from "./abi.js";
 import { extractCriteria, criteriaHash } from "./criteria.js";
 import { extractDeliverableURI, resolveDeliverable, storeEvidence } from "./evidence.js";
-import { runAllChecks, InvalidCriteriaError } from "./checkers/index.js";
+import { runAllChecks, validateCriteria, InvalidCriteriaError } from "./checkers/index.js";
 import { makeClients, signVerdict, submitVerdictOnChain } from "./signer.js";
 import { loadCursor, saveCursor } from "./cursor.js";
 
@@ -102,6 +102,13 @@ export async function evaluateJob(jobId, deliverableHash, clients, submitTxHash)
   if (!criteria) {
     log("abstain: no judge-criteria block in description");
     return { outcome: "abstain", reason: "no judge-criteria block in the job description" };
+  }
+  // Validate before hashing: malformed criteria abstain here, and nothing can
+  // nest deep enough to overflow the hash.
+  const valid = validateCriteria(criteria);
+  if (!valid.valid) {
+    log(`abstain: invalid criteria: ${valid.reason}`);
+    return { outcome: "abstain", reason: `invalid criteria: ${valid.reason}` };
   }
   const cHash = criteriaHash(criteria);
 

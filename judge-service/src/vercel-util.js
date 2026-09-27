@@ -22,5 +22,11 @@ export function readJsonBody(req, cap = MAX_BODY_BYTES) {
     try { b = JSON.parse(b); } catch { return { ok: false, status: 400, error: "malformed JSON" }; }
   }
   if (typeof b !== "object" || Array.isArray(b)) return { ok: false, status: 400, error: "expected a JSON object" };
+  if (!Number.isFinite(declared)) {
+    // No content-length (a chunked request): measure what the platform parsed.
+    let size;
+    try { size = Buffer.byteLength(JSON.stringify(b)); } catch { return { ok: false, status: 400, error: "malformed JSON" }; }
+    if (size > cap) return { ok: false, status: 413, error: "request too large" };
+  }
   return { ok: true, value: b };
 }
