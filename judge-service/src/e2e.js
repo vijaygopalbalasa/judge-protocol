@@ -76,10 +76,18 @@ async function main() {
   for (const lg of rcpt.logs) { try { const d = decodeEventLog({ abi: ACP, data: lg.data, topics: lg.topics }); if (d.eventName === "JobCreated") { jobId = d.args.jobId; break; } } catch {} }
   console.log(`   jobId = ${jobId} | tx ${createHash}`);
 
-  console.log("2) SIGNER registers criteria hash on-chain (while Open, before submission)");
-  const rc = await signer.writeContract({ address: config.judgeAddress, abi: JUDGE, functionName: "registerCriteria", args: [jobId, cHash] });
-  await pub.waitForTransactionReceipt({ hash: rc });
-  console.log(`   criteriaHash ${cHash} committed`);
+  // With JUDGE_API_URL set, run exactly the path a third party takes: no
+  // registration by us (the immutable description already binds the criteria),
+  // then ask the hosted judge to rule right after submitting.
+  const hosted = process.env.JUDGE_API_URL || "";
+  if (hosted) {
+    console.log(`2) (third-party flow) no criteria registration; criteriaHash ${cHash} is bound by the description`);
+  } else {
+    console.log("2) SIGNER registers criteria hash on-chain (while Open, before submission)");
+    const rc = await signer.writeContract({ address: config.judgeAddress, abi: JUDGE, functionName: "registerCriteria", args: [jobId, cHash] });
+    await pub.waitForTransactionReceipt({ hash: rc });
+    console.log(`   criteriaHash ${cHash} committed`);
+  }
 
   console.log("3) provider setBudget");
   await pub.waitForTransactionReceipt({ hash: await provider.writeContract({ address: config.acpAddress, abi: ACP, functionName: "setBudget", args: [jobId, budget, "0x"] }) });
@@ -88,7 +96,14 @@ async function main() {
   await pub.waitForTransactionReceipt({ hash: await client.writeContract({ address: config.acpAddress, abi: ACP, functionName: "fund", args: [jobId, "0x"] }) });
 
   console.log("5) PROVIDER submit: deliverable hash + deliverable URI in optParams");
-  await pub.waitForTransactionReceipt({ hash: await provider.writeContract({ address: config.acpAddress, abi: ACP, functionName: "submit", args: [jobId, deliverableHash, optParams] }) });
+  const submitTx = await provider.writeContract({ address: config.acpAddress, abi: ACP, functionName: "submit", args: [jobId, deliverableHash, optParams] });
+  await pub.waitForTransactionReceipt({ hash: submitTx });
+  if (hosted) {
+    console.log(`6) ask the hosted judge: POST ${hosted}/api/judge`);
+    const r = await fetch(`${hosted}/api/judge`, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jobId: jobId.toString(), submitTx }) });
+    console.log(`   HTTP ${r.status}: ${(await r.text()).slice(0, 400)}`);
+  }
 
   const before = Number(await pub.readContract({ address: USDC, abi: erc20Abi, functionName: "balanceOf", args: [providerAddr] })) / 1e6;
   const cBefore = Number(await pub.readContract({ address: USDC, abi: erc20Abi, functionName: "balanceOf", args: [client.account.address] })) / 1e6;

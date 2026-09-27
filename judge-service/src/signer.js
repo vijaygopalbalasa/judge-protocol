@@ -61,14 +61,25 @@ export async function signVerdict(signerAccount, verdict) {
   return sig;
 }
 
-/** Submit the signed verdict on-chain via the relayer. */
+/**
+ * Submit the signed verdict on-chain via the relayer. Uses JudgeEvaluator's
+ * permissionless relay(): the contract checks that the EIP-712 signature is
+ * from an allowlisted signer, so the relayer (which only pays gas) can be a
+ * separate key from the signer. submitVerdict() would additionally require
+ * the SENDER to be a signer.
+ */
 export async function submitVerdictOnChain(relayerWallet, publicClient, verdict, sig) {
   const hash = await relayerWallet.writeContract({
     address: config.judgeAddress,
     abi: judgeAbi,
-    functionName: "submitVerdict",
+    functionName: "relay",
     args: [verdict, sig],
   });
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  // viem resolves (does not throw) for a mined-but-reverted tx. A reverted
+  // verdict tx recorded nothing, so it must never be reported as a ruling.
+  if (receipt.status !== "success") {
+    throw Object.assign(new Error(`verdict transaction ${hash} reverted on-chain`), { reverted: true, hash });
+  }
   return { hash, receipt };
 }

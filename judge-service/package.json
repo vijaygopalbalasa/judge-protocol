@@ -11,9 +11,18 @@
     "verify": "node src/verify.js",
     "measure": "node src/measure-acp.js"
   },
-  "keywords": ["erc-8183", "erc-8004", "agentic-commerce", "arc", "evaluator", "escrow", "eip-712"],
+  "keywords": [
+    "erc-8183",
+    "erc-8004",
+    "agentic-commerce",
+    "arc",
+    "evaluator",
+    "escrow",
+    "eip-712"
+  ],
   "license": "MIT",
   "dependencies": {
+    "undici": "^7.30.0",
     "viem": "^2.55.11"
   }
 }

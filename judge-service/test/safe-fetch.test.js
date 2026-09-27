@@ -44,3 +44,47 @@ test("assertPublicUrl allows a normal public URL shape", async () => {
   const u = await assertPublicUrl("https://example.com/deliverable.json");
   assert.equal(u.hostname, "example.com");
 });
+
+/* ------------------------ DNS pinning (security review) -------------------- */
+import { resolvePublicAddress, pinnedLookup, safeFetch } from "../src/safe-fetch.js";
+
+test("NAT64, site-local and the whole fe80::/10 link-local range are blocked too", () => {
+  for (const ip of ["64:ff9b::a00:1", "64:ff9b::7f00:1", "fec0::1", "fe90::1", "fea0::1", "febf::1"]) {
+    assert.equal(isBlockedIp(ip), true, `${ip} should be blocked`);
+  }
+});
+
+test("the connection is pinned to the address that passed the check (no DNS rebinding)", async () => {
+  let calls = 0;
+  // First answer public, every later answer internal: a classic rebinding server.
+  const lookup = async () => { calls++; return calls === 1 ? [{ address: "93.184.215.14", family: 4 }] : [{ address: "169.254.169.254", family: 4 }]; };
+  const r = await resolvePublicAddress("https://rebind.example/x", { lookup });
+  assert.equal(r.address, "93.184.215.14");
+  const pinned = pinnedLookup(r.address, r.family);
+  const got = await new Promise((res) => pinned("rebind.example", {}, (err, address, family) => res({ err, address, family })));
+  assert.deepEqual(got, { err: null, address: "93.184.215.14", family: 4 });
+  const all = await new Promise((res) => pinned("rebind.example", { all: true }, (err, list) => res(list)));
+  assert.deepEqual(all, [{ address: "93.184.215.14", family: 4 }]);
+  assert.equal(calls, 1, "DNS is consulted exactly once");
+});
+
+test("safeFetch hands the HTTP client the pinned lookup and resolves DNS once", async () => {
+  let dnsCalls = 0, seen = null;
+  const lookup = async () => { dnsCalls++; return [{ address: "93.184.215.14", family: 4 }]; };
+  const fetchImpl = async (url, init) => {
+    seen = init;
+    return new Response("ok");
+  };
+  const r = await safeFetch("https://pin.example/file.txt", { lookup, fetchImpl });
+  assert.equal(r.content.toString(), "ok");
+  assert.equal(dnsCalls, 1);
+  assert.ok(seen && seen.dispatcher, "a pinned dispatcher must be passed to fetch");
+  assert.equal(seen.redirect, "error");
+});
+
+test("a host with any internal address is refused before any connection", async () => {
+  let fetched = false;
+  const lookup = async () => [{ address: "93.184.215.14", family: 4 }, { address: "10.0.0.7", family: 4 }];
+  await assert.rejects(() => safeFetch("https://mixed.example/", { lookup, fetchImpl: async () => { fetched = true; } }), /blocked/);
+  assert.equal(fetched, false);
+});

@@ -49,6 +49,25 @@ export const judgeAbi = [
     outputs: [],
   },
   {
+    name: "relay", type: "function", stateMutability: "nonpayable",
+    inputs: [
+      {
+        name: "v", type: "tuple", components: [
+          { name: "jobId", type: "uint256" },
+          { name: "criteriaHash", type: "bytes32" },
+          { name: "deliverable", type: "bytes32" },
+          { name: "score", type: "uint8" },
+          { name: "threshold", type: "uint8" },
+          { name: "pass", type: "bool" },
+          { name: "evidenceHash", type: "bytes32" },
+          { name: "timestamp", type: "uint64" },
+        ],
+      },
+      { name: "sig", type: "bytes" },
+    ],
+    outputs: [],
+  },
+  {
     name: "registerCriteria", type: "function", stateMutability: "nonpayable",
     inputs: [
       { name: "jobId", type: "uint256" },
@@ -60,6 +79,11 @@ export const judgeAbi = [
     name: "jobCriteria", type: "function", stateMutability: "view",
     inputs: [{ name: "jobId", type: "uint256" }],
     outputs: [{ name: "", type: "bytes32" }],
+  },
+  {
+    name: "isSigner", type: "function", stateMutability: "view",
+    inputs: [{ name: "signer", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
   },
   {
     name: "getVerdict", type: "function", stateMutability: "view",

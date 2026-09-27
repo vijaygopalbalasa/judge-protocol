@@ -4,11 +4,14 @@
 // outbound fetch in the service MUST go through here.
 //
 // Guards: scheme allowlist (http/https), DNS resolution + private/loopback/
-// link-local/ULA denylist (defeats DNS-rebind-to-internal and raw-IP SSRF),
-// request timeout, and a streamed response size cap.
+// link-local/ULA denylist, request timeout, and a streamed response size cap.
+// DNS is resolved ONCE and the connection is pinned to the address that passed
+// the check, so a rebinding server cannot answer "public" to the check and
+// "internal" to the connection.
 
 import dns from "node:dns/promises";
 import net from "node:net";
+import { Agent, fetch as undiciFetch } from "undici";
 
 export const MAX_BYTES = Number(process.env.MAX_DELIVERABLE_BYTES || 1_000_000); // 1 MB
 export const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 5000);
@@ -31,35 +34,56 @@ export function isBlockedIp(ip) {
   if (v === 6) {
     const lower = ip.toLowerCase();
     if (lower === "::1" || lower === "::") return true;          // loopback / unspecified
-    if (lower.startsWith("fe80")) return true;                  // link-local
+    if (/^fe[89ab]/.test(lower)) return true;                   // link-local fe80::/10
     if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // ULA fc00::/7
     if (lower.startsWith("::ffff:")) return isBlockedIp(lower.slice(7)); // IPv4-mapped
+    if (lower.startsWith("fec0") || /^fe[c-f]/.test(lower)) return true; // site-local fec0::/10
+    if (lower.startsWith("64:ff9b:")) return true;              // NAT64 64:ff9b::/96 can reach internal IPv4
     return false;
   }
   return true; // not a valid IP → block
 }
 
-/** Validate a URL is fetchable and resolves only to public addresses. */
-export async function assertPublicUrl(rawUrl) {
+const systemLookup = (host) => dns.lookup(host, { all: true });
+
+/**
+ * Validate a URL and resolve it ONCE. Blocks if the scheme is not http(s) or if
+ * ANY resolved address is internal. Returns the URL and the single address the
+ * connection will be pinned to.
+ */
+export async function resolvePublicAddress(rawUrl, { lookup = systemLookup } = {}) {
   let u;
   try { u = new URL(rawUrl); } catch { throw new Error(`invalid URL: ${rawUrl}`); }
   if (u.protocol !== "http:" && u.protocol !== "https:")
     throw new Error(`blocked scheme: ${u.protocol}`);
 
-  const host = u.hostname;
+  const host = u.hostname.replace(/^\[|\]$/g, "");
   if (net.isIP(host)) {
     if (isBlockedIp(host)) throw new Error(`blocked address: ${host}`);
-    return u;
+    return { url: u, address: host, family: net.isIP(host) };
   }
-  // Resolve hostname; block if ANY resolved address is private.
   let addrs;
-  try { addrs = await dns.lookup(host, { all: true }); }
+  try { addrs = await lookup(host); }
   catch { throw new Error(`DNS resolution failed: ${host}`); }
-  if (addrs.length === 0) throw new Error(`no DNS records: ${host}`);
+  if (!addrs || addrs.length === 0) throw new Error(`no DNS records: ${host}`);
   for (const { address } of addrs) {
     if (isBlockedIp(address)) throw new Error(`host ${host} resolves to blocked address ${address}`);
   }
-  return u;
+  return { url: u, address: addrs[0].address, family: addrs[0].family };
+}
+
+/** Validate a URL is fetchable and resolves only to public addresses. */
+export async function assertPublicUrl(rawUrl, opts) {
+  return (await resolvePublicAddress(rawUrl, opts)).url;
+}
+
+/** A DNS lookup that only ever answers with the pre-validated address. */
+export function pinnedLookup(address, family) {
+  return (hostname, options, cb) => {
+    if (typeof options === "function") { cb = options; options = {}; }
+    if (options && options.all) cb(null, [{ address, family }]);
+    else cb(null, address, family);
+  };
 }
 
 /**
@@ -67,12 +91,13 @@ export async function assertPublicUrl(rawUrl) {
  * headers }. Enforces the SSRF denylist, a timeout, and a hard byte cap
  * (streamed: a malicious server cannot exhaust memory by lying about length).
  */
-export async function safeFetch(rawUrl, { timeoutMs = FETCH_TIMEOUT_MS, maxBytes = MAX_BYTES } = {}) {
-  await assertPublicUrl(rawUrl);
+export async function safeFetch(rawUrl, { timeoutMs = FETCH_TIMEOUT_MS, maxBytes = MAX_BYTES, lookup, fetchImpl = undiciFetch } = {}) {
+  const { address, family } = await resolvePublicAddress(rawUrl, { lookup });
+  const dispatcher = new Agent({ connect: { lookup: pinnedLookup(address, family) } });
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(rawUrl, { signal: ctrl.signal, redirect: "error" });
+    const res = await fetchImpl(rawUrl, { signal: ctrl.signal, redirect: "error", dispatcher });
     const reader = res.body?.getReader();
     const chunks = [];
     let total = 0;
@@ -88,5 +113,6 @@ export async function safeFetch(rawUrl, { timeoutMs = FETCH_TIMEOUT_MS, maxBytes
     return { content: Buffer.concat(chunks), status: res.status, headers: res.headers };
   } finally {
     clearTimeout(timer);
+    dispatcher.close().catch(() => {});
   }
 }

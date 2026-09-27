@@ -85,23 +85,23 @@ export async function evaluateJob(jobId, deliverableHash, clients, submitTxHash)
   const description = job.description ?? job[4];
   const budget = BigInt(job.budget ?? job[5] ?? 0n);
   if (evaluator.toLowerCase() !== config.judgeAddress.toLowerCase()) {
-    return null; // not our job, silent (this is the vast majority of chain traffic)
+    return { outcome: "not-ours" }; // silent: the vast majority of chain traffic
   }
   if (STATUS[status] !== "Submitted") {
     log(`skip: status ${STATUS[status]}`);
-    return null;
+    return { outcome: "skip", reason: `status is ${STATUS[status]}, not Submitted` };
   }
   // Gas-drain guard: refuse to spend a verdict tx on a sub-threshold job.
   if (budget < MIN_BUDGET) {
     log(`skip: budget ${budget} < MIN_BUDGET ${MIN_BUDGET} (spam guard)`);
-    return null;
+    return { outcome: "skip", reason: `budget ${budget} is below the minimum of ${MIN_BUDGET} (USDC 6-decimal units)` };
   }
 
   // 2. Criteria (committed in the immutable job description).
   const criteria = extractCriteria(description);
   if (!criteria) {
     log("abstain: no judge-criteria block in description");
-    return null;
+    return { outcome: "abstain", reason: "no judge-criteria block in the job description" };
   }
   const cHash = criteriaHash(criteria);
 
@@ -109,18 +109,30 @@ export async function evaluateJob(jobId, deliverableHash, clients, submitTxHash)
   //    commitment. If the content does not hash to what the provider submitted,
   //    we refuse to judge (never grade unverified/substituted content).
   const { uri, authoredBy } = await resolveDeliverableSource(publicClient, submitTxHash, description);
-  if (!uri) { log("abstain: no deliverable URI (provider optParams or description)"); return null; }
+  if (!uri) {
+    log("abstain: no deliverable URI (provider optParams or description)");
+    return { outcome: "abstain", reason: "no deliverable URI in the provider's submit() or the job description" };
+  }
   let deliverable;
   try {
     deliverable = await resolveDeliverable(uri);
   } catch (e) {
-    log(`abstain: deliverable resolution failed: ${e.message}`);
-    return null;
+    // A remote host that is down, slow or refusing is a transient condition:
+    // retry later. A data: URI or an unsupported scheme will never load:
+    // abstain. Details stay in the server log, never in the reply, so the
+    // judge is not an oracle for internal network probing.
+    log(`deliverable resolution failed: ${e.message}`);
+    if (/^(https?|ipfs):\/\//i.test(uri)) {
+      return { outcome: "retry", reason: "the deliverable host could not be reached or refused the request; try again later" };
+    }
+    return { outcome: "abstain", reason: /unsupported deliverable URI scheme/.test(e.message)
+      ? "unsupported deliverable URI scheme (use data:, https:// or ipfs://)"
+      : "the deliverable could not be decoded or exceeds the size limit" };
   }
   const contentHash = keccak256(deliverable.content);
   if (contentHash.toLowerCase() !== String(deliverableHash).toLowerCase()) {
     log(`abstain: deliverable hash mismatch: ${contentHash} != committed ${deliverableHash}`);
-    return null;
+    return { outcome: "abstain", reason: `deliverable hash mismatch: content hashes to ${contentHash}, provider committed ${deliverableHash}` };
   }
   log(`deliverable resolved (${authoredBy}-authored, ${deliverable.source}), hash matches commitment`);
 
@@ -131,7 +143,7 @@ export async function evaluateJob(jobId, deliverableHash, clients, submitTxHash)
   } catch (e) {
     if (e instanceof InvalidCriteriaError) {
       log(`abstain: invalid criteria: ${e.message}`);
-      return null;
+      return { outcome: "abstain", reason: `invalid criteria: ${e.message}` };
     }
     throw e;
   }
@@ -173,13 +185,13 @@ export async function evaluateJob(jobId, deliverableHash, clients, submitTxHash)
   const sig = await signVerdict(signerAccount, verdict);
   const { hash } = await submitVerdictOnChain(relayerWallet, publicClient, verdict, sig);
   log(`verdict submitted: ${pass ? "COMPLETE" : "REJECT"} tx=${hash}`);
-  return { pass, score, txHash: hash };
+  return { outcome: "judged", pass, score, threshold, txHash: hash, evidenceHash };
 }
 
 /** One polling pass: find recent JobSubmitted events and evaluate them.
  *  Scans [fromBlock, tip] in MAX_BLOCK_RANGE chunks so long catch-ups stay
  *  within RPC range limits. Returns the tip block scanned. */
-export async function pollOnce(clients, fromBlock) {
+export async function pollOnce(clients, fromBlock, report) {
   const { publicClient, signerAccount, relayerWallet } = clients ?? makeClients();
   const latest = await publicClient.getBlockNumber();
   const event = parseAbiItem("event JobSubmitted(uint256 indexed jobId, address indexed provider, bytes32 deliverable)");
@@ -197,9 +209,12 @@ export async function pollOnce(clients, fromBlock) {
       if (processed.has(key)) continue;
       processed.add(key);
       try {
-        await evaluateJob(jobId, log.args.deliverable, { publicClient, signerAccount, relayerWallet }, log.transactionHash);
+        const o = await evaluateJob(jobId, log.args.deliverable, { publicClient, signerAccount, relayerWallet }, log.transactionHash);
+        if (report && o && o.outcome !== "not-ours") report.push({ jobId, ...o });
+        if (o && o.outcome === "retry") processed.delete(key); // transient: a later pass retries
       } catch (e) {
         console.error(`[job ${jobId}] evaluation error:`, e.message);
+        if (report) report.push({ jobId, outcome: "error", reason: e.message });
         processed.delete(key); // transient failure, allow retry next pass
       }
     }
