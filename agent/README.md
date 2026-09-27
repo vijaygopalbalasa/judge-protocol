@@ -33,11 +33,20 @@ That is a property of the code, not of a prompt:
 - **Every decision is in a hash-chained log** (`src/ledger.js`), and the log's head is
   written into each job description on chain. `verify-log.js` checks the log
   against the chain; editing, deleting or reordering an entry breaks it.
+- **A crash cannot make it pay twice** (`src/paymaster.js`, `src/logfile.js`): it writes
+  its intent to the log before money moves, and every run starts by settling any
+  attempt left open against the chain (already released, refunded, still in flight or
+  never funded) before doing anything new. A log shorter than its last known state is
+  refused.
+- **It pays the judge only**: the payment client refuses any fee but 0.01 USDC in USDC
+  on Arc, to anyone but the judge's published fee address.
 
 ## Who gets the work
 
 A contractor's record is what Judge Protocol ruled on chain for them, nothing
-self-reported (`src/reputation.js`). The best record gets the milestone; one small
+self-reported (`src/reputation.js`); jobs a contractor paid for itself (the same
+address as client and provider) do not count. Required terms are matched as whole
+words, so "Arc" is not satisfied by "Architecture". The best record gets the milestone; one small
 milestone per run (at most `trialMaxUSDC`) goes to a newcomer so new contractors
 can earn a record. A contractor rejected on a milestone never gets that
 milestone again. A contractor who quotes a different price than agreed is not
@@ -47,7 +56,7 @@ funded; one who never quotes costs nothing.
 
 ```bash
 cd agent && npm ci
-npm test                                           # 47 tests, no network
+npm test                                           # 57 tests, no network
 PAYMASTER_KEY=0x... PROVIDER_KEY=0x... CONTRACTOR_B_KEY=0x... node run.js briefs/demo.json
 node approve.js briefs/demo.json review --by "<name>" --note "<why>"
 node verify-log.js runs/arc-docs-sprint-demo.jsonl  # no keys needed
@@ -83,3 +92,7 @@ Every job can be checked at https://judge-protocol-verifier.vercel.app.
 - The demo approval was recorded by the operator running the demo, and says so.
 - Keys are plain testnet keys from the environment. A Circle developer-controlled
   wallet could replace the paymaster's key; it is not wired in.
+- A contractor can still pad its record with jobs it pays for from a second wallet;
+  records rank contractors, they never replace the judge's check on each milestone.
+- The log's truncation guard protects against crashes and bad restores, not against
+  someone who can rewrite the agent's files (they could rewrite the brief too).

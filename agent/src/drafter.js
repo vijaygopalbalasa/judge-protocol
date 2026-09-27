@@ -73,7 +73,7 @@ function readSentence(s) {
     return fields ? { schema: { required: fields, types: {} } } : null;
   }
   if ((m = s.match(/^(?:the\s+)?(?:field\s+|key\s+)?["'`]?([A-Za-z_][\w-]*)["'`]?\s+(?:must|should)\s+be\s+(?:an?\s+)?(string|number|boolean|object)$/i))) {
-    return { schema: { required: [], types: { [m[1]]: m[2].toLowerCase() } } };
+    return { schema: { required: [m[1]], types: { [m[1]]: m[2].toLowerCase() } } }; // a typed field must also be present
   }
   if ((m = s.match(/^(?:the\s+)?(?:(?:file|deliverable)(?:'s)?\s+)?sha-?256(?:\s+(?:hash|digest))?(?:\s+of\s+the\s+(?:file|deliverable))?(?:\s+must)?(?:\s+(?:be|equal|equals|is)|\s*:)?\s+([0-9a-f]{64})$/i))) {
     return { checksum: m[1].toLowerCase() };
@@ -140,7 +140,7 @@ export function draftCriteria(text) {
     if (unit === "chars") params.unit = "chars";
     checks.push({ kind: "length", params });
   }
-  if (terms.length) checks.push({ kind: "contains", params: { all: terms } });
+  if (terms.length) checks.push({ kind: "contains", params: { all: terms, wholeWords: true } }); // "Arc" must not match "Architecture"
   if (schema) {
     const params = { required: schema.required };
     if (Object.keys(schema.types).length) params.types = schema.types;

@@ -24,7 +24,7 @@ test("word bounds and required terms", () => {
   const c = complete("Between 30 and 120 words. Must mention ERC-8183, USDC and Arc.");
   assert.deepEqual(c.checks, [
     { kind: "length", params: { min: 30, max: 120 } },
-    { kind: "contains", params: { all: ["ERC-8183", "USDC", "Arc"] } },
+    { kind: "contains", params: { all: ["ERC-8183", "USDC", "Arc"], wholeWords: true } },
   ]);
 });
 
@@ -52,12 +52,17 @@ test("words and characters become separate checks", () => {
 
 test("quoted multi-word terms are kept exactly; mention sentences merge", () => {
   const c = complete('Must mention "Circle Gateway" and x402. Should include the term "escrow".');
-  assert.deepEqual(c.checks, [{ kind: "contains", params: { all: ["Circle Gateway", "x402", "escrow"] } }]);
+  assert.deepEqual(c.checks, [{ kind: "contains", params: { all: ["Circle Gateway", "x402", "escrow"], wholeWords: true } }]);
 });
 
 test("JSON with fields and types", () => {
   const c = complete("Valid JSON with fields invoiceId, total and currency. total must be a number. currency must be a string.");
   assert.deepEqual(c.checks, [{ kind: "schema", params: { required: ["invoiceId", "total", "currency"], types: { total: "number", currency: "string" } } }]);
+});
+
+test("a field that must have a type must also be present (an empty object is not a pass)", () => {
+  const c = complete("Valid JSON. total must be a number.");
+  assert.deepEqual(c.checks, [{ kind: "schema", params: { required: ["total"], types: { total: "number" } } }]);
 });
 
 test("a file checksum and a live endpoint", () => {
@@ -90,4 +95,11 @@ test("term parsing", () => {
   assert.equal(parseTerms("the thing"), null);
   assert.equal(parseTerms("A or B"), null);
   assert.equal(parseTerms(""), null);
+});
+
+test("required terms are whole words: \"Arc\" is not satisfied by \"Architecture\"", async () => {
+  const { runAllChecks } = await import("../../judge-service/src/checkers/index.js");
+  const c = complete("Must mention Arc and USDC.");
+  const r = await runAllChecks(c, { content: Buffer.from("A software Architecture that pays in USDC."), source: "t" });
+  assert.equal(r.pass, false);
 });

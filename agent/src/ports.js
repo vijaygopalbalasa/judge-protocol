@@ -18,9 +18,10 @@ export const makePublicClient = () => createPublicClient({ chain: arc, transport
 export const makeWallet = (key) => createWalletClient({ account: privateKeyToAccount(key), chain: arc, transport: transport() });
 
 export const JUDGE_PRICE = usdc("0.01");
+const CLAIM_ABI = [{ name: "claimRefund", type: "function", stateMutability: "nonpayable", inputs: [{ name: "jobId", type: "uint256" }], outputs: [] }];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export function livePorts({ paymasterKey, contractors, api = kit.ARC_TESTNET.api, publicClient = makePublicClient(), pollMs = 3000, timeoutMs = 180_000, expiresInSeconds = 24 * 3600 }) {
+export function livePorts({ paymasterKey, contractors, api = kit.ARC_TESTNET.api, feeAddress = kit.ARC_TESTNET.feeAddress, publicClient = makePublicClient(), pollMs = 3000, timeoutMs = 180_000, expiresInSeconds = 24 * 3600 }) {
   const gate = guardWallet(makeWallet(paymasterKey), { publicClient, acp: kit.ARC_TESTNET.acp, usdc: kit.ARC_TESTNET.usdc, judge: kit.ARC_TESTNET.judge, abi: kit.ACP_ABI });
 
   // A second, independent fee limit inside the payment client: whatever the
@@ -30,11 +31,16 @@ export function livePorts({ paymasterKey, contractors, api = kit.ARC_TESTNET.api
     if (r.network !== `eip155:${kit.ARC_TESTNET.chainId}`) return { abort: true, reason: `refusing to pay on ${r.network}` };
     if (String(r.asset).toLowerCase() !== kit.ARC_TESTNET.usdc.toLowerCase()) return { abort: true, reason: "refusing to pay in anything but USDC" };
     if (BigInt(r.amount) !== JUDGE_PRICE) return { abort: true, reason: `refusing a judge fee of ${r.amount} (expected ${JUDGE_PRICE})` };
+    if (String(r.payTo).toLowerCase() !== feeAddress.toLowerCase()) return { abort: true, reason: `refusing to pay ${r.payTo}: not the judge's fee address` };
   });
 
   const readJob = (jobId) => publicClient.readContract({ address: kit.ARC_TESTNET.acp, abi: kit.ACP_ABI, functionName: "getJob", args: [BigInt(jobId)] });
   const chain = {
     createJob: ({ provider, criteria, title }) => kit.createJudgedJob({ walletClient: gate, publicClient, provider, criteria, title, expiresInSeconds }),
+    claimRefund: async ({ jobId }) => {
+      const hash = await gate.writeContract({ address: kit.ARC_TESTNET.acp, abi: CLAIM_ABI, functionName: "claimRefund", args: [BigInt(jobId)] });
+      return publicClient.waitForTransactionReceipt({ hash });
+    },
     fund: ({ jobId, amount }) => kit.fundJob({ walletClient: gate, publicClient, jobId, amount }),
     readJob,
     readVerdict: (jobId) => publicClient.readContract({ address: kit.ARC_TESTNET.judge, abi: judgeAbi, functionName: "getVerdict", args: [BigInt(jobId)] }),
@@ -54,9 +60,9 @@ export function livePorts({ paymasterKey, contractors, api = kit.ARC_TESTNET.api
     async rule({ jobId }) {
       const res = await gateway.pay(`${api}/api/x402/judge`, { method: "POST", body: { jobId: String(jobId) } });
       const d = res.data || {};
-      if (d.result === "judged" && d.verdict) {
-        // Someone else asked first (or the daily sweep ruled): answered free.
-        return { result: "already-judged", pass: d.verdict.pass, score: d.verdict.score, txHash: null, payment: { charged: false } };
+      if (d.result === "already-judged" && d.verdict) {
+        // Someone else asked first (or the daily sweep ruled). `charged` says whether this request paid.
+        return { result: "already-judged", pass: d.verdict.pass, score: d.verdict.score, txHash: null, payment: d.payment ?? { charged: d.charged ?? false } };
       }
       if (d.result !== "judged") throw new Error(`the judge answered ${d.result}${d.error ? `: ${d.error}` : ""}`);
       return { result: d.result, pass: d.pass, score: d.score, txHash: d.txHash, payment: d.payment };

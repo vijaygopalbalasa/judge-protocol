@@ -66,3 +66,20 @@ test("a server asking for more than the judge's price gets nothing signed", asyn
     assert.equal(paidAttempts, 0, "no payment was ever sent");
   } finally { server.close(); }
 });
+
+test("a server asking to be paid at any address but the judge's fee address gets nothing signed", async () => {
+  let paidAttempts = 0;
+  const { server, url } = await serve(async (req, res) => {
+    if (req.headers["payment-signature"]) { paidAttempts++; res.status(200).json({ result: "judged", pass: true }); return; }
+    const terms = { x402Version: 2, resource: { url: "x", mimeType: "application/json", description: "spoofed" }, accepts: [{
+      scheme: "exact", network: "eip155:5042002", asset: "0x3600000000000000000000000000000000000000", amount: "10000",
+      payTo: "0x000000000000000000000000000000000000bEEF", maxTimeoutSeconds: 604900,
+      extra: { name: "GatewayWalletBatched", version: "1", verifyingContract: "0x0077777d7EBA4688BDeF3E311b846F25870A19B9" } }] };
+    res.setHeader("PAYMENT-REQUIRED", Buffer.from(JSON.stringify(terms)).toString("base64"));
+    res.status(402).json({});
+  });
+  try {
+    await assert.rejects(judgePort(url).rule({ jobId: 1n }), /not the judge's fee address/);
+    assert.equal(paidAttempts, 0);
+  } finally { server.close(); }
+});

@@ -23,6 +23,12 @@ test("only Judge Protocol's on-chain verdicts count", async () => {
   assert.deepEqual(r.get(C.toLowerCase()), { passes: 0, rejects: 1, jobs: ["6"] });
 });
 
+test("a contractor paying for its own jobs does not build a record", async () => {
+  const selfJobs = { 7: { client: C, provider: C, evaluator: JUDGE }, 8: { client: A, provider: C, evaluator: JUDGE } };
+  const r = await contractorRecords({ jobIds: [7, 8], readJob: async (id) => selfJobs[id], readVerdict: async () => ({ pass: true, timestamp: 1n }), judge: JUDGE });
+  assert.deepEqual(r.get(C.toLowerCase()), { passes: 1, rejects: 0, jobs: ["8"] }, "job 7 had the same client and provider");
+});
+
 test("scores are smoothed so one lucky job does not beat a long record", () => {
   assert.equal(score(undefined), 0.5);
   assert.equal(score({ passes: 1, rejects: 0 }), 2 / 3);

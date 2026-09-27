@@ -5,6 +5,7 @@ export async function contractorRecords({ jobIds, readJob, readVerdict, judge })
   for (const id of jobIds) {
     const job = await readJob(id);
     if (!job || String(job.evaluator).toLowerCase() !== judge.toLowerCase()) continue;
+    if (job.client && String(job.client).toLowerCase() === String(job.provider).toLowerCase()) continue; // paying yourself builds no record
     const v = await readVerdict(id);
     if (!v || BigInt(v.timestamp ?? 0) === 0n) continue;
     const key = String(job.provider).toLowerCase();

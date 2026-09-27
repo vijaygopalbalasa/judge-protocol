@@ -78,7 +78,8 @@ test("the best verified contractor is paid, through escrow, only after the judge
   const ownerCalls = s.w.calls.filter((c) => c.from === OWNER.toLowerCase()).map((c) => c.fn);
   assert.deepEqual(ownerCalls.slice(-3), ["createJob", "approve", "fund"], "the paymaster only creates, approves and funds");
   assert.ok(!s.w.calls.some((c) => c.fn === "transfer"), "nobody was paid directly");
-  assert.deepEqual(types(s.ledger), ["project-started", "criteria-drafted", "contractor-chosen", "decided", "job-created", "quoted", "funded", "submitted", "ruled", "paid", "project-finished"]);
+  assert.deepEqual(types(s.ledger), ["project-started", "criteria-drafted", "contractor-chosen", "decided", "job-created", "quoted",
+    "fund-intent", "funded", "submitted", "rule-intent", "ruled", "paid", "project-finished"], "intents are written before money moves");
   assert.equal(verifyLedger(s.ledger.entries).ok, true);
 });
 
@@ -202,4 +203,49 @@ test("a human approval is an entry in the same hash-chained log, and unlocks exa
   assert.equal(out.milestones[0].outcome, "paid");
   assert.equal(out.milestones[1].outcome, "needs-approval");
   assert.equal(verifyLedger(s.ledger.entries).ok, true);
+});
+
+/* ------------------------ crashes and reconciliation ------------------------ */
+
+/** A ledger that "crashes" (throws) instead of writing the first entry of the given type. */
+function crashBefore(ledger, type) {
+  const real = ledger.append.bind(ledger);
+  ledger.append = (t, d) => { if (t === type) { ledger.append = real; throw new Error(`simulated crash before writing ${type}`); } return real(t, d); };
+}
+
+test("a crash after the escrow was released but before the log said so: the rerun reads the chain and never pays twice", async () => {
+  const s = await setup();
+  const brief = s.brief([TEXT_MS("m1", "0.10")]);
+  crashBefore(s.ledger, "ruled");
+  await assert.rejects(runProject({ brief, ports: s.ports, ledger: s.ledger, history: s.historyIds }), /simulated crash/);
+  const paidOnce = s.w.balance(A);
+  const creates = s.w.calls.filter((c) => c.fn === "createJob").length;
+  const again = await runProject({ brief, ports: s.ports, ledger: s.ledger, history: s.historyIds });
+  assert.equal(again.milestones[0].outcome, "paid", JSON.stringify(again.milestones[0]));
+  assert.equal(s.w.balance(A), paidOnce, "nothing was paid a second time");
+  assert.equal(s.w.calls.filter((c) => c.fn === "createJob").length, creates, "no new job was created");
+  assert.ok(types(s.ledger).includes("reconciled"));
+  assert.equal(again.totals.paid, "0.1", "the reconciled payment counts against the budget");
+});
+
+test("a crash right after funding: the rerun sees the escrow in flight and does not fund the milestone again", async () => {
+  const s = await setup();
+  const brief = s.brief([TEXT_MS("m1", "0.10")]);
+  crashBefore(s.ledger, "funded");
+  await assert.rejects(runProject({ brief, ports: s.ports, ledger: s.ledger, history: s.historyIds }), /simulated crash/);
+  const funds = s.w.calls.filter((c) => c.fn === "fund").length;
+  const again = await runProject({ brief, ports: s.ports, ledger: s.ledger, history: s.historyIds });
+  assert.equal(s.w.calls.filter((c) => c.fn === "fund").length, funds, "no second escrow");
+  assert.equal(again.milestones[0].outcome, "in-flight", JSON.stringify(again.milestones[0]));
+  assert.equal(again.totals.committed, "0.1", "the funded escrow is counted");
+});
+
+test("a crash after the work was submitted: the rerun asks for the ruling and finishes the milestone", async () => {
+  const s = await setup();
+  const brief = s.brief([TEXT_MS("m1", "0.10")]);
+  crashBefore(s.ledger, "submitted");
+  await assert.rejects(runProject({ brief, ports: s.ports, ledger: s.ledger, history: s.historyIds }), /simulated crash/);
+  const again = await runProject({ brief, ports: s.ports, ledger: s.ledger, history: s.historyIds });
+  assert.equal(again.milestones[0].outcome, "paid", JSON.stringify(again.milestones[0]));
+  assert.equal(s.w.calls.filter((c) => c.fn === "createJob").length, 3 + 1, "the same job was finished, not a new one");
 });
