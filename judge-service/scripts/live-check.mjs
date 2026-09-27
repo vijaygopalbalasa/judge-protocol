@@ -108,6 +108,24 @@ await check("the paid endpoint asks nothing for a job it cannot rule, and says s
   assert.notEqual(missing.status, 402);
 });
 
+await check("a misspelled check field is refused, never silently passed", async () => {
+  const r = await ev({ criteria: { checks: [{ kind: "length", param: { min: 50 } }] }, deliverable: "x" });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.match(r.body.reason, /unknown field "param"/);
+});
+
+await check("the paid endpoint says charged:false on a malformed request", async () => {
+  const res = await fetch(`${BASE}/api/x402/judge`, { method: "POST", headers: { "content-type": "application/json" }, body: "{not json" });
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).charged, false);
+});
+
+await check("an unknown job id is not-found (read from chain), not an error", async () => {
+  const res = await fetch(`${BASE}/api/judge?jobId=999999999999`);
+  assert.equal(res.status, 404);
+  assert.equal((await res.json()).result, "not-found");
+});
+
 await check("method guards, CORS, no source files served", async () => {
   assert.equal((await fetch(`${BASE}/api/evaluate`)).status, 405);
   const pre = await fetch(`${BASE}/api/x402/judge`, { method: "OPTIONS", headers: { origin: "https://example.org", "access-control-request-method": "POST" } });

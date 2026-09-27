@@ -168,7 +168,7 @@ judge-service/    Node/viem off-chain engine
   come only from on-chain verdicts; a lying judge reply halts the run; a rerun never pays twice;
   the judge port against the real x402 handler; a demo key that does not match the brief, or a
   log another paymaster wrote, is refused before anything is sent.
-- ✅ **Live check** (`cd judge-service && npm run live-check`): 14 checks against the hosted judge,
+- ✅ **Live check** (`cd judge-service && npm run live-check`): 17 checks against the hosted judge,
   no keys and no money, including exact parity with a verdict on chain (job 186740).
 - ✅ **Hosted judge** at https://judge-protocol-api.vercel.app: an on-demand API
   (`POST /api/judge`) plus a daily safety sweep. Best effort, no uptime guarantee; if it does not
