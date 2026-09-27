@@ -9,7 +9,8 @@
     "api": "node src/http.js",
     "test": "node --test --test-timeout=60000 'test/*.test.js'",
     "verify": "node src/verify.js",
-    "measure": "node src/measure-acp.js"
+    "measure": "node src/measure-acp.js",
+    "live-check": "node scripts/live-check.mjs"
   },
   "keywords": [
     "erc-8183",
