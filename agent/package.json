@@ -1,0 +1,18 @@
+{
+  "name": "@judgeprotocol/paymaster",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A contractor-payments agent on Arc: it pays through ERC-8183 escrow, only for work Judge Protocol verified, within spend limits it cannot exceed.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test 'test/*.test.js'",
+    "start": "node run.js briefs/demo.json"
+  },
+  "dependencies": {
+    "@circle-fin/x402-batching": "3.5.0",
+    "@x402/core": "2.27.0",
+    "@x402/evm": "2.27.0",
+    "viem": "^2.55.11"
+  }
+}

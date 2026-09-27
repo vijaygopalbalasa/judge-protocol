@@ -1,0 +1,58 @@
+{
+  "project": "Arc docs sprint (demo)",
+  "about": "A demo brief for the Judge Protocol paymaster on Arc testnet. The two contractors are scripted agents with their own wallets; their writing is scripted in demoWork. The paymaster is the agent under test.",
+  "policy": {
+    "budgetUSDC": "0.40",
+    "maxPerMilestoneUSDC": "0.25",
+    "approvalAboveUSDC": "0.10",
+    "maxJudgeFeesUSDC": "0.05",
+    "maxAttempts": 2,
+    "trialMaxUSDC": "0.05"
+  },
+  "contractors": [
+    { "name": "atlas", "address": "0x5e14c9E5278ee370D764d03d314e92B3d9fFC04F", "demo": { "keyEnv": "PROVIDER_KEY", "style": "careful" } },
+    { "name": "birch", "address": "0xF14F72Ca02c396e4BEbE366b158B7c4418572447", "demo": { "keyEnv": "CONTRACTOR_B_KEY", "style": "sloppy" } }
+  ],
+  "historyJobIds": ["170855", "170856", "170857", "171507", "171925", "186740", "186741", "186742", "186757", "186758", "186759", "186760", "186761", "186762"],
+  "milestones": [
+    {
+      "id": "explainer",
+      "title": "Explain ERC-8183 escrow for the docs",
+      "payUSDC": "0.05",
+      "acceptance": "Between 30 and 120 words. Must mention ERC-8183, USDC and Arc.",
+      "demoWork": {
+        "draft": "ERC-8183 is an escrow standard for work between agents. The client locks USDC in a job, the provider delivers, and a neutral evaluator decides whether the delivery met the criteria written into the job before the work started. A pass releases the escrow to the provider; a reject refunds the client.",
+        "good": "ERC-8183 is an escrow standard for work between agents on Arc. The client locks USDC in a job, the provider delivers, and a neutral evaluator decides whether the delivery met the criteria written into the job before the work started. A pass releases the escrow to the provider; a reject refunds the client.",
+        "bad": "Escrow for agents: the client locks funds, the provider delivers, and someone checks the work before the money moves."
+      }
+    },
+    {
+      "id": "invoice",
+      "title": "Invoice record for the explainer",
+      "payUSDC": "0.05",
+      "acceptance": "Valid JSON with fields invoiceId, total and currency. total must be a number. currency must be a string.",
+      "demoWork": {
+        "mediaType": "application/json",
+        "draft": "{\"invoiceId\":\"INV-2026-0042\",\"total\":\"0.05\",\"currency\":\"USDC\"}",
+        "good": "{\"invoiceId\":\"INV-2026-0042\",\"total\":0.05,\"currency\":\"USDC\",\"milestone\":\"explainer\"}",
+        "bad": "{\"invoice\":\"42\",\"amount\":0.05}"
+      }
+    },
+    {
+      "id": "review",
+      "title": "Security review of the payment flow",
+      "payUSDC": "0.20",
+      "acceptance": "At least 60 words. Must mention reentrancy, allowance and escrow.",
+      "demoWork": {
+        "draft": "The flow approves an exact allowance, funds escrow once, and never calls out before state changes, so reentrancy has nothing to exploit.",
+        "good": "The payment flow approves an exact allowance for the escrow contract and funds each job once, at the price the contractor quoted, after re-reading the job on chain. It never transfers USDC to a contractor directly: only the evaluator's verdict releases the escrow. There are no external calls before state changes in the paymaster, so reentrancy has nothing to exploit, and a stale allowance can only be spent by the escrow on a job the paymaster itself funds."
+      }
+    },
+    {
+      "id": "landing",
+      "title": "Landing page polish",
+      "payUSDC": "0.05",
+      "acceptance": "Make the landing page look great and feel premium."
+    }
+  ]
+}

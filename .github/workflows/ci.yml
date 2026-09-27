@@ -71,6 +71,23 @@ jobs:
         working-directory: kit
         run: npm test
 
+  agent:
+    name: Paymaster agent (node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: install deps (the agent reuses the kit and the judge service's own code)
+        run: |
+          npm ci --prefix judge-service
+          npm ci --prefix kit
+          npm ci --prefix agent
+      - name: test
+        working-directory: agent
+        run: npm test
+
   secrets:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest

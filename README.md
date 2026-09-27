@@ -79,6 +79,11 @@ Gateway, charged only when a verdict lands on chain).
   [criteria reference](docs/CRITERIA.md).
 - **Agent skill:** [`skills/judge-protocol/SKILL.md`](skills/judge-protocol/SKILL.md) teaches a coding
   agent to write criteria, create judged jobs and check rulings.
+- **Paymaster agent:** [`agent/`](agent/README.md) pays contractors through ERC-8183 escrow and only
+  for work the judge verified: plain-English milestones become checkable criteria, spend limits are
+  enforced in code, contractors are chosen by their on-chain record, the judge is paid per ruling
+  over x402, and every decision goes into a hash-chained log anchored on chain. A recorded run on
+  Arc testnet (jobs 186764 to 186767) is in `agent/runs/`.
 
 ## How it works
 
@@ -153,6 +158,10 @@ judge-service/    Node/viem off-chain engine
 - ✅ **25/25 kit and docs tests** (`cd kit && npm ci && npm test`): the kit agrees with the
   judge on validation, hashing and deliverable decoding; nothing reaches the chain on bad input; the
   docs document every check, parameter and API result, and every example in them is valid.
+- ✅ **47/47 paymaster agent tests** (`cd agent && npm ci && npm test`): the wallet guard refuses
+  everything but creating, funding and reclaiming judged escrow; hard spend caps and the approval
+  band; the drafter refuses to guess; records come only from on-chain verdicts; a lying judge reply
+  halts the run; a rerun never pays twice; the judge port against the real x402 handler.
 - ✅ **Hosted judge** at https://judge-protocol-api.vercel.app: an on-demand API
   (`POST /api/judge`) plus a daily safety sweep. Best effort, no uptime guarantee; if it does not
   rule, `claimRefund` after `expiredAt` is the protocol backstop.
