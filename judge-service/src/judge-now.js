@@ -13,7 +13,7 @@ import { parseAbiItem, decodeEventLog } from "viem";
 import { config } from "./config.js";
 import { acpAbi, judgeAbi, STATUS } from "./abi.js";
 import { evaluateJob, pollOnce } from "./engine.js";
-import { makeClients as defaultMakeClients } from "./signer.js";
+import { makeClients as defaultMakeClients, makePublicClient as defaultMakePublicClient } from "./signer.js";
 
 const JOB_SUBMITTED = parseAbiItem("event JobSubmitted(uint256 indexed jobId, address indexed provider, bytes32 deliverable)");
 const LOG_SPAN = 10_000n;          // the public RPC's eth_getLogs limit
@@ -155,7 +155,7 @@ export async function judgeNow(input = {}, deps = {}) {
 export async function jobStatus(input = {}, deps = {}) {
   const jobId = parseJobIdInput(input.jobId);
   if (jobId === null) return reply(400, { error: "jobId must be a positive integer" });
-  const publicClient = deps.clients ? deps.clients.publicClient : (deps.publicClient || clientsFrom(deps).publicClient);
+  const publicClient = deps.clients ? deps.clients.publicClient : (deps.publicClient || (deps.makePublicClient || defaultMakePublicClient)());
   let job;
   try {
     job = await publicClient.readContract({ address: config.acpAddress, abi: acpAbi, functionName: "getJob", args: [jobId] });

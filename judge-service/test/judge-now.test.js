@@ -8,7 +8,7 @@ import path from "node:path";
 
 process.env.EVIDENCE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "judge-evidence-"));
 const { mockChain, CRITERIA, TEXT, describe } = await import("./helpers/mock-chain.js");
-const { judgeNow, sweepRecent } = await import("../src/judge-now.js");
+const { judgeNow, sweepRecent, jobStatus } = await import("../src/judge-now.js");
 const { evaluateJob } = await import("../src/engine.js");
 
 const deliverableOf = (m, id) => m.logs.find((l) => l.args.jobId === BigInt(id)).args.deliverable;
@@ -255,3 +255,15 @@ test("a submission outside the search window says how to find it, not 'ask again
 });
 
 void CRITERIA; void TEXT;
+
+test("reading a job's status needs no signer key: a deployment without keys still answers GET", async () => {
+  const m = mockChain({ jobs: [{ id: 95 }] });
+  const deps = {
+    makeClients: () => { throw new Error("JUDGE_SIGNER_KEY is not set"); },
+    makePublicClient: () => m.clients.publicClient,
+  };
+  const r = await jobStatus({ jobId: "95" }, deps);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.result, "pending");
+  assert.equal(m.calls.writeContract.length, 0);
+});

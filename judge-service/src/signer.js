@@ -26,11 +26,13 @@ function domain() {
   };
 }
 
+/** A read-only chain client: needs no keys, so status reads work on any deployment. */
+export function makePublicClient() {
+  return createPublicClient({ chain: config.chain, transport: http(config.rpcUrl) });
+}
+
 export function makeClients() {
-  const publicClient = createPublicClient({
-    chain: config.chain,
-    transport: http(config.rpcUrl),
-  });
+  const publicClient = makePublicClient();
   const signerAccount = privateKeyToAccount(config.signerKey);
   const relayerAccount = privateKeyToAccount(config.relayerKey);
   const relayerWallet = createWalletClient({
