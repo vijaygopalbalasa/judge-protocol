@@ -10,15 +10,15 @@ export function cors(res) {
   res.setHeader("cache-control", "no-store");
 }
 
-/** Parse a small JSON body; returns { ok, value } or { ok: false, status, error }. */
-export function readJsonBody(req) {
+/** Parse a JSON body up to `cap` bytes; returns { ok, value } or { ok: false, status, error }. */
+export function readJsonBody(req, cap = MAX_BODY_BYTES) {
   const declared = Number((req.headers || {})["content-length"]);
-  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return { ok: false, status: 413, error: "request too large" };
+  if (Number.isFinite(declared) && declared > cap) return { ok: false, status: 413, error: "request too large" };
   let b;
   try { b = req.body; } catch { return { ok: false, status: 400, error: "malformed JSON" }; }
   if (b === undefined || b === null || b === "") return { ok: true, value: {} };
   if (typeof b === "string") {
-    if (Buffer.byteLength(b) > MAX_BODY_BYTES) return { ok: false, status: 413, error: "request too large" };
+    if (Buffer.byteLength(b) > cap) return { ok: false, status: 413, error: "request too large" };
     try { b = JSON.parse(b); } catch { return { ok: false, status: 400, error: "malformed JSON" }; }
   }
   if (typeof b !== "object" || Array.isArray(b)) return { ok: false, status: 400, error: "expected a JSON object" };

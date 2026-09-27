@@ -16,12 +16,11 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { createPublicClient, http as viemHttp, keccak256 } from "viem";
+import { createPublicClient, http as viemHttp } from "viem";
 import { config } from "./config.js";
 import { judgeAbi } from "./abi.js";
-import { runAllChecks, InvalidCriteriaError } from "./checkers/index.js";
-import { criteriaHash } from "./criteria.js";
-import { evidenceHashOf } from "./evidence.js";
+import { InvalidCriteriaError } from "./checkers/index.js";
+import { dryRunEvaluate } from "./evaluate.js";
 
 const MAX_BODY_BYTES = 1_048_576; // 1 MB, same ceiling as deliverable fetches
 
@@ -130,33 +129,10 @@ export function createJudgeApi(deps = {}) {
         } catch {
           return send(400, { error: "body must be JSON" });
         }
-        const { criteria, deliverable, deliverableBase64 } = body ?? {};
-        if (!criteria || typeof criteria !== "object") {
-          return send(400, { error: "missing `criteria` object" });
-        }
-        if (deliverable === undefined && deliverableBase64 === undefined) {
-          return send(400, { error: "provide `deliverable` (utf-8 string) or `deliverableBase64`" });
-        }
-        const content = deliverableBase64 !== undefined
-          ? Buffer.from(String(deliverableBase64), "base64")
-          : Buffer.from(String(deliverable), "utf8");
-        if (content.length > MAX_BODY_BYTES) return send(413, { error: "deliverable too large" });
-
-        const { results, score, pass, threshold } = await runAllChecks(criteria, { content, source: "inline" });
-        const cHash = criteriaHash(criteria);
-        const commitment = keccak256(content);
-        const evidenceHash = evidenceHashOf({
-          jobId: String(body.jobId ?? "0"),
-          criteriaHash: cHash,
-          deliverable: commitment,
-          criteria, results, score, threshold, pass,
-        });
-        return send(200, {
-          dryRun: true,
-          criteriaHash: cHash,
-          deliverable: commitment,
-          results, score, threshold, pass, evidenceHash,
-        });
+        // Shared with the hosted dry run; locally, live http-endpoint probes are allowed.
+        const r = await dryRunEvaluate(body ?? {}, { allowLiveProbes: true });
+        if (r.status === 422) return send(422, { error: `invalid criteria: ${r.body.reason}` });
+        return send(r.status, r.body);
       }
 
       return send(404, {

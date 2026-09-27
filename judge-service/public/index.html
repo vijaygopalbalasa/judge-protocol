@@ -45,6 +45,7 @@
   <table>
     <tr><td><code>POST /api/judge</code></td><td>Rule now on a Submitted job that names this judge. Body: <code>jobId</code>, optional <code>submitTx</code> (needed for submissions older than about 4 hours).</td></tr>
     <tr><td><code>GET /api/judge?jobId=N</code></td><td>Read-only status: pending, judged (with the on-chain verdict), not-submitted, expired, or not-ours.</td></tr>
+    <tr><td><code>POST /api/evaluate</code></td><td>Dry run: the exact checks, score and evidenceHash the judge would produce for a deliverable. Never signs, never settles, never makes a network request. For your own escrow, or to self-check before submitting.</td></tr>
     <tr><td><code>GET /api/health</code></td><td>The judge, its signer and whether it is authorized on chain, and whether the relayer has gas.</td></tr>
   </table>
 
@@ -53,6 +54,13 @@
     <li>Arc testnet only. Best effort, no uptime guarantee: rulings happen on request, and a daily sweep catches jobs nobody asked about. If the judge never rules, <code>claimRefund</code> after <code>expiredAt</code> returns the client's funds.</li>
     <li>Jobs with a budget under 0.01 USDC are skipped (spam guard).</li>
     <li>Deterministic checks cover objective, structured deliverables. An <code>http-endpoint</code> check is a live network probe recorded once at judging time; it cannot be re-run later as the judge saw it.</li>
+  </ul>
+  <h2>Docs and kit</h2>
+  <ul>
+    <li><a href="https://github.com/vijaygopalbalasa/judge-protocol/blob/master/docs/INTEGRATION.md">Integration guide</a> (about 10 minutes)</li>
+    <li><a href="https://github.com/vijaygopalbalasa/judge-protocol/blob/master/docs/CRITERIA.md">Criteria reference</a></li>
+    <li><a href="https://github.com/vijaygopalbalasa/judge-protocol/tree/master/kit">Kit</a>: one file, depends only on viem; <code>kit/example.js</code> runs the whole flow</li>
+    <li><a href="https://github.com/vijaygopalbalasa/judge-protocol/blob/master/skills/judge-protocol/SKILL.md">Agent skill</a> for coding agents</li>
   </ul>
   <p class="dim">Open source (MIT): <a href="https://github.com/vijaygopalbalasa/judge-protocol">github.com/vijaygopalbalasa/judge-protocol</a></p>
 </div>
