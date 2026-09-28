@@ -55,7 +55,9 @@ node judge-service/src/verify.js 16 --network arc-mainnet   # VERIFIED: recomput
 or in the browser, with no install: https://judge-protocol-verifier.vercel.app/?network=arc-mainnet (it reads
 Arc mainnet directly from the page).
 
-No third party has used the judge on mainnet yet, and the hosted API below still rules on testnet.
+No third party has used the judge on mainnet yet. A hosted mainnet judge runs at
+https://judge-protocol-api-mainnet.vercel.app (`POST /api/judge` on mainnet; paid x402 rulings stay on testnet)
+and rules once its relayer has gas: `GET /api/health` shows whether it does.
 
 ## Live on Arc testnet (chain 5042002) · v1.1
 
