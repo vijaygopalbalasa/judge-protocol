@@ -66,7 +66,14 @@ contract JudgeEvaluatorTest is Test {
         bytes32 structHash = keccak256(
             abi.encode(
                 judge.VERDICT_TYPEHASH(),
-                v.jobId, v.criteriaHash, v.deliverable, v.score, v.threshold, v.pass, v.evidenceHash, v.timestamp
+                v.jobId,
+                v.criteriaHash,
+                v.deliverable,
+                v.score,
+                v.threshold,
+                v.pass,
+                v.evidenceHash,
+                v.timestamp
             )
         );
         bytes32 digest = _hashTypedDataV4(structHash);
@@ -151,7 +158,17 @@ contract JudgeEvaluatorTest is Test {
         // Sign with a non-allowlisted key.
         uint256 badKey = 0xBAD;
         bytes32 structHash = keccak256(
-            abi.encode(judge.VERDICT_TYPEHASH(), v.jobId, v.criteriaHash, v.deliverable, v.score, v.threshold, v.pass, v.evidenceHash, v.timestamp)
+            abi.encode(
+                judge.VERDICT_TYPEHASH(),
+                v.jobId,
+                v.criteriaHash,
+                v.deliverable,
+                v.score,
+                v.threshold,
+                v.pass,
+                v.evidenceHash,
+                v.timestamp
+            )
         );
         bytes32 digest = _hashTypedDataV4(structHash);
         (uint8 vv, bytes32 r, bytes32 s) = vm.sign(badKey, digest);
@@ -336,5 +353,69 @@ contract JudgeEvaluatorTest is Test {
         assertEq(stored.deliverable, DELIVERABLE);
         assertEq(stored.score, 100);
         assertEq(stored.threshold, 100);
+    }
+
+    /* ---------------- pre-mainnet review fixes (2026-09-28) ---------------- */
+
+    // Renouncing ownership would freeze signer rotation, the guardian and withdraw forever.
+    function test_renounceOwnership_isDisabled() public {
+        vm.expectRevert(JudgeEvaluator.RenounceDisabled.selector);
+        judge.renounceOwnership();
+        assertEq(judge.owner(), owner);
+    }
+
+    // Ownership moves in two steps, so a typo cannot hand the judge to an address nobody controls.
+    function test_ownershipTransfer_needsAcceptance() public {
+        address next = makeAddr("next owner");
+        judge.transferOwnership(next);
+        assertEq(judge.owner(), owner, "unchanged until accepted");
+        vm.prank(makeAddr("someone else"));
+        vm.expectRevert();
+        judge.acceptOwnership();
+        vm.prank(next);
+        judge.acceptOwnership();
+        assertEq(judge.owner(), next);
+    }
+
+    // While paused nothing can bind criteria, so a leaked key cannot poison jobs in that window.
+    function test_registerCriteria_blockedWhilePaused() public {
+        vm.prank(client);
+        uint256 jobId = acp.createJob(provider, address(judge), block.timestamp + 1 days, "job", address(0));
+        vm.prank(guardian);
+        judge.setPaused(true);
+        vm.prank(signer);
+        vm.expectRevert(JudgeEvaluator.Paused_.selector);
+        judge.registerCriteria(jobId, CRITERIA);
+    }
+
+    // Criteria bind only jobs that name this judge.
+    function test_registerCriteria_onlyForJobsNamingThisJudge() public {
+        vm.prank(client);
+        uint256 jobId =
+            acp.createJob(provider, makeAddr("other evaluator"), block.timestamp + 1 days, "job", address(0));
+        vm.prank(signer);
+        vm.expectRevert(JudgeEvaluator.NotThisJudge.selector);
+        judge.registerCriteria(jobId, CRITERIA);
+    }
+
+    // Criteria a leaked key registered before the pause can be cleared by the owner, and only the owner;
+    // the job then settles on the honest verdict.
+    function test_owner_canClearPoisonedCriteria() public {
+        uint256 jobId = _toSubmittedWithCriteria(keccak256("poison"));
+        JudgeEvaluator.Verdict memory v = _verdict(jobId, true); // the honest criteria, CRITERIA
+        bytes memory sig = _sign(v);
+        vm.expectRevert(JudgeEvaluator.CriteriaMismatch.selector);
+        judge.relay(v, sig);
+        vm.prank(signer);
+        vm.expectRevert(); // Ownable: a signer is not the owner
+        judge.clearCriteria(jobId);
+        vm.expectEmit(true, false, false, true);
+        emit JudgeEvaluator.CriteriaCleared(jobId, keccak256("poison"));
+        judge.clearCriteria(jobId);
+        assertEq(judge.jobCriteria(jobId), bytes32(0));
+        vm.expectRevert(JudgeEvaluator.NothingRegistered.selector);
+        judge.clearCriteria(jobId);
+        judge.relay(v, sig);
+        assertEq(uint8(acp.getJob(jobId).status), uint8(IACP.JobStatus.Completed));
     }
 }

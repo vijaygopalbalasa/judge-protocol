@@ -190,11 +190,13 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
 
 ## Status
 
-- ✅ **37/37 contract tests** (`cd contracts && forge test`): full lifecycle, both settlement
+- ✅ **42/42 contract tests** (`cd contracts && forge test`): full lifecycle, both settlement
   paths, and attack paths: bad signer, double-resolution, pause, criteria mismatch, stale
   verdict, threshold enforcement, criteria-registration gating, withdraw auth, and the full
   hook feedback flow (7 hook tests; the hook decode bug that these now cover was previously
-  untested).
+  untested). Five came from the pre-deployment review (see ARCHITECTURE.md): renouncing ownership
+  is disabled, ownership needs acceptance, and criteria can be bound only for this judge's jobs,
+  never while paused, and cleared only by the owner.
 - ✅ **Deploy-ready for Arc mainnet, not deployed yet.** Circle has no ERC-8183 escrow on Arc mainnet;
   ArcBounty runs the ERC-8183 reference escrow there (`0x64cA39Fc...`, open to any client, Circle's Job
   layout, fees 0). Eight fork tests run JudgeEvaluator against that live escrow on a fork of Arc mainnet
@@ -242,7 +244,7 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
 
 ```bash
 # contracts
-cd contracts && git submodule update --init --recursive && forge test   # 37/37
+cd contracts && git submodule update --init --recursive && forge test   # 42/42, plus 8 Arc mainnet fork tests (skipped without ARC_MAINNET_RPC)
 
 # service
 cd ../judge-service && npm install && npm test                          # 203/203

@@ -55,6 +55,16 @@ Be the neutral judgment layer between agent Clients and Providers: given a job's
 - The judge only grades **provider-authored** content, bound to the on-chain commitment: it aborts unless `keccak256(deliverable) == submitted bytes32`.
 - All outbound fetches (deliverable resolution + http-endpoint checker) pass through an SSRF denylist (private/loopback/link-local/metadata ranges), a timeout, and a size cap.
 - Reentrancy: all state-changing paths `nonReentrant`; SafeERC20 for token movement; CEI ordering.
+- **Criteria registration** (`registerCriteria`) is the judge's own consistency check, not a promise the
+  client can enforce: only a signer or the owner can call it, write-once, only while the job is Open or
+  Funded, only for a job naming this judge, and never while paused. The client's commitment is the
+  criteria block in the job's immutable description. The owner can clear a registration
+  (`clearCriteria`, emits `CriteriaCleared`) to recover from criteria a leaked key bound before the pause.
+- **Ownership** moves in two steps (`Ownable2Step`: the new owner must accept), and `renounceOwnership`
+  is disabled, so the signer set can always be rotated. Both, and the two registration limits above,
+  came from a pre-deployment security review on 2026-09-28 (one medium, two low findings, all fixed with
+  tests before the mainnet deployment). The Arc testnet contract was deployed on 2026-08-07 from the
+  earlier version; only new deployments carry these changes.
 
 ## Latency / liveness
 The hosted judge (https://judge-protocol-api.vercel.app) rules on demand: `POST /api/judge` settles a Submitted job within one function invocation, and a daily cron sweep over about the last 58 hours of blocks is the safety net. Liveness is **best-effort, not guaranteed** (no uptime SLA): if the judge does not rule, `claimRefund` after `expiredAt` is the protocol-level backstop; judge downtime can never lock funds. (A managed-hosting / alerting story is deliberately out of scope for this version.)

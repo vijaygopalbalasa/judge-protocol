@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -27,7 +27,7 @@ import "./interfaces/IACP.sol";
 ///
 ///         Non-upgradeable by design (the spec warns hooks/evaluators should not
 ///         change behavior mid-job). A v2 deploys a new address; clients opt in.
-contract JudgeEvaluator is ReentrancyGuard, Ownable, EIP712 {
+contract JudgeEvaluator is ReentrancyGuard, Ownable2Step, EIP712 {
     using ECDSA for bytes32;
     using SafeERC20 for IERC20;
 
@@ -36,14 +36,14 @@ contract JudgeEvaluator is ReentrancyGuard, Ownable, EIP712 {
     //////////////////////////////////////////////////////////////*/
 
     struct Verdict {
-        uint256 jobId;        // ACP job id
+        uint256 jobId; // ACP job id
         bytes32 criteriaHash; // keccak256 of the acceptance-criteria JSON
-        bytes32 deliverable;  // deliverable hash the provider submitted
-        uint8 score;          // 0-100 weighted score from the checkers
-        uint8 threshold;      // pass bar; the contract enforces pass ⇒ score ≥ threshold
-        bool pass;            // true → complete, false → reject
+        bytes32 deliverable; // deliverable hash the provider submitted
+        uint8 score; // 0-100 weighted score from the checkers
+        uint8 threshold; // pass bar; the contract enforces pass ⇒ score ≥ threshold
+        bool pass; // true → complete, false → reject
         bytes32 evidenceHash; // keccak256 of the recomputable verdict core
-        uint64 timestamp;     // when the verdict was produced
+        uint64 timestamp; // when the verdict was produced
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -80,6 +80,7 @@ contract JudgeEvaluator is ReentrancyGuard, Ownable, EIP712 {
     //////////////////////////////////////////////////////////////*/
 
     event CriteriaRegistered(uint256 indexed jobId, bytes32 criteriaHash);
+    event CriteriaCleared(uint256 indexed jobId, bytes32 criteriaHash);
     event VerdictSubmitted(
         uint256 indexed jobId,
         bool indexed pass,
@@ -110,6 +111,9 @@ contract JudgeEvaluator is ReentrancyGuard, Ownable, EIP712 {
     error ZeroAddress();
     error NotOpen();
     error AlreadyRegistered();
+    error NotThisJudge();
+    error NothingRegistered();
+    error RenounceDisabled();
 
     /*//////////////////////////////////////////////////////////////
                               MODIFIERS
@@ -159,10 +163,14 @@ contract JudgeEvaluator is ReentrancyGuard, Ownable, EIP712 {
     ///         provider's work until refund. Registration is optional: criteria
     ///         are already committed in the immutable description; this makes
     ///         that commitment explicit and gas-cheap to check.
-    function registerCriteria(uint256 jobId, bytes32 criteriaHash) external {
+    ///         Also refused while paused (so a leaked signer key cannot bind criteria in the window
+    ///         between the guardian's pause and the owner's rotation) and for jobs that do not name
+    ///         this judge as their evaluator.
+    function registerCriteria(uint256 jobId, bytes32 criteriaHash) external whenNotPaused {
         if (!isSigner[msg.sender] && msg.sender != owner()) revert NotSigner();
         if (jobCriteria[jobId] != bytes32(0)) revert AlreadyRegistered();
         IACP.Job memory job = acp.getJob(jobId);
+        if (job.evaluator != address(this)) revert NotThisJudge();
         if (uint8(job.status) >= uint8(IACP.JobStatus.Submitted)) revert NotOpen();
         jobCriteria[jobId] = criteriaHash;
         emit CriteriaRegistered(jobId, criteriaHash);
@@ -182,11 +190,7 @@ contract JudgeEvaluator is ReentrancyGuard, Ownable, EIP712 {
     ///         `pass=false` rejects it (escrow refunded → client).
     /// @param v   The structured verdict.
     /// @param sig EIP-712 signature over `v` by an allowlisted signer.
-    function submitVerdict(Verdict calldata v, bytes calldata sig)
-        external
-        nonReentrant
-        whenNotPaused
-    {
+    function submitVerdict(Verdict calldata v, bytes calldata sig) external nonReentrant whenNotPaused {
         // 1. Verify the producing signer is allowlisted.
         bytes32 digest = _hashTypedDataV4(_hashVerdict(v));
         address recovered = digest.recover(sig);
@@ -208,11 +212,7 @@ contract JudgeEvaluator is ReentrancyGuard, Ownable, EIP712 {
     ///         (e.g. a marketplace, a watcher, the provider) push a verdict the
     ///         judge service produced. Improves liveness without expanding trust:
     ///         the verdict is only accepted if the EIP-712 signer is allowlisted.
-    function relay(Verdict calldata v, bytes calldata sig)
-        external
-        nonReentrant
-        whenNotPaused
-    {
+    function relay(Verdict calldata v, bytes calldata sig) external nonReentrant whenNotPaused {
         bytes32 digest = _hashTypedDataV4(_hashVerdict(v));
         address recovered = digest.recover(sig);
         if (!isSigner[recovered]) revert BadSignature();
@@ -226,6 +226,9 @@ contract JudgeEvaluator is ReentrancyGuard, Ownable, EIP712 {
         //    evaluator (otherwise complete/reject would revert on the ACP side).
         if (job.status != IACP.JobStatus.Submitted) revert JobNotSubmitted();
         if (job.evaluator != address(this)) revert JobNotSubmitted();
+        // Unreachable against an escrow that moves the job out of Submitted in the same call (as
+        // Circle's and the reference escrow do): the status check above fires first. Kept as a guard
+        // for an escrow that does not.
         if (verdicts[v.jobId].timestamp != 0) revert AlreadyResolved();
         // Check future first to avoid underflow in the age computation.
         if (v.timestamp > block.timestamp) revert StaleVerdict();
@@ -233,8 +236,9 @@ contract JudgeEvaluator is ReentrancyGuard, Ownable, EIP712 {
 
         // 4. Bind verdict to the registered criteria, if any was registered.
         bytes32 registered = jobCriteria[v.jobId];
-        if (registered != bytes32(0) && registered != v.criteriaHash)
+        if (registered != bytes32(0) && registered != v.criteriaHash) {
             revert CriteriaMismatch();
+        }
 
         // 4b. Enforce internal consistency of the verdict: a PASS must clear its
         //     own declared threshold. Catches a buggy signer that sets pass=true
@@ -245,9 +249,7 @@ contract JudgeEvaluator is ReentrancyGuard, Ownable, EIP712 {
         verdicts[v.jobId] = v;
         verdictCount++;
 
-        emit VerdictSubmitted(
-            v.jobId, v.pass, v.score, v.criteriaHash, v.deliverable, v.evidenceHash, signer
-        );
+        emit VerdictSubmitted(v.jobId, v.pass, v.score, v.criteriaHash, v.deliverable, v.evidenceHash, signer);
 
         // 6. Resolve on the ACP contract. reason = evidenceHash so anyone can
         //    recompute the verdict from the stored structured evidence.
@@ -279,6 +281,22 @@ contract JudgeEvaluator is ReentrancyGuard, Ownable, EIP712 {
     /*//////////////////////////////////////////////////////////////
                               ADMIN / GUARDIAN
     //////////////////////////////////////////////////////////////*/
+
+    /// @notice Recovery for criteria a leaked signer key registered before the guardian paused. The owner,
+    ///         who also controls the signer set, can clear a job's registration; the job's criteria are then
+    ///         bound by its immutable description alone. Emits the hash it cleared.
+    function clearCriteria(uint256 jobId) external onlyOwner {
+        bytes32 cleared = jobCriteria[jobId];
+        if (cleared == bytes32(0)) revert NothingRegistered();
+        delete jobCriteria[jobId];
+        emit CriteriaCleared(jobId, cleared);
+    }
+
+    /// @notice Disabled: without an owner no signer could ever be rotated or revoked again. Ownership moves
+    ///         with transferOwnership, which the new owner must accept (Ownable2Step).
+    function renounceOwnership() public pure override {
+        revert RenounceDisabled();
+    }
 
     function setSigner(address signer, bool allowed) external onlyOwner {
         if (signer == address(0)) revert ZeroAddress();
