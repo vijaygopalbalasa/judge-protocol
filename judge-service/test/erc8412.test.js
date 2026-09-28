@@ -234,3 +234,15 @@ test("the live Arc testnet packages verify against the chain state they recorded
   }
   assert.deepEqual([...verdicts].sort(), ["NotSatisfied", "Satisfied"]);
 });
+
+test("the __proto__ vector added in review (valid-proto-member) is valid for our port, and bites an assignment copy", async () => {
+  // Proposed for the ERC's vectors in richard7463/ERCs#1 (commit 02aaae3) after we reported the
+  // hazard: criteria carrying an ordinary member named __proto__, which JCS hashes like any key.
+  const raw = load("proposed/valid-proto-member.json");
+  const p = Array.isArray(raw) ? raw[0] : raw;
+  assert.ok(Object.hasOwn(p.criteria, "__proto__"), "JSON.parse keeps the member");
+  const r = await E.checkPackage(p);
+  assert.deepEqual({ valid: r.valid, violations: r.violations, unchecked: r.unchecked }, { valid: true, violations: [], unchecked: [] });
+  assert.equal(E.docDigest(p.criteria), p.chain.criteriaDigest.toLowerCase());
+  assert.notEqual(E.docDigest(Object.assign({}, p.criteria)), p.chain.criteriaDigest.toLowerCase(), "an assignment copy drops it");
+});
