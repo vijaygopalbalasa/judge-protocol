@@ -9,8 +9,14 @@
 //   6. the chain state is read back from the registry and the package is checked and written
 //
 //   node --env-file=.env src/erc8412-live.mjs --registry <address> [--reject] [--out <file>]
+//   node --env-file=.env src/erc8412-live.mjs --hosted [<api url>] [--reject] [--out <file>]
 //
-// Needs CLIENT_KEY, PROVIDER_KEY and JUDGE_SIGNER_KEY (testnet keys).
+// --hosted is the third-party path through the live judge: the client
+// preregisters with the kit (the verifier is JudgeAttestor), the hosted judge
+// rules and attests, and the record comes back from GET /api/erc8412, rebuilt
+// from chain data. It needs only CLIENT_KEY and PROVIDER_KEY.
+// Without --hosted, the judge runs here and attests as its own signer, which
+// needs JUDGE_SIGNER_KEY too.
 import fs from "node:fs";
 import path from "node:path";
 import { createPublicClient, createWalletClient, decodeEventLog, http, keccak256, parseUnits, stringToHex, toHex } from "viem";
@@ -23,9 +29,10 @@ import { NS, ZERO32, attestationFor, checkPackage, criteriaDocument, evidenceBun
 
 const argv = process.argv.slice(2);
 const opt = (name) => { const i = argv.indexOf(name); return i > -1 ? argv[i + 1] : null; };
-const registry = opt("--registry");
+const hosted = argv.includes("--hosted") ? (/^https?:\/\//.test(opt("--hosted") ?? "") ? opt("--hosted") : "https://judge-protocol-api.vercel.app") : null;
+const registry = hosted ? config.erc8412Registry : opt("--registry");
 if (!/^0x[0-9a-fA-F]{40}$/.test(registry ?? "")) {
-  console.error("usage: node --env-file=.env src/erc8412-live.mjs --registry <address> [--reject] [--out <file>]");
+  console.error("usage: node --env-file=.env src/erc8412-live.mjs (--registry <address> | --hosted [<api url>]) [--reject] [--out <file>]");
   process.exit(2);
 }
 const reject = argv.includes("--reject");
@@ -52,7 +59,7 @@ const pub = createPublicClient({ chain: config.chain, transport: http(config.rpc
 const wallet = (key) => createWalletClient({ account: privateKeyToAccount(key), chain: config.chain, transport: http(config.rpcUrl) });
 const client = wallet(process.env.CLIENT_KEY);
 const provider = wallet(process.env.PROVIDER_KEY);
-const judge = wallet(process.env.JUDGE_SIGNER_KEY); // the ERC-8412 verifier: the key JudgeEvaluator trusts
+const judge = hosted ? null : wallet(process.env.JUDGE_SIGNER_KEY); // local mode: the verifier is the key JudgeEvaluator trusts
 const tx = {};
 async function send(label, w, args) {
   const hash = await w.writeContract(args);
@@ -74,7 +81,7 @@ const payload = reject
   : "ERC-8183 holds the client's USDC in escrow on Arc until the evaluator rules on the submitted work.";
 
 console.log(`\nERC-8412 live run on chain ${config.chain.id} (${reject ? "a deliverable that fails a check" : "a deliverable that passes"})`);
-console.log(`   registry ${registry}\n   verifier ${judge.account.address}\n`);
+console.log(`   registry ${registry}\n   verifier ${hosted ? `${config.erc8412Attestor} (JudgeAttestor), judge at ${hosted}` : judge.account.address}\n`);
 
 // 1. the job, with the criteria written into it
 const expiredAt = BigInt(Math.floor(Date.now() / 1000) + 3600);
@@ -86,11 +93,21 @@ console.log(`   jobId        ${jobId}`);
 if (JSON.stringify(extractCriteria(description)) !== JSON.stringify(criteria)) throw new Error("the description does not carry the criteria");
 
 // 2. the ERC-8412 preregistration, before any deliverable exists
-const c = criteriaDocument(criteria, { chainId: config.chain.id, acp: config.acpAddress, jobId, verifier: judge.account.address, expiry: expiredAt });
-const pre = await send("preregister", client, { address: registry, abi: REGISTRY, functionName: "preregister",
-  args: [c.criteriaDigest, c.taskRef, c.obligationCount, c.obligationFlags, expiredAt, judge.account.address, ZERO32] });
-const preregistrationId = pre.logs.map((l) => { try { return decodeEventLog({ abi: REGISTRY, data: l.data, topics: l.topics }); } catch { return null; } })
-  .find((e) => e?.eventName === "CriteriaPreregistered").args.preregistrationId;
+let c, preregistrationId;
+if (hosted) {
+  const kit = await import("../../kit/judge-kit.js");
+  const r = await kit.preregisterErc8412({ walletClient: client, publicClient: pub, jobId, criteria, api: hosted });
+  if (r.status !== "preregistered") throw new Error(`preregistration did not happen: ${r.status}`);
+  tx.preregister = r.txHash;
+  preregistrationId = r.preregistrationId;
+  console.log(`   ${"preregister".padEnd(12)} ${r.txHash} (kit, checked against the API's document)`);
+} else {
+  c = criteriaDocument(criteria, { chainId: config.chain.id, acp: config.acpAddress, jobId, verifier: judge.account.address, expiry: expiredAt });
+  const pre = await send("preregister", client, { address: registry, abi: REGISTRY, functionName: "preregister",
+    args: [c.criteriaDigest, c.taskRef, c.obligationCount, c.obligationFlags, expiredAt, judge.account.address, ZERO32] });
+  preregistrationId = pre.logs.map((l) => { try { return decodeEventLog({ abi: REGISTRY, data: l.data, topics: l.topics }); } catch { return null; } })
+    .find((e) => e?.eventName === "CriteriaPreregistered").args.preregistrationId;
+}
 console.log(`   prereg id    ${preregistrationId}`);
 
 // 3. budget, funding and the provider's deliverable
@@ -103,7 +120,28 @@ const uri = `data:text/plain;base64,${Buffer.from(payload).toString("base64")}`;
 const submitted = await send("submit", provider, { address: config.acpAddress, abi: ACP, functionName: "submit",
   args: [jobId, deliverableHash, stringToHex(`deliverableURI: ${uri}`)] });
 
-// 4. the ruling, exactly as the live judge makes it
+// 4. and 5. the ruling and the itemized attestation
+if (hosted) {
+  const kit = await import("../../kit/judge-kit.js");
+  const ruled = await kit.requestRuling({ jobId, submitTx: tx.submit, api: hosted });
+  tx.verdict = ruled.txHash;
+  console.log(`   verdict      ${ruled.txHash} (${ruled.pass ? "PASS" : "REJECT"}, score ${ruled.score}, by the hosted judge)`);
+  if (ruled.erc8412?.status !== "attested") throw new Error(`the hosted judge did not attest: ${JSON.stringify(ruled.erc8412)}`);
+  tx.attest = ruled.erc8412.txHash;
+  console.log(`   attest       ${tx.attest} (hosted judge, through JudgeAttestor)`);
+  const st = await (await fetch(`${hosted}/api/erc8412?jobId=${jobId}&submitTx=${tx.submit}`)).json();
+  if (st.status !== "attested" || !st.package) throw new Error(`GET /api/erc8412: ${JSON.stringify(st).slice(0, 300)}`);
+  const pkg = { name: `judge-protocol-job-${jobId}`,
+    description: `A live Judge Protocol ruling on Arc testnet, attested by the hosted judge through JudgeAttestor: ERC-8183 job ${jobId}, ${st.package.attestation.verdict}. Package from GET /api/erc8412, rebuilt from chain data.`,
+    expect: { valid: true, violations: [] }, chainAccepts: true, ...st.package, [`${NS}.transactions`]: tx };
+  const check = await checkPackage(pkg);
+  const out = opt("--out") || `../docs/erc8412/job-${jobId}.json`;
+  fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
+  fs.writeFileSync(out, JSON.stringify(pkg, null, 2) + "\n");
+  console.log(`\n   package      ${out}\n   API check    ${st.check.valid ? "valid on every rule" : JSON.stringify(st.check.violations)}`);
+  console.log(`   our check    ${check.valid ? "valid on every rule" : JSON.stringify(check.violations)}\n`);
+  process.exit(check.valid && st.check.valid ? 0 : 1);
+}
 const clients = makeClients();
 const prepared = await prepareRuling(jobId, deliverableHash, clients, tx.submit);
 if (prepared.outcome !== "ready") throw new Error(`the judge did not rule: ${prepared.outcome} ${prepared.reason ?? ""}`);
@@ -112,7 +150,6 @@ tx.verdict = judged.txHash;
 console.log(`   verdict      ${judged.txHash} (${judged.pass ? "PASS" : "REJECT"}, score ${judged.score})`);
 const verdictReceipt = await pub.waitForTransactionReceipt({ hash: judged.txHash });
 
-// 5. the itemized attestation, by the verifier named at preregistration
 const results = prepared.verdictObj.results;
 const b = evidenceBundle({ preregistrationId, criteria, deliverable: { digest: deliverableHash, uri, submittedAt: await blockTime(submitted) },
   results, judgedAt: await blockTime(verdictReceipt) });
