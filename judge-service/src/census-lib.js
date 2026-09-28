@@ -121,6 +121,77 @@ export function analyzeCensus(records, { minPayingClients = 4, judges = [] } = {
   };
 }
 
+/** keccak256 of each event signature the log scan reads (pinned against viem in the tests). */
+export const EVENT_TOPICS = {
+  jobCreated: "0xb0f0239bfdd96453e24733e18bfc24b70d8fadf123dd977473518dd577ee79b9",         // JobCreated(uint256,address,address,address,uint256,address)
+  hookWhitelistUpdated: "0x7ee54953080e392a475a25b6acacb85417ca4e1953293c90934233ca13612510", // HookWhitelistUpdated(address,bool)
+  evaluatorFeePaid: "0x253dd534010ac976fa263caa123bae79b9c50292adf7ce67bdc5ec309f784e61",   // EvaluatorFeePaid(uint256,address,uint256)
+  evaluatorFeeUpdated: "0x24fe03678743d8fe5f3d39d760da9fc7a5f3feea46847d91688ba8ef9e400d14", // EvaluatorFeeUpdated(uint256)
+};
+const WORD = /^0x[0-9a-fA-F]{64}$/;
+const ADDRESS_TOPIC = /^0x0{24}[0-9a-fA-F]{40}$/;
+
+/** { jobId, evaluator, amount, block } from an EvaluatorFeePaid log, or null for any other log. */
+export function feePaymentFromLog(log) {
+  if (log.topics?.[0] !== EVENT_TOPICS.evaluatorFeePaid) return null;
+  const [, jobTopic, evaluatorTopic] = log.topics;
+  if (log.topics.length !== 3 || !WORD.test(jobTopic) || !ADDRESS_TOPIC.test(evaluatorTopic) || !WORD.test(log.data ?? "")) {
+    throw new Error(`malformed EvaluatorFeePaid log at block ${log.blockNumber}`);
+  }
+  const jobId = BigInt(jobTopic);
+  if (jobId < 1n || jobId > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error(`malformed EvaluatorFeePaid log: job ${jobId}`);
+  return { jobId: Number(jobId), evaluator: "0x" + evaluatorTopic.slice(26).toLowerCase(), amount: BigInt(log.data), block: Number(BigInt(log.blockNumber)) };
+}
+
+/** { feeBP, block } from an EvaluatorFeeUpdated log, or null for any other log. */
+export function feeUpdateFromLog(log) {
+  if (log.topics?.[0] !== EVENT_TOPICS.evaluatorFeeUpdated) return null;
+  if (log.topics.length !== 1 || !WORD.test(log.data ?? "")) throw new Error(`malformed EvaluatorFeeUpdated log at block ${log.blockNumber}`);
+  return { feeBP: Number(BigInt(log.data)), block: Number(BigInt(log.blockNumber)) };
+}
+
+/**
+ * The evaluator fees a contract actually paid, from its EvaluatorFeePaid events, by who received
+ * them: the job's client, its provider, or a third party. A payment whose job is not in the records,
+ * whose recipient is not that job's evaluator, or that went to the zero address is counted in
+ * `unmatched`, never put in a class.
+ */
+export function tallyEvaluatorFees(payments, records) {
+  const seen = new Set();
+  const byId = new Map(records.map((r) => normalize(r, seen)).map((j) => [j.id, j]));
+  const classes = { client: [0, 0n, new Set()], provider: [0, 0n, new Set()], thirdParty: [0, 0n, new Set()] };
+  let unmatched = 0;
+  for (const p of payments) {
+    if (!Number.isSafeInteger(p.jobId) || p.jobId < 1) throw new Error(`fee payment: jobId must be a positive integer`);
+    if (typeof p.evaluator !== "string" || !ADDR.test(p.evaluator)) throw new Error(`fee payment for job ${p.jobId}: evaluator is not an address`);
+    if (typeof p.amount !== "bigint" || p.amount < 0n) throw new Error(`fee payment for job ${p.jobId}: amount must be a non-negative bigint`);
+    const j = byId.get(p.jobId);
+    const to = p.evaluator.toLowerCase();
+    if (!j || to !== j.evaluator || to === ZERO) { unmatched++; continue; }
+    const c = classes[to === j.client ? "client" : to === j.provider ? "provider" : "thirdParty"];
+    c[0]++; c[1] += p.amount; c[2].add(p.jobId);
+  }
+  const byRecipient = Object.fromEntries(Object.entries(classes).map(([k, [n, units, jobs]]) =>
+    [k, { payments: n, jobs: jobs.size, units: units.toString(), usdc: usdc(units) }]));
+  return { payments: payments.length, unmatched, byRecipient };
+}
+
+/**
+ * The log scan's result. The control: every range was read and the JobCreated events found equal the
+ * job counter at the scan's last block. Only then are counts taken from the logs (hook whitelist
+ * events, evaluator fees) whole; otherwise the fee tally is null and callers report hooks as unknown.
+ */
+export function summarizeLogScan({ fromBlock, toBlock, totals, failedRanges, jobCounter, records }) {
+  const created = totals.created ?? 0;
+  const controlPassed = failedRanges.length === 0 && created === jobCounter;
+  const logScan = { fromBlock, toBlock, jobCreatedLogs: created, hookWhitelistLogs: totals.hooks ?? 0, failedRanges, controlPassed };
+  if (!controlPassed) return { logScan, evaluatorFees: null };
+  const payments = totals.feePayments ?? [];
+  return { logScan, evaluatorFees: { ...tallyEvaluatorFees(payments, records),
+    feeUpdates: [...(totals.feeUpdates ?? [])].sort((x, y) => x.block - y.block),
+    firstPaymentBlock: payments.length ? Math.min(...payments.map((p) => p.block)) : null } };
+}
+
 /**
  * Read every id through readBatch(ids) -> records (in the same order), in
  * batches, a few at a time. A batch that fails, or answers with the wrong
@@ -159,13 +230,14 @@ export async function fetchAll(ids, readBatch, { batch = 100, concurrency = 2, r
  * Scan blocks [from, to] through readRange(a, b) -> { counter: n, ... } in
  * spans, a few at a time. A range that fails is retried, then split in half
  * down to single blocks; one that still fails is reported in `failed`. The
- * counters of every successful range are summed into `totals`.
+ * counters of every successful range are summed into `totals`, and list
+ * results are concatenated.
  */
 export async function scanRanges(from, to, readRange, { span = 10_000, concurrency = 3, retries = 2, retryDelayMs = 500 } = {}) {
   const failed = [];
   const totals = {};
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const add = (counts) => { for (const [k, v] of Object.entries(counts)) totals[k] = (totals[k] ?? 0) + v; };
+  const add = (counts) => { for (const [k, v] of Object.entries(counts)) totals[k] = Array.isArray(v) ? (totals[k] ?? []).concat(v) : (totals[k] ?? 0) + v; };
   async function scan(a, b) {
     for (let attempt = 0; ; attempt++) {
       try { add(await readRange(a, b)); return; }

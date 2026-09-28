@@ -146,3 +146,98 @@ test("a Virtuals AgenticCommerceV3 job and a Circle job decode to the same recor
   // A contract that answers for another job is an error, never a silently wrong record.
   assert.throws(() => recordFromJob({ ...circle, id: 8n }, 7), /answered for job 8/);
 });
+
+test("scanRanges keeps list results from every range exactly once, even after splitting", async () => {
+  const { scanRanges } = await import("../src/census-lib.js");
+  const readRange = async (from, to) => {
+    if (to - from + 1 > 4) throw new Error("range too large");
+    const found = [];
+    for (let b = from; b <= to; b++) if (b % 5 === 0) found.push(b);
+    return { created: to - from + 1, feePayments: found };
+  };
+  const out = await scanRanges(1, 30, readRange, { span: 10, concurrency: 2, retries: 0, retryDelayMs: 0 });
+  assert.deepEqual([...out.totals.feePayments].sort((x, y) => x - y), [5, 10, 15, 20, 25, 30]);
+  assert.equal(out.totals.created, 30, "numbers still add up");
+  assert.deepEqual(out.failed, []);
+});
+
+test("an EvaluatorFeePaid log decodes to its job, recipient and amount; any other log is not a fee", async () => {
+  const { EVENT_TOPICS, feePaymentFromLog, feeUpdateFromLog } = await import("../src/census-lib.js");
+  const { keccak256, stringToBytes } = await import("viem");
+  assert.equal(EVENT_TOPICS.evaluatorFeePaid, keccak256(stringToBytes("EvaluatorFeePaid(uint256,address,uint256)")));
+  assert.equal(EVENT_TOPICS.evaluatorFeeUpdated, keccak256(stringToBytes("EvaluatorFeeUpdated(uint256)")));
+  // A real log: Base tx 0xda628cb4..., block 44,430,237, job 4, a third-party evaluator paid 5% of 0.1 USDC.
+  const log = { address: "0x238e541bfefd82238730d00a2208e5497f1832e0", blockNumber: "0x2a5f39d", logIndex: "0x191",
+    data: "0x0000000000000000000000000000000000000000000000000000000000001388",
+    topics: ["0x253dd534010ac976fa263caa123bae79b9c50292adf7ce67bdc5ec309f784e61",
+      "0x0000000000000000000000000000000000000000000000000000000000000004",
+      "0x0000000000000000000000001bd5fa478270bb6f03840fe515bc710b2bc4bbc9"] };
+  assert.deepEqual(feePaymentFromLog(log), { jobId: 4, evaluator: "0x1bd5fa478270bb6f03840fe515bc710b2bc4bbc9", amount: 5000n, block: 44430237 });
+  assert.equal(feePaymentFromLog({ ...log, topics: [EVENT_TOPICS.jobCreated, ...log.topics.slice(1)] }), null, "not a fee event");
+  assert.throws(() => feePaymentFromLog({ ...log, topics: log.topics.slice(0, 2) }), /malformed EvaluatorFeePaid/);
+  // The topic hash ignores which fields are indexed, so another contract's EvaluatorFeePaid can carry a
+  // fourth topic; decoding it with this layout would be a guess.
+  assert.throws(() => feePaymentFromLog({ ...log, topics: [...log.topics, log.data] }), /malformed EvaluatorFeePaid/);
+  assert.throws(() => feePaymentFromLog({ ...log, data: "0x" }), /malformed EvaluatorFeePaid/);
+  assert.throws(() => feePaymentFromLog({ ...log, topics: [log.topics[0], log.topics[1], "0x" + "f".repeat(24) + "1bd5fa478270bb6f03840fe515bc710b2bc4bbc9"] }),
+    /malformed EvaluatorFeePaid/, "an address topic is zero-padded");
+  // EvaluatorFeeUpdated(uint256 feeBP): the rate the contract pays evaluators from that block on.
+  const update = { blockNumber: "0x2a5f000", logIndex: "0x1", topics: [EVENT_TOPICS.evaluatorFeeUpdated],
+    data: "0x00000000000000000000000000000000000000000000000000000000000001f4" };
+  assert.deepEqual(feeUpdateFromLog(update), { feeBP: 500, block: 44429312 });
+  assert.equal(feeUpdateFromLog(log), null, "a payment is not a rate change");
+  assert.throws(() => feeUpdateFromLog({ ...update, data: "0x01" }), /malformed EvaluatorFeeUpdated/);
+});
+
+test("evaluator fees are tallied from what the contract paid, by who received them; nothing is guessed", async () => {
+  const { tallyEvaluatorFees } = await import("../src/census-lib.js");
+  const records = [
+    job({ id: 101, client: a(1), provider: a(2), evaluator: a(1) }),   // the client grades itself
+    job({ id: 102, client: a(1), provider: a(2), evaluator: a(9) }),   // a third party
+    job({ id: 103, client: a(3), provider: a(2), evaluator: a(2) }),   // the provider
+    job({ id: 104, client: a(1), provider: a(2), evaluator: Z }),      // no evaluator
+  ];
+  const pay = (jobId, evaluator, amount) => ({ jobId, evaluator, amount: BigInt(amount), block: 1 });
+  const t = tallyEvaluatorFees([
+    pay(101, a(1), 50_000), pay(101, a(1), 5_000),
+    pay(102, a(9).toUpperCase().replace("0X", "0x"), 2_500),
+    pay(103, a(2), 1),
+    pay(104, Z, 7),        // a fee to nobody cannot be joined to a recipient class
+    pay(102, a(8), 9),     // the recipient is not the job's evaluator
+    pay(999, a(1), 11),    // the job is not in the census
+  ], records);
+  assert.equal(t.payments, 7);
+  assert.equal(t.unmatched, 3, "payments that do not join are counted, never classed");
+  assert.deepEqual(t.byRecipient.client, { payments: 2, jobs: 1, units: "55000", usdc: "0.06" });
+  assert.deepEqual(t.byRecipient.thirdParty, { payments: 1, jobs: 1, units: "2500", usdc: "0.00" });
+  assert.deepEqual(t.byRecipient.provider, { payments: 1, jobs: 1, units: "1", usdc: "0.00" });
+  const none = tallyEvaluatorFees([], records);
+  assert.deepEqual(none, { payments: 0, unmatched: 0, byRecipient: {
+    client: { payments: 0, jobs: 0, units: "0", usdc: "0.00" }, provider: { payments: 0, jobs: 0, units: "0", usdc: "0.00" },
+    thirdParty: { payments: 0, jobs: 0, units: "0", usdc: "0.00" } } }, "every class is reported, even when empty");
+  assert.throws(() => tallyEvaluatorFees([{ jobId: 101, evaluator: a(1), amount: 5 }], records), /amount/, "amounts are exact integers");
+  assert.throws(() => tallyEvaluatorFees([{ jobId: 101, evaluator: "0x12", amount: 5n }], records), /evaluator/);
+});
+
+test("fees and hook counts are reported only when the log scan's JobCreated control passes", async () => {
+  const { summarizeLogScan } = await import("../src/census-lib.js");
+  const records = [job({ id: 201, client: a(1), provider: a(2), evaluator: a(9) })];
+  const totals = { created: 1, hooks: 2, feePayments: [{ jobId: 201, evaluator: a(9), amount: 5n, block: 30 }],
+    feeUpdates: [{ feeBP: 500, block: 20 }, { feeBP: 100, block: 10 }] };
+  const ok = summarizeLogScan({ fromBlock: 1, toBlock: 40, totals, failedRanges: [], jobCounter: 1, records });
+  assert.equal(ok.logScan.controlPassed, true);
+  assert.equal(ok.logScan.hookWhitelistLogs, 2);
+  assert.equal(ok.evaluatorFees.byRecipient.thirdParty.units, "5");
+  assert.deepEqual(ok.evaluatorFees.feeUpdates.map((u) => u.block), [10, 20], "rate changes in block order");
+  assert.equal(ok.evaluatorFees.firstPaymentBlock, 30);
+  // Every range read, but fewer JobCreated events than the counter: the logs are incomplete, so nothing
+  // counted from them may be reported as if it were whole.
+  const short = summarizeLogScan({ fromBlock: 1, toBlock: 40, totals, failedRanges: [], jobCounter: 2, records });
+  assert.equal(short.logScan.controlPassed, false);
+  assert.equal(short.evaluatorFees, null, "no fee tally from an incomplete log set");
+  const failed = summarizeLogScan({ fromBlock: 1, toBlock: 40, totals, failedRanges: [[7, 7]], jobCounter: 1, records });
+  assert.equal(failed.logScan.controlPassed, false);
+  assert.equal(failed.evaluatorFees, null, "no fee tally when a range could not be read");
+  const quiet = summarizeLogScan({ fromBlock: 1, toBlock: 40, totals: { created: 1 }, failedRanges: [], jobCounter: 1, records });
+  assert.deepEqual([quiet.evaluatorFees.payments, quiet.evaluatorFees.firstPaymentBlock, quiet.evaluatorFees.feeUpdates], [0, null, []]);
+});

@@ -1,19 +1,20 @@
 #!/usr/bin/env node
 // Full census of an ERC-8183 contract: every job read from chain, no sampling.
 //
-//   node src/census.mjs [--out census.jsonl] [--rpc URL] [--acp ADDR] [--layout circle|virtuals-v3] [--judge ADDR]... [--to N] [--no-logs] [--from-block N]
+//   node src/census.mjs [--out census.jsonl] [--rpc URL] [--acp ADDR] [--layout circle|virtuals-v3] [--judge ADDR]... [--to N] [--no-logs] [--from-block N] [--log-span N]
 //
 // Defaults: Circle's ERC-8183 contract on Arc testnet and JudgeEvaluator. --layout
 // virtuals-v3 reads Virtuals' AgenticCommerceV3 (on Base and Arc mainnet), whose getJob
 // returns the fields in another order. Jobs go to --out as one JSON line each
 // (resumable: jobs already there are not read again). It also scans the contract's logs from its deployment for
-// HookWhitelistUpdated, with a control: the JobCreated logs it finds must equal
-// the job counter at the same block, or the hook count is reported as unknown.
+// HookWhitelistUpdated, EvaluatorFeePaid and EvaluatorFeeUpdated, with a control: the JobCreated logs
+// it finds must equal the job counter at the same block, or the hook count is reported as unknown.
+// Evaluator fees are joined to the job records and reported by who received them.
 // The summary (definitions in census-lib.js) is printed and written to
 // <out>.summary.json. No keys needed; it only reads.
 import fs from "node:fs";
-import { createPublicClient, http, keccak256, parseAbiItem, stringToBytes } from "viem";
-import { JOB_LAYOUTS, analyzeCensus, fetchAll, recordFromJob, scanRanges } from "./census-lib.js";
+import { createPublicClient, http, parseAbiItem } from "viem";
+import { EVENT_TOPICS, JOB_LAYOUTS, analyzeCensus, feePaymentFromLog, feeUpdateFromLog, fetchAll, recordFromJob, scanRanges, summarizeLogScan } from "./census-lib.js";
 
 const argv = process.argv.slice(2);
 const opt = (name, dflt) => { const i = argv.indexOf(name); return i > -1 ? argv[i + 1] : dflt; };
@@ -25,6 +26,8 @@ const JUDGES = all("--judge").length ? all("--judge") : ["0x6EFF7d4BB514d341AbEd
 const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11";
 const LAYOUT = opt("--layout", "circle");
 if (!JOB_LAYOUTS[LAYOUT]) { console.error(`unknown --layout ${LAYOUT} (known: ${Object.keys(JOB_LAYOUTS).join(", ")})`); process.exit(2); }
+const LOG_SPAN = Number(opt("--log-span", "10000"));
+if (!Number.isSafeInteger(LOG_SPAN) || LOG_SPAN < 1) { console.error("--log-span must be a positive whole number of blocks"); process.exit(2); }
 
 const abi = [
   parseAbiItem("function jobCounter() view returns (uint256)"),
@@ -35,8 +38,6 @@ const abi = [
   parseAbiItem("function paymentToken() view returns (address)"),
 ];
 const erc20 = [parseAbiItem("function symbol() view returns (string)"), parseAbiItem("function decimals() view returns (uint8)")];
-const HOOK_WHITELIST_TOPIC = keccak256(stringToBytes("HookWhitelistUpdated(address,bool)"));
-const JOB_CREATED_TOPIC = keccak256(stringToBytes("JobCreated(uint256,address,address,address,uint256,address)"));
 
 const client = createPublicClient({ transport: http(RPC, { retryCount: 3, retryDelay: 500, timeout: 30_000 }) });
 const read = (functionName, args, blockNumber) => client.readContract({ address: ACP, abi, functionName, ...(args ? { args } : {}), ...(blockNumber ? { blockNumber } : {}) });
@@ -70,11 +71,17 @@ async function deployBlock(hi) {
 }
 
 async function readLogCounts(from, to) {
-  const logs = await client.request({ method: "eth_getLogs", params: [{ address: ACP,
-    fromBlock: "0x" + from.toString(16), toBlock: "0x" + to.toString(16), topics: [[HOOK_WHITELIST_TOPIC, JOB_CREATED_TOPIC]] }] });
+  const logs = await client.request({ method: "eth_getLogs", params: [{ address: ACP, fromBlock: "0x" + from.toString(16), toBlock: "0x" + to.toString(16),
+    topics: [[EVENT_TOPICS.hookWhitelistUpdated, EVENT_TOPICS.jobCreated, EVENT_TOPICS.evaluatorFeePaid, EVENT_TOPICS.evaluatorFeeUpdated]] }] });
   let hooks = 0, created = 0;
-  for (const l of logs) { if (l.topics[0] === HOOK_WHITELIST_TOPIC) hooks++; else if (l.topics[0] === JOB_CREATED_TOPIC) created++; }
-  return { hooks, created };
+  const feePayments = [], feeUpdates = [];
+  for (const l of logs) {
+    if (l.topics[0] === EVENT_TOPICS.hookWhitelistUpdated) hooks++;
+    else if (l.topics[0] === EVENT_TOPICS.jobCreated) created++;
+    else if (l.topics[0] === EVENT_TOPICS.evaluatorFeePaid) feePayments.push(feePaymentFromLog(l));
+    else if (l.topics[0] === EVENT_TOPICS.evaluatorFeeUpdated) feeUpdates.push(feeUpdateFromLog(l));
+  }
+  return { hooks, created, feePayments, feeUpdates };
 }
 
 const block = await client.getBlockNumber();
@@ -100,13 +107,21 @@ const stats = analyzeCensus([...records.values()].filter((r) => r.id <= total).s
 
 // "No hook was ever whitelisted" only counts if the same scan finds exactly
 // the JobCreated events the job counter says exist.
-let logScan = null;
+let logScan = null, evaluatorFees = null;
 if (!argv.includes("--no-logs")) {
-  const from = opt("--from-block") ? Number(opt("--from-block")) : Number(await deployBlock(block));
-  console.error(`scanning logs from block ${from} to ${block}`);
-  const { totals, failed: failedRanges } = await scanRanges(from, Number(block), readLogCounts, { span: 10_000, concurrency: 3 });
-  logScan = { fromBlock: from, toBlock: Number(block), jobCreatedLogs: totals.created ?? 0, hookWhitelistLogs: totals.hooks ?? 0,
-    failedRanges, controlPassed: failedRanges.length === 0 && (totals.created ?? 0) === onChain };
+  // Some public RPCs serve no old state or cap log ranges (Base's public endpoint allows 2,000 blocks,
+  // so pass --log-span 2000): then the scan fails, and the job counts above still stand.
+  try {
+    const from = opt("--from-block") ? Number(opt("--from-block")) : Number(await deployBlock(block));
+    console.error(`scanning logs from block ${from} to ${block} in ${LOG_SPAN}-block ranges`);
+    const { totals, failed: failedRanges } = await scanRanges(from, Number(block), readLogCounts, { span: LOG_SPAN, concurrency: 3 });
+    // Fees count only when the control passes; a payment that does not join its job is counted as unmatched.
+    ({ logScan, evaluatorFees } = summarizeLogScan({ fromBlock: from, toBlock: Number(block), totals, failedRanges, jobCounter: onChain,
+      records: [...records.values()].filter((r) => r.id <= total) }));
+  } catch (e) {
+    logScan = { error: e.shortMessage || e.message, controlPassed: false };
+    console.error(`log scan failed (${logScan.error}); hook whitelist events and evaluator fees reported as unknown`);
+  }
 }
 // A read the contract may not have (null), retried when the public RPC is merely busy.
 const optional = (fn) => patient(fn, 4).catch(() => null);
@@ -121,7 +136,7 @@ const token = paymentToken && await Promise.all([
 ]).then(([symbol, decimals]) => ({ address: paymentToken, symbol, decimals: decimals === null ? null : Number(decimals) }));
 if (token && token.decimals !== 6) console.error(`warning: the payment token has ${token.decimals} decimals; budgets below are scaled as 6-decimal USDC`);
 const summary = { acp: ACP, rpc: RPC, layout: LAYOUT, block: block.toString(), jobCounter: onChain, measured: total, measuredAt: new Date().toISOString(),
-  paymentToken: token, evaluatorFeeBP, platformFeeBP, hookWhitelistEvents: logScan?.controlPassed ? logScan.hookWhitelistLogs : null, logScan, ...stats };
+  paymentToken: token, evaluatorFeeBP, platformFeeBP, hookWhitelistEvents: logScan?.controlPassed ? logScan.hookWhitelistLogs : null, logScan, evaluatorFees, ...stats };
 fs.writeFileSync(`${OUT}.summary.json`, JSON.stringify(summary, null, 2) + "\n");
 
 const pct = (x) => `${(100 * x).toFixed(2)}%`;
@@ -130,5 +145,9 @@ console.log(`  jobs ${stats.jobs}; self-evaluated ${pct(stats.selfEvaluatedRate)
 console.log(`  funded ${stats.funded}, median ${stats.medianFundedUSDC} USDC; statuses ${JSON.stringify(stats.statuses)}`);
 console.log(`  third-party evaluators ${stats.thirdParty.distinctEvaluators}; paid through ${stats.thirdParty.paidThrough.jobs} jobs by ${stats.thirdParty.paidThrough.distinctEvaluators} evaluators, ${stats.thirdParty.paidThrough.totalUSDC} USDC`);
 console.log(`  independent evaluators with 4+ paying clients: ${stats.independent.map((x) => `${x.evaluator} (${x.payingClients})`).join(", ") || "none"}`);
-console.log(`  jobs with a hook ${stats.withHook}; HookWhitelistUpdated events ${summary.hookWhitelistEvents ?? "unknown"}${logScan ? ` (log scan from block ${logScan.fromBlock}: ${logScan.jobCreatedLogs} JobCreated vs counter ${onChain}, control ${logScan.controlPassed ? "passed" : "FAILED"})` : " (log scan skipped)"}; evaluatorFeeBP ${evaluatorFeeBP}, platformFeeBP ${platformFeeBP}`);
+console.log(`  jobs with a hook ${stats.withHook}; HookWhitelistUpdated events ${summary.hookWhitelistEvents ?? "unknown"}${logScan ? ` ${logScan.error ? `(log scan failed: ${logScan.error})` : `(log scan from block ${logScan.fromBlock}: ${logScan.jobCreatedLogs} JobCreated vs counter ${onChain}, control ${logScan.controlPassed ? "passed" : "FAILED"})`}` : " (log scan skipped)"}; evaluatorFeeBP ${evaluatorFeeBP}, platformFeeBP ${platformFeeBP}`);
+if (evaluatorFees) {
+  const f = evaluatorFees.byRecipient;
+  console.log(`  evaluator fees paid (EvaluatorFeePaid): to clients ${f.client.usdc} USDC on ${f.client.jobs} jobs, to providers ${f.provider.usdc} on ${f.provider.jobs}, to third parties ${f.thirdParty.usdc} on ${f.thirdParty.jobs}; ${evaluatorFees.unmatched} of ${evaluatorFees.payments} payments unmatched; fee changes ${evaluatorFees.feeUpdates.map((u) => `${u.feeBP} bp at block ${u.block}`).join(", ") || "none"}${evaluatorFees.firstPaymentBlock ? `, first payment at block ${evaluatorFees.firstPaymentBlock}` : ""}`);
+}
 for (const [j, s] of Object.entries(stats.judges)) console.log(`  ${j}: ${s.jobs} jobs from ${s.distinctClients} distinct clients`);
