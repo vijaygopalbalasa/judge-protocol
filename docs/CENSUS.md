@@ -6,9 +6,9 @@ Every job ever created on Circle's ERC-8183 contract on Arc testnet
 
 ## Findings
 
-- **Most jobs are graded by the party that pays.** In 71.79% of jobs the evaluator is the client
-  (70.96%) or the provider (0.83%). A third party evaluates 52,686 jobs (28.21%). No job has an empty
-  evaluator.
+- **Most jobs are graded by the client who pays.** In 70.96% of jobs the evaluator is the client; with
+  the provider (0.83%), 71.79% are graded by one of the two parties to the job. A third party evaluates
+  52,686 jobs (28.21%). No job has an empty evaluator.
 - **Budgets are small.** 89,889 jobs were funded; the median budget is 1.00 USDC.
 - **Status today:** 96,983 Completed, 82,522 Open, 3,943 Funded, 2,111 Submitted, 1,090 Rejected,
   127 Expired.
