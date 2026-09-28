@@ -9,6 +9,8 @@
 contracts/out/
 contracts/cache/
 node_modules/
+__pycache__/
+*.pyc
 judge-service/judge-service.log
 judge-service/state/
 
