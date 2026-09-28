@@ -101,11 +101,13 @@ test("the judge and the profile's Python adapter derive the same ruling for ever
     const js = await judge(snap.job.description, content, job);
     assert.equal(js.evidenceHash, snap.verdict.evidenceHash, `the live judge's ruling path reproduces job ${job}'s on-chain evidenceHash`);
   }
-  // Five earlier rulings whose deliverable is in the judge's stored evidence (a data: URI).
+  // Five earlier Arc testnet rulings whose deliverable is in the judge's stored evidence (a data: URI).
+  // Only the top-level files: other deployments' evidence lives in subfolders (evidence/arc-mainnet/).
   const evidenceDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "evidence");
   let recorded = 0;
-  for (const file of fs.readdirSync(evidenceDir)) {
-    const ev = JSON.parse(fs.readFileSync(path.join(evidenceDir, file), "utf8"));
+  for (const entry of fs.readdirSync(evidenceDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const ev = JSON.parse(fs.readFileSync(path.join(evidenceDir, entry.name), "utf8"));
     const match = /^data:[^,]*;base64,(.*)$/.exec(ev.deliverableURI ?? "");
     if (!match) continue;
     const content = Buffer.from(match[1], "base64");

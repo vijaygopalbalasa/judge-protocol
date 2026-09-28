@@ -93,3 +93,13 @@ test('CLI: --judge and --acp point it at another deployment, and the job must na
   assert.equal(bad.code, 2, bad.out);
   assert.match(bad.out, /--acp must be an address/);
 });
+
+test('CLI: --network arc-mainnet checks against the Arc mainnet deployment; an unknown network is a usage error', async () => {
+  const r = await cli('171925', '--network', 'arc-mainnet');
+  assert.match(r.out, /judge 0xC9de51A6b440D834D05e22d0D500F41Df1B56321/);
+  assert.match(r.out, /acp {3}0x64cA39Fc57315D0D488acCaC07c37C6E841CD058/);
+  assert.notEqual(r.code, 0, 'a testnet job never verifies against the mainnet judge');
+  const bad = await cli('171925', '--network', 'mainnet-typo');
+  assert.equal(bad.code, 2, bad.out);
+  assert.match(bad.out, /unknown --network/);
+});

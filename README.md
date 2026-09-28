@@ -1,7 +1,8 @@
 # Judge Protocol
 ### Deterministic evaluator for ERC-8183 agent escrow
 
-**A neutral, evidence-backed judgment layer for agent-to-agent work, deployed on Arc testnet.**
+**A neutral, evidence-backed judgment layer for agent-to-agent work, live on Arc testnet and, since
+2026-09-28, on Arc mainnet.**
 *(The judge runs on demand plus a daily safety sweep on Arc testnet, best effort with no uptime
 guarantee: https://judge-protocol-api.vercel.app. The contracts and the in-browser verifier are live.)*
 
@@ -27,6 +28,31 @@ Aug 7, 2026 (punctuation and one narration line edited on Sep 27, 2026; see git 
 same edits as above.)*
 
 ---
+
+## Live on Arc mainnet (chain 5042), since 2026-09-28
+
+| Contract | Address |
+|---|---|
+| **JudgeEvaluator** ([Sourcify exact match](https://repo.sourcify.dev/5042/0xC9de51A6b440D834D05e22d0D500F41Df1B56321)) | `0xC9de51A6b440D834D05e22d0D500F41Df1B56321` |
+| ERC-8183 escrow it serves (ArcBounty's deployment of the reference implementation) | `0x64cA39Fc57315D0D488acCaC07c37C6E841CD058` |
+| Owner and guardian (two-step ownership, pause) | `0x427C62eDCae20DDc8c5e875De39D4E4845491458` |
+| Verdict signer | `0xA41f87020b3ED50Ac497244C2824f977428917Ff` |
+
+Circle has no ERC-8183 escrow on Arc mainnet, so the judge serves the reference escrow ArcBounty
+deployed there, which any client can use; the judge contract needed no change for it. Deployed on
+2026-09-28 (block 23,234,577, tx `0x10def086...ec10a`) from commit `f6148e2`, after 42 unit tests,
+8 fork tests against that live escrow, a full rehearsal on a fork of the chain, and a pre-deployment
+security review whose findings were all fixed first (see ARCHITECTURE.md).
+
+The first two rulings are our own zero-budget test jobs (one wallet as client and provider, no USDC
+escrowed): job **16** PASS, settled Completed (relay tx `0xb7a48d8b...63b24`), and job **17** REJECT,
+settled Rejected (relay tx `0x3023bd2c...f66a6`). Anyone can re-check either from chain data alone:
+
+```bash
+node judge-service/src/verify.js 16 --network arc-mainnet   # VERIFIED: recomputed independently
+```
+
+No third party has used the judge on mainnet yet, and the hosted API below still rules on testnet.
 
 ## Live on Arc testnet (chain 5042002) · v1.1
 
@@ -197,21 +223,19 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
   untested). Five came from the pre-deployment review (see ARCHITECTURE.md): renouncing ownership
   is disabled, ownership needs acceptance, and criteria can be bound only for this judge's jobs,
   never while paused, and cleared only by the owner.
-- ✅ **Deploy-ready for Arc mainnet, not deployed yet.** Circle has no ERC-8183 escrow on Arc mainnet;
-  ArcBounty runs the ERC-8183 reference escrow there (`0x64cA39Fc...`, open to any client, Circle's Job
-  layout, fees 0). Eight fork tests run JudgeEvaluator against that live escrow on a fork of Arc mainnet
-  (`ARC_MAINNET_RPC=https://rpc.mainnet.arc.io forge test --match-contract ArcMainnetFork`; skipped
-  without it): both rulings settle, a job naming another evaluator is never touched, and an untrusted
-  signature or mismatched criteria is refused. `script/DeployArcMainnet.s.sol` refuses any other chain
-  and any escrow with another Job layout. Measured on the fork: deploying costs about 0.03 USDC of gas,
-  a ruling about 0.004.
+- ✅ **Live on Arc mainnet** (see above). Eight fork tests run JudgeEvaluator against the live escrow
+  on a fork of Arc mainnet (`ARC_MAINNET_RPC=https://rpc.mainnet.arc.io forge test --match-contract
+  ArcMainnetFork`; skipped without it): both rulings settle, a job naming another evaluator is never
+  touched, and an untrusted signature or mismatched criteria is refused. `script/DeployArcMainnet.s.sol`
+  refuses any other chain, any escrow with another Job layout and any owner but the declared one. Gas
+  on mainnet: the deployment cost 0.037 USDC, a full judged job about 0.017.
 - ✅ **203/203 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
   criteria defects, SSRF denylist with DNS pinning, evidence-hash determinism, and the hosted judge
   (on-demand rulings, races, reverted transactions, the daily sweep, deliverables that can never
   load abstaining instead of retrying forever), and paid rulings over x402 (payments signed by
   Circle's own client; a payment settles only once a verdict is ready and the contract would
   accept it).
-- ✅ **112/112 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
+- ✅ **113/113 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
   `judge-service` first): the page's CSP, the read-only relay, the public numbers, parity with the
   service's own checkers, the CLI, and the in-browser verifier run against a fake chain built from
   recorded Arc testnet data, including tampered inputs that must never verify.
