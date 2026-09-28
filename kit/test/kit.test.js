@@ -344,3 +344,10 @@ test("ERC-8412: the kit's registry and attestor are the judge service's", () => 
   assert.equal(kit.ARC_TESTNET.erc8412Registry, svcConfig.erc8412Registry);
   assert.equal(kit.ARC_TESTNET.erc8412Attestor, svcConfig.erc8412Attestor);
 });
+
+test("the kit hashes a member named __proto__ like the judge does, never dropping it", async () => {
+  const svc = await import("../../judge-service/src/criteria.js");
+  const parsed = JSON.parse('{"__proto__":{"x":1},"a":2,"checks":[]}');
+  assert.match(kit.canonicalize(parsed), /"__proto__":\{"x":1\}/);
+  assert.equal(kit.criteriaHash(parsed), svc.criteriaHash(parsed));
+});

@@ -233,3 +233,20 @@ test('data: URIs decode exactly like the judge (RFC 2397: base64 flag, percent-e
   assert.throws(() => decodeDataUri('data:text/plain;base64'));
   assert.equal(app.resolveDataUri('data:text/plain;base64'), null, 'the page reports a malformed data URI as unreadable');
 });
+
+test('whole words: the verifier uses the same pinned Unicode 17.0.0 table as the judge', async () => {
+  const web = await import('../word-characters.js');
+  const judge = await import('../../judge-service/src/checkers/word-characters.js');
+  const { hasWholeWord } = await import('../../judge-service/src/checkers/index.js');
+  assert.deepEqual(web.WORD_RANGES, judge.WORD_RANGES);
+  for (const text of ['pay \u{10940}USDC now', 'Paid in USDC\u{0378}', 'x_USDC', '\u{1D7D8}USDC', 'USDC', 'caf\u00e9USDC', 'USDC\u{11F04}']) {
+    assert.equal(app.hasWholeWord(text, 'USDC'), hasWholeWord(text, 'USDC'), JSON.stringify(text));
+  }
+});
+
+test('the verifier hashes a member named __proto__ like the judge does, never dropping it', async () => {
+  const svc = await import('../../judge-service/src/criteria.js');
+  const parsed = JSON.parse('{"__proto__":{"x":1},"a":2,"checks":[]}');
+  assert.match(app.canonicalize(parsed), /"__proto__":\{"x":1\}/);
+  assert.equal(app.canonicalize(parsed), svc.canonicalize(parsed));
+});

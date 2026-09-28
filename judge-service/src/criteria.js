@@ -33,10 +33,12 @@ export function canonicalize(criteria) {
 function sortKeys(x) {
   if (Array.isArray(x)) return x.map(sortKeys);
   if (x && typeof x === "object") {
+    // A null-prototype accumulator: on a plain {} the key "__proto__" would hit the
+    // prototype setter and vanish from the hash instead of being hashed as a member.
     return Object.keys(x).sort().reduce((acc, k) => {
       acc[k] = sortKeys(x[k]);
       return acc;
-    }, {});
+    }, Object.create(null));
   }
   return x;
 }

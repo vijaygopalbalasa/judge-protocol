@@ -9,6 +9,7 @@ import {
   validateCriteria,
   InvalidCriteriaError,
   LIMITS,
+  hasWholeWord,
 } from "../src/checkers/index.js";
 
 const deliverable = { content: Buffer.from("hello world"), source: "test" };
@@ -187,4 +188,56 @@ test("the 100 rule changes nothing else: all-pass still scores 100, and lower th
   ] };
   const rd = await runAllChecks(doc, deliverable);
   assert.deepEqual({ score: rd.score, pass: rd.pass }, { score: 67, pass: true });
+});
+
+test("whole words use the pinned Unicode 17.0.0 table, identical to the one in the ERC-8404 profile's SPEC", async () => {
+  const { WORD_RANGES } = await import("../src/checkers/word-characters.js");
+  const fs = await import("node:fs");
+  const spec = fs.readFileSync(new URL("../../rvr/profiles/judge-protocol-rvr-v0/SPEC.md", import.meta.url), "utf8");
+  const block = spec.split("```judge-protocol-word-ranges\n")[1].split("```")[0].split(/\s+/).filter(Boolean);
+  assert.deepEqual(WORD_RANGES, block);
+  // The same answer on any Node version, whatever Unicode tables it ships.
+  assert.equal(hasWholeWord("pay \u{10940}USDC now", "USDC"), false, "a letter since Unicode 17.0 is part of the word");
+  assert.equal(hasWholeWord("Paid in USDC\u{0378}", "USDC"), true, "an unassigned code point is not");
+  assert.equal(hasWholeWord("x_USDC", "USDC"), false, "underscore stays a word character");
+  assert.equal(hasWholeWord("\u{1D7D8}USDC", "USDC"), false, "a mathematical digit (Nd) is a word character");
+});
+
+test("whole words stay fast with thousands of distinct terms (no regular expression per term)", () => {
+  // Criteria may carry 64 checks of 256 terms each. A per-term regex over the pinned
+  // table cost about 50 seconds for 16,384 terms and kept growing in a warm process.
+  const text = "Paid in USDC on Arc for ERC-8183 work, settled in USDC. ".repeat(40);
+  const started = performance.now();
+  for (let i = 0; i < 4096; i++) hasWholeWord(text, `term-${i}`);
+  assert.equal(hasWholeWord(text, "USDC"), true);
+  assert.ok(performance.now() - started < 1500, `4,096 distinct terms took ${Math.round(performance.now() - started)} ms`);
+});
+
+test("whole words: the scan gives exactly the code-point answer, which a V8 regex does not always give", async () => {
+  // Reference: split text and term into code points, find every equal run, and check the
+  // neighbouring code points against the pinned table. Independent of any regex engine.
+  const { WORD_RANGES } = await import("../src/checkers/word-characters.js");
+  const ranges = WORD_RANGES.map((r) => r.split("-").map((h) => parseInt(h, 16)));
+  const isWord = (cp) => cp === 0x5f || ranges.some(([a, b = a]) => cp >= a && cp <= b);
+  const reference = (text, term) => {
+    const t = Array.from(text, (c) => c.codePointAt(0)), w = Array.from(term, (c) => c.codePointAt(0));
+    for (let i = 0; i + w.length <= t.length; i++) {
+      if (w.some((cp, j) => t[i + j] !== cp)) continue;
+      if ((i === 0 || !isWord(t[i - 1])) && (i + w.length === t.length || !isWord(t[i + w.length]))) return true;
+    }
+    return false;
+  };
+  let seed = 17;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const pick = (xs) => xs[Math.floor(rnd() * xs.length)];
+  const PIECES = ["USDC", "US", "DC", "a", "_", " ", "-", "é", "\u0301", "²", "Ⅻ", "٣", "😀", "\u{10940}", "\u{11F04}", "\u{1D7D8}", "\u0378",
+    "\u{E0001}", "\ud83d", "\ude00", "\u200d", "USDCUSDC", "x"];
+  const TERMS = ["USDC", "US", "a", "_", "", "é", "😀", "\ude00", "\ud83d", "USDC USDC", "C_U", "\u{10940}"];
+  for (let i = 0; i < 3000; i++) {
+    const text = Array.from({ length: Math.floor(rnd() * 9) }, () => pick(PIECES)).join("");
+    const term = pick(TERMS);
+    assert.equal(hasWholeWord(text, term), reference(text, term), JSON.stringify({ text, term }));
+  }
+  // V8's /u regex matched an empty term between the two halves of U+1D7D8 here; code points say no.
+  assert.equal(hasWholeWord("DC x\u{1D7D8}USDC\u0663\u00e9", ""), false);
 });

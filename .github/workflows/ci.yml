@@ -102,9 +102,14 @@ jobs:
       - name: profile test
         working-directory: rvr
         run: python profiles/judge-protocol-rvr-v0/test_profile.py
-      - name: mutation check (20 adapter shortcuts must each fail the gate)
+      - name: mutation check (every mutant must fail the gate in the case written for it)
         working-directory: rvr
         run: python mutants.py
+      - name: word-character table equals Unicode 17.0.0 (SPEC, judge and verifier copies)
+        working-directory: rvr
+        run: |
+          curl -sSf -o "$RUNNER_TEMP/DerivedGeneralCategory.txt" https://www.unicode.org/Public/17.0.0/ucd/extracted/DerivedGeneralCategory.txt
+          python word_ranges.py "$RUNNER_TEMP/DerivedGeneralCategory.txt"
 
   secrets:
     name: Secret scan (gitleaks)

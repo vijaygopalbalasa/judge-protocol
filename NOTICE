@@ -39,3 +39,9 @@ Third-party material:
   Its adapter.py, test_profile.py and JSON schemas are changed from the
   reference profiles there (Apache License 2.0), and each says so. SPEC.md, the
   vectors and the Judge-specific derivation were written for this project.
+- The word-character ranges in rvr/profiles/judge-protocol-rvr-v0/SPEC.md,
+  judge-service/src/checkers/word-characters.js and web/word-characters.js are
+  derived from the Unicode Character Database 17.0.0
+  (extracted/DerivedGeneralCategory.txt), Copyright (c) 1991-2026 Unicode, Inc.,
+  under the Unicode License V3; its copyright and permission notice is in
+  LICENSE-Unicode-3.0. rvr/word_ranges.py rebuilds them from that file.

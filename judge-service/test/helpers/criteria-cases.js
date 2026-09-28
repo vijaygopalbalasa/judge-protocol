@@ -122,4 +122,13 @@ export const CRITERIA_CASES = [
   ["http-endpoint timeoutMs 0", one("http-endpoint", { timeoutMs: 0 }), false],
   ["http-endpoint timeoutMs above 10 s", one("http-endpoint", { timeoutMs: 10001 }), false],
   ["http-endpoint timeoutMs as a string", one("http-endpoint", { timeoutMs: "5000" }), false],
+
+  // --- invalid: a member named __proto__ (assignment drops it, so it would hash like criteria without it) ---
+  // Built with JSON.parse, as criteria arrive from a job description: that makes __proto__ an own member.
+  ["a top-level member named __proto__", JSON.parse('{"__proto__":{"x":1},"checks":[{"kind":"length"}]}'), false],
+  ["a free-form member named __proto__, nested", JSON.parse('{"meta":{"a":{"__proto__":1}},"checks":[{"kind":"length"}]}'), false],
+  ["a schema type for a field named __proto__", JSON.parse('{"checks":[{"kind":"schema","params":{"types":{"__proto__":"number"}}}]}'), false],
+  ["a __proto__ member inside a check", JSON.parse('{"checks":[{"kind":"length","__proto__":{}}]}'), false],
+  ["a required field named __proto__ stays allowed (a string, not a member)", one("schema", { required: ["__proto__"] }), true],
+  ["a schema type for a field named constructor stays allowed", one("schema", { types: { constructor: "string", toString: "number" } }), true],
 ];

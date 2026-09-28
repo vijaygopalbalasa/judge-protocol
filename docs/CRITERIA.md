@@ -68,7 +68,7 @@ default, or a whole word with `wholeWords`.
 | Param | Type | Meaning |
 |---|---|---|
 | `all` | list of up to 256 strings, each up to 1024 characters | Terms that must all be present. An empty list passes. |
-| `wholeWords` | `true` or `false` (default `false`) | When `true`, each term must stand on its own: not preceded or followed by a letter, digit or underscore, so `"Arc"` does not match inside `"Architecture"`. Terms stay case-sensitive. |
+| `wholeWords` | `true` or `false` (default `false`) | When `true`, each term must stand on its own: not preceded or followed by a letter, digit or underscore, so `"Arc"` does not match inside `"Architecture"`. Letters and digits are those of Unicode 17.0.0 (a table the judge carries, so the answer never depends on the runtime). Terms stay case-sensitive. |
 
 ### `schema`
 The deliverable must parse as a JSON object. Valid JSON that is not a JSON object
@@ -116,6 +116,8 @@ cannot re-run the probe as the judge saw it. Prefer the other kinds when you can
   check without params passes almost anything
 - too many checks: the judge takes at most 64 checks, and at most 4 `http-endpoint` checks
 - criteria nested deeper than 12 levels
+- an object anywhere in the criteria with a member named `__proto__` (JavaScript would drop it
+  from the criteria hash, so two different criteria sets could share one hash)
 - no `judge-criteria` block, or a block that is not valid JSON
 
 These bounds keep every ruling small and fast. A check the judge would have to

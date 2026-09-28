@@ -9,31 +9,31 @@
     },
     {
       "path": "profiles/judge-protocol-rvr-v0/README.md",
-      "sha256": "e52c4e6a9a142f8e1b53721481329c5a16cb00d5cf2c2eea8dcc027b8ec5c2c7"
+      "sha256": "76e0f5aa151c41a24ece13f0958c284412634f5798c23a501e7d1aa5ada00126"
     },
     {
       "path": "profiles/judge-protocol-rvr-v0/SPEC.md",
-      "sha256": "a1d9de54c0058326a61b55588f59f32553f1fdda96a8b5dda332456c303bb7ae"
+      "sha256": "5278b16cdf6d00c97447075440c759b78403a06c994191b9aef2a85a2786a7da"
     },
     {
       "path": "profiles/judge-protocol-rvr-v0/adapter.py",
-      "sha256": "6bd6ef6f0131ec4b52c082dac966c033535edc00005765572647dd49f8fee580"
+      "sha256": "4b1efe2bf4ede1134d2c93e1f1c05458de506013265236ea2654745fc31cecf0"
     },
     {
       "path": "profiles/judge-protocol-rvr-v0/expected.json",
-      "sha256": "9c183ebcc7fe6d17609c23001e671a777ff5c37253d675ccd93e67be5b9e1c96"
+      "sha256": "27e2b843cf2a4fcbc85190563a690ff2e633a3e7774c54bfb27460c689b9571d"
     },
     {
       "path": "profiles/judge-protocol-rvr-v0/profile.schema.json",
-      "sha256": "219ca45f2f75f149fa6b20c205d6fad5c161517864f91f93198b8c257c0b1249"
+      "sha256": "c9c7ba71f3010d86cc36e5adf7234d555a0fad877d220133e2ef51aa2468084d"
     },
     {
       "path": "profiles/judge-protocol-rvr-v0/rvr.schema.json",
-      "sha256": "ee7280deca4c265e303a213141add9a8bacb8f80df562d1988f195a709947d18"
+      "sha256": "2f6658808ac928afbb3c34cc5d1101c786c7d7bf7468ccdbcd6a31c1810019b2"
     },
     {
       "path": "profiles/judge-protocol-rvr-v0/test_profile.py",
-      "sha256": "60d684945a9ed692cf86827cdc061d89f245f8c44243cb247e1dd1f9d5a3b9ae"
+      "sha256": "b0797a7caf76121c123f92a8e395d0ef45c3f9c1e6d6f3769af074ac4a6158ab"
     },
     {
       "path": "profiles/judge-protocol-rvr-v0/upstream/job-186779.deliverable.bin",
@@ -41,7 +41,7 @@
     },
     {
       "path": "profiles/judge-protocol-rvr-v0/upstream/job-186779.snapshot.json",
-      "sha256": "1019834ee7dae19b0ca14d4118cd66a0f98dc5840e332c061cbef9ce4ce5f74f"
+      "sha256": "0d059ba38f9fbe08a2a64197bf6d8516eda0e3117abb9036425ca3b1ce64c432"
     },
     {
       "path": "profiles/judge-protocol-rvr-v0/upstream/job-186780.deliverable.bin",
@@ -49,17 +49,17 @@
     },
     {
       "path": "profiles/judge-protocol-rvr-v0/upstream/job-186780.snapshot.json",
-      "sha256": "a2c7beb6dc2c3c86d58a31848243e215adbfc5f43d06c0c94b082d47765a914c"
+      "sha256": "0f5265b581d59b0254c03ad2f5c04d7d131f9b06a780cd080fbb17d15d3f2b73"
     },
     {
       "path": "profiles/judge-protocol-rvr-v0/vectors.json",
-      "sha256": "e7fd9ae89ac6982cf3aabf27589385625c8a7960d5d0d7180dd3aa39e33246e7"
+      "sha256": "7f0b81c6303bfd6d91d6b5dde7ce9765e7f533f0d45ca03d140cad8100f37c91"
     },
     {
       "path": "profiles/judge-protocol-rvr-v0/verification-profile.json",
-      "sha256": "af0b850a821c31cec52986afbc5389c647507fc7b033a9d900a5119254616645"
+      "sha256": "11b0755937be8fd22ab8f28583b01c81986ae0ddae908d5b095ced5c2f904957"
     }
   ],
   "packageDigestRule": "sha256-utf8-sorted-path-tab-file-sha256-lf-rows-manifest-excluded",
-  "packageDigest": "ec868970ef27fee5cf2f729c99929b3327a5103d966c926682237c21e0b43c94"
+  "packageDigest": "ffe72d46550af695bb437a7b5658b1e6ba21cbd0b6f33f40bcadbf0709957e03"
 }

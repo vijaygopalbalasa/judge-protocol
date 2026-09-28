@@ -17,26 +17,44 @@
     "externalContextPolicy"
   ],
   "properties": {
-    "schema": { "const": "rvr.verification-profile.v0" },
-    "profileId": { "const": "judge-protocol-rvr-v0" },
+    "schema": {
+      "const": "rvr.verification-profile.v0"
+    },
+    "profileId": {
+      "const": "judge-protocol-rvr-v0"
+    },
     "profileSchemaContract": {
       "type": "object",
       "properties": {
         "manifest": {
           "type": "object",
           "properties": {
-            "id": { "const": "verification-profile-manifest-schema" },
-            "path": { "const": "conformance/rvr-v0/verification-profile-manifest.schema.json" },
-            "sha256": { "const": "148afeb484d3866c1caae82e574182c1b748dd461dfaeb1d8095ecf4905690c1" },
-            "requiredForRecomputation": { "const": true }
+            "id": {
+              "const": "verification-profile-manifest-schema"
+            },
+            "path": {
+              "const": "conformance/rvr-v0/verification-profile-manifest.schema.json"
+            },
+            "sha256": {
+              "const": "148afeb484d3866c1caae82e574182c1b748dd461dfaeb1d8095ecf4905690c1"
+            },
+            "requiredForRecomputation": {
+              "const": true
+            }
           }
         },
         "constraints": {
           "type": "object",
           "properties": {
-            "id": { "const": "judge-protocol-rvr-v0-profile-schema" },
-            "path": { "const": "profiles/judge-protocol-rvr-v0/profile.schema.json" },
-            "requiredForRecomputation": { "const": true }
+            "id": {
+              "const": "judge-protocol-rvr-v0-profile-schema"
+            },
+            "path": {
+              "const": "profiles/judge-protocol-rvr-v0/profile.schema.json"
+            },
+            "requiredForRecomputation": {
+              "const": true
+            }
           }
         }
       }
@@ -44,15 +62,23 @@
     "verificationSpecification": {
       "type": "object",
       "properties": {
-        "id": { "const": "judge-protocol-rvr-v0-verification-specification" },
-        "path": { "const": "profiles/judge-protocol-rvr-v0/SPEC.md" },
-        "requiredForRecomputation": { "const": true }
+        "id": {
+          "const": "judge-protocol-rvr-v0-verification-specification"
+        },
+        "path": {
+          "const": "profiles/judge-protocol-rvr-v0/SPEC.md"
+        },
+        "requiredForRecomputation": {
+          "const": true
+        }
       }
     },
     "conformanceVectorSet": {
       "type": "object",
       "properties": {
-        "id": { "const": "judge-protocol-rvr-v0-vectors" }
+        "id": {
+          "const": "judge-protocol-rvr-v0-vectors"
+        }
       }
     },
     "schemaContracts": {
@@ -62,27 +88,47 @@
       "items": {
         "type": "object",
         "properties": {
-          "id": { "const": "rvr-schema" },
-          "path": { "const": "profiles/judge-protocol-rvr-v0/rvr.schema.json" },
-          "requiredForRecomputation": { "const": true }
+          "id": {
+            "const": "rvr-schema"
+          },
+          "path": {
+            "const": "profiles/judge-protocol-rvr-v0/rvr.schema.json"
+          },
+          "requiredForRecomputation": {
+            "const": true
+          }
         }
       }
     },
     "evidenceSetContract": {
       "type": "object",
       "properties": {
-        "schemaPath": { "const": "profiles/judge-protocol-rvr-v0/rvr.schema.json" },
-        "schemaPointer": { "const": "#/$defs/evidenceSet" },
-        "digestRule": { "const": "sha256-utf8-rvr-canonical-json-v0-normalized-member-order" }
+        "schemaPath": {
+          "const": "profiles/judge-protocol-rvr-v0/rvr.schema.json"
+        },
+        "schemaPointer": {
+          "const": "#/$defs/evidenceSet"
+        },
+        "digestRule": {
+          "const": "sha256-utf8-rvr-canonical-json-v0-normalized-member-order"
+        }
       }
     },
     "canonicalResultContract": {
       "type": "object",
       "properties": {
-        "schemaPath": { "const": "profiles/judge-protocol-rvr-v0/rvr.schema.json" },
-        "schemaPointer": { "const": "#/$defs/canonicalResult" },
-        "outcomeProjection": { "const": "/outcome" },
-        "reasonCodeProjection": { "const": "/reasonCode" }
+        "schemaPath": {
+          "const": "profiles/judge-protocol-rvr-v0/rvr.schema.json"
+        },
+        "schemaPointer": {
+          "const": "#/$defs/canonicalResult"
+        },
+        "outcomeProjection": {
+          "const": "/outcome"
+        },
+        "reasonCodeProjection": {
+          "const": "/reasonCode"
+        }
       }
     },
     "reasonCodeNamespace": {
@@ -95,14 +141,47 @@
             "rvr.judge-protocol.v0.required_chain_snapshot_unavailable",
             "rvr.judge-protocol.v0.required_deliverable_unavailable"
           ]
+        },
+        "recomputation": {
+          "const": [
+            "rvr.recompute.identical",
+            "rvr.recompute.canonical_result_diverged",
+            "rvr.recompute.normative_dependency_unavailable",
+            "rvr.recompute.normative_dependency_identity_mismatch",
+            "rvr.recompute.committed_evidence_unavailable"
+          ]
+        },
+        "gateRejections": {
+          "const": [
+            "rvr.gate.schema_invalid",
+            "rvr.gate.identity_mismatch",
+            "rvr.gate.result_projection_mismatch",
+            "rvr.gate.evidence_closure_incomplete",
+            "rvr.judge-protocol.v0.gate.snapshot_invalid",
+            "rvr.judge-protocol.v0.gate.snapshot_not_canonical",
+            "rvr.judge-protocol.v0.gate.snapshot_inconsistent",
+            "rvr.judge-protocol.v0.gate.snapshot_claim_mismatch",
+            "rvr.judge-protocol.v0.gate.evaluator_not_judge",
+            "rvr.judge-protocol.v0.gate.commitment_mismatch",
+            "rvr.judge-protocol.v0.gate.criteria_missing",
+            "rvr.judge-protocol.v0.gate.criteria_invalid",
+            "rvr.judge-protocol.v0.gate.criteria_out_of_scope",
+            "rvr.judge-protocol.v0.gate.criteria_hash_mismatch",
+            "rvr.judge-protocol.v0.gate.deliverable_not_utf8",
+            "rvr.judge-protocol.v0.gate.resource_limit"
+          ]
         }
       }
     },
     "externalContextPolicy": {
       "type": "object",
       "properties": {
-        "mode": { "const": "COMMITTED_SNAPSHOTS_ONLY" },
-        "ambientInputs": { "const": "FORBIDDEN" },
+        "mode": {
+          "const": "COMMITTED_SNAPSHOTS_ONLY"
+        },
+        "ambientInputs": {
+          "const": "FORBIDDEN"
+        },
         "immutableCommitments": {
           "const": [
             "judge-protocol-committed-chain-snapshot",

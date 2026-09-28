@@ -114,6 +114,8 @@ test("CRITERIA.md states the newer refusals: weight cap, unknown params, arrays,
   assert.match(CRITERIA_MD, /\\u0060/, "hand-written blocks: how to write a backtick");
   assert.match(CRITERIA_MD, /unknown field on a check/i, "misspelled check fields are refused");
   assert.match(CRITERIA_MD, /misspelled `passThreshold` is not caught/, "and top-level typos are not: say so");
+  assert.match(CRITERIA_MD, /member named `__proto__`/, "criteria with a __proto__ member are refused");
+  assert.match(CRITERIA_MD, /Unicode 17\.0\.0/, "word characters are pinned to one Unicode version, whatever the runtime ships");
 });
 
 test("INTEGRATION.md states the fetch limits with the code's own numbers, and how to recover", async () => {

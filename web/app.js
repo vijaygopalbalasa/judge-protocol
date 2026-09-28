@@ -7,6 +7,7 @@
 // locally from a checkout of the repo.
 
 import { keccak_256 } from './vendor/noble/sha3.js';
+import { WORD_RANGES } from './word-characters.js';
 
 const DIRECT_RPC = 'https://rpc.testnet.arc.io';
 
@@ -87,7 +88,8 @@ export const keccakUtf8 = (s) => keccakBytes(enc.encode(s));
 export function sortKeys(x) {
   if (Array.isArray(x)) return x.map(sortKeys);
   if (x && typeof x === 'object') {
-    return Object.keys(x).sort().reduce((a, k) => { a[k] = sortKeys(x[k]); return a; }, {});
+    // Null prototype: on a plain {} the key "__proto__" would hit the setter and vanish from the hash.
+    return Object.keys(x).sort().reduce((a, k) => { a[k] = sortKeys(x[k]); return a; }, Object.create(null));
   }
   return x;
 }
@@ -320,10 +322,23 @@ function paramsProblem(kind, p) {
   }
 }
 
+/** True when any object inside the value has its own member named __proto__. */
+function hasProtoMember(value) {
+  const stack = [value];
+  while (stack.length) {
+    const v = stack.pop();
+    if (!v || typeof v !== 'object') continue;
+    if (!Array.isArray(v) && Object.prototype.hasOwnProperty.call(v, '__proto__')) return true;
+    for (const k of Object.keys(v)) stack.push(v[k]);
+  }
+  return false;
+}
+
 /** Mirror of judge-service validateCriteria: criteria the service refuses to score. */
 export function validateCriteria(criteria) {
   if (!criteria || typeof criteria !== 'object') return { valid: false, reason: 'criteria is not an object' };
   if (nestsDeeperThan(criteria, LIMITS.depth)) return { valid: false, reason: `criteria nest deeper than ${LIMITS.depth} levels` };
+  if (hasProtoMember(criteria)) return { valid: false, reason: 'criteria must not contain a member named __proto__' };
   if (!Array.isArray(criteria.checks) || criteria.checks.length === 0) {
     return { valid: false, reason: 'criteria.checks must be a non-empty array' };
   }
@@ -357,10 +372,43 @@ export function validateCriteria(criteria) {
  * drift. http-endpoint is a live network probe: it cannot be replayed here, so
  * it is marked unsupported instead of being scored.
  */
-const escapeRegExp = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-/** Mirror of the judge's hasWholeWord: the term must not touch a letter, digit or underscore. */
+// Word characters: "_" plus the pinned Unicode 17.0.0 letters and digits, never the browser's own
+// \p{L}\p{N}, whose answer changes with the browser's Unicode version (ERC-8404 profile SPEC section 10).
+const WORD_START = [], WORD_END = [];
+for (const range of WORD_RANGES) {
+  const [first, last = first] = range.split('-');
+  WORD_START.push(parseInt(first, 16));
+  WORD_END.push(parseInt(last, 16));
+}
+function isWordCodePoint(cp) {
+  if (cp === 0x5f) return true;
+  let lo = 0, hi = WORD_START.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (cp < WORD_START[mid]) hi = mid - 1;
+    else if (cp > WORD_END[mid]) lo = mid + 1;
+    else return true;
+  }
+  return false;
+}
+const isHigh = (u) => u >= 0xd800 && u <= 0xdbff;
+const isLow = (u) => u >= 0xdc00 && u <= 0xdfff;
+/**
+ * Mirror of the judge's hasWholeWord. True if `term` occurs in `text` not touching a letter, digit or underscore on either side.
+ * It scans by code point, as a /u regular expression would: a match never splits a surrogate
+ * pair. A scan, not a regex per term, so thousands of terms cost no compile time.
+ */
 export function hasWholeWord(text, term) {
-  return new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(term)}(?![\\p{L}\\p{N}_])`, 'u').test(text);
+  for (let at = text.indexOf(term); at !== -1; at = at < text.length ? text.indexOf(term, at + 1) : -1) {
+    const end = at + term.length;
+    if (at > 0 && isLow(text.charCodeAt(at)) && isHigh(text.charCodeAt(at - 1))) continue;
+    if (end > at && end < text.length && isHigh(text.charCodeAt(end - 1)) && isLow(text.charCodeAt(end))) continue;
+    const unit = at > 0 ? text.charCodeAt(at - 1) : -1;
+    const before = at > 1 && isLow(unit) && isHigh(text.charCodeAt(at - 2)) ? text.codePointAt(at - 2) : unit;
+    const after = end < text.length ? text.codePointAt(end) : -1;
+    if ((before === -1 || !isWordCodePoint(before)) && (after === -1 || !isWordCodePoint(after))) return true;
+  }
+  return false;
 }
 
 const CHECKERS = {

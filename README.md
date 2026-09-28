@@ -96,7 +96,8 @@ Gateway, settled only once the judge has a verdict ready, before it signs).
   ERC-8404 (Recomputable Verification Receipts) receipt that anyone can recompute from a frozen
   chain snapshot and the deliverable bytes, without reading a chain. The profile in
   [`rvr/`](rvr/profiles/judge-protocol-rvr-v0) is a standard-library Python implementation that
-  re-derives two real on-chain verdicts and agrees with the judge's own code on 300 generated cases.
+  re-derives two real on-chain verdicts and agrees with the judge's own ruling path on 400 generated
+  cases.
 
 ## License, attribution and name
 
@@ -163,11 +164,12 @@ judge-service/    Node/viem off-chain engine
   src/rvr-snapshot.mjs          freezes one ruling's chain evidence for the ERC-8404 profile
   api/                          hosted judge (Vercel): /api/judge, /api/x402/judge, /api/evaluate,
                                 /api/health, /api/cron/sweep
-  test/                         182 unit tests (checker gate, SSRF, evidence determinism, hosted judge, x402, ERC-8412, ERC-8404)
+  test/                         196 unit tests (checker gate, SSRF, evidence determinism, hosted judge, x402, ERC-8412, ERC-8404)
   evidence/                     recomputable verdict evidence (public audit trail)
 rvr/              ERC-8404 profile, in the layout of the RVR reference repository
   profiles/judge-protocol-rvr-v0/   SPEC.md, standard-library Python adapter, vectors, gate
-  mutants.py                    20 adapter mutations the gate must catch
+  mutants.py                    112 adapter mutations the gate must catch
+  word_ranges.py                builds the pinned Unicode 17.0.0 word-character table
 ```
 
 ## Status
@@ -177,17 +179,17 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
   verdict, threshold enforcement, criteria-registration gating, withdraw auth, and the full
   hook feedback flow (7 hook tests; the hook decode bug that these now cover was previously
   untested).
-- ✅ **182/182 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
+- ✅ **196/196 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
   criteria defects, SSRF denylist with DNS pinning, evidence-hash determinism, and the hosted judge
   (on-demand rulings, races, reverted transactions, the daily sweep, deliverables that can never
   load abstaining instead of retrying forever), and paid rulings over x402 (payments signed by
   Circle's own client; a payment settles only once a verdict is ready and the contract would
   accept it).
-- ✅ **109/109 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
+- ✅ **111/111 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
   `judge-service` first): the page's CSP, the read-only relay, the public numbers, parity with the
   service's own checkers, the CLI, and the in-browser verifier run against a fake chain built from
   recorded Arc testnet data, including tampered inputs that must never verify.
-- ✅ **40/40 kit and docs tests** (`cd kit && npm ci && npm test`, after `npm ci` in
+- ✅ **41/41 kit and docs tests** (`cd kit && npm ci && npm test`, after `npm ci` in
   `judge-service`): the kit agrees with the judge on validation (down to the refusal reason),
   hashing and deliverable decoding, inline or hosted; nothing reaches the chain on bad input; the
   docs state every check, parameter, limit and API result with the code's own numbers, and every
@@ -200,9 +202,10 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
   log another paymaster wrote, is refused before anything is sent; an optional model drafter may
   only use the owner's own words, and anything it invents goes back to the owner.
 - ✅ **ERC-8404 profile gate** (`cd rvr && python3 profiles/judge-protocol-rvr-v0/adapter.py --check`,
-  standard library only): the twelve conformance cases the ERC requires, 21 semantic cases, 15 gate
-  cases and 5 byte-contract known answers, with both real rulings re-derived field by field;
-  `python3 mutants.py` confirms 20 plausible reimplementation shortcuts all fail it.
+  standard library only): 31 conformance cases covering the ERC's twelve requirements, 31 semantic
+  cases, 74 gate cases and 5 byte-contract known answers, with both real rulings re-derived and
+  their recorded verdicts matched; `python3 mutants.py` confirms 112 deliberate mistakes each fail
+  it in the case written to catch them.
 - ✅ **Live check** (`cd judge-service && npm run live-check`): 17 checks against the hosted judge,
   no keys and no money, including exact parity with a verdict on chain (job 186740).
 - ✅ **Hosted judge** at https://judge-protocol-api.vercel.app: an on-demand API
@@ -218,7 +221,7 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
 cd contracts && git submodule update --init --recursive && forge test   # 37/37
 
 # service
-cd ../judge-service && npm install && npm test                          # 182/182
+cd ../judge-service && npm install && npm test                          # 196/196
 
 # run the judge against Arc testnet (needs a funded .env, see .env.example)
 node --env-file=.env src/index.js

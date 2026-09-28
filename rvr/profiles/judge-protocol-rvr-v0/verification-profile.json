@@ -11,7 +11,7 @@
     "constraints": {
       "id": "judge-protocol-rvr-v0-profile-schema",
       "path": "profiles/judge-protocol-rvr-v0/profile.schema.json",
-      "sha256": "219ca45f2f75f149fa6b20c205d6fad5c161517864f91f93198b8c257c0b1249",
+      "sha256": "c9c7ba71f3010d86cc36e5adf7234d555a0fad877d220133e2ef51aa2468084d",
       "requiredForRecomputation": true
     }
   },
@@ -24,7 +24,7 @@
   "verificationSpecification": {
     "id": "judge-protocol-rvr-v0-verification-specification",
     "path": "profiles/judge-protocol-rvr-v0/SPEC.md",
-    "sha256": "a1d9de54c0058326a61b55588f59f32553f1fdda96a8b5dda332456c303bb7ae",
+    "sha256": "5278b16cdf6d00c97447075440c759b78403a06c994191b9aef2a85a2786a7da",
     "requiredForRecomputation": true
   },
   "conformanceVectorSet": {
@@ -33,7 +33,7 @@
       {
         "id": "judge-protocol-rvr-v0-expected-results",
         "path": "profiles/judge-protocol-rvr-v0/expected.json",
-        "sha256": "9c183ebcc7fe6d17609c23001e671a777ff5c37253d675ccd93e67be5b9e1c96",
+        "sha256": "27e2b843cf2a4fcbc85190563a690ff2e633a3e7774c54bfb27460c689b9571d",
         "requiredForRecomputation": false
       },
       {
@@ -45,7 +45,7 @@
       {
         "id": "job-186779-snapshot",
         "path": "profiles/judge-protocol-rvr-v0/upstream/job-186779.snapshot.json",
-        "sha256": "1019834ee7dae19b0ca14d4118cd66a0f98dc5840e332c061cbef9ce4ce5f74f",
+        "sha256": "0d059ba38f9fbe08a2a64197bf6d8516eda0e3117abb9036425ca3b1ce64c432",
         "requiredForRecomputation": false
       },
       {
@@ -57,17 +57,17 @@
       {
         "id": "job-186780-snapshot",
         "path": "profiles/judge-protocol-rvr-v0/upstream/job-186780.snapshot.json",
-        "sha256": "a2c7beb6dc2c3c86d58a31848243e215adbfc5f43d06c0c94b082d47765a914c",
+        "sha256": "0f5265b581d59b0254c03ad2f5c04d7d131f9b06a780cd080fbb17d15d3f2b73",
         "requiredForRecomputation": false
       },
       {
         "id": "judge-protocol-rvr-v0-verification-vectors",
         "path": "profiles/judge-protocol-rvr-v0/vectors.json",
-        "sha256": "e7fd9ae89ac6982cf3aabf27589385625c8a7960d5d0d7180dd3aa39e33246e7",
+        "sha256": "7f0b81c6303bfd6d91d6b5dde7ce9765e7f533f0d45ca03d140cad8100f37c91",
         "requiredForRecomputation": false
       }
     ],
-    "digest": "272b393895bfe209a430385a6c74dcf25069b66da24dfc5c76c7599de88a1a2e",
+    "digest": "23a93f7ce3e4af11a4b317a49f8a2810c5cbb71b0aac67586277f0813f6ebfab",
     "digestRule": "sha256-utf8-sorted-path-tab-file-sha256-lf-rows"
   },
   "canonicalByteContract": {
@@ -87,19 +87,19 @@
     {
       "id": "rvr-schema",
       "path": "profiles/judge-protocol-rvr-v0/rvr.schema.json",
-      "sha256": "ee7280deca4c265e303a213141add9a8bacb8f80df562d1988f195a709947d18",
+      "sha256": "2f6658808ac928afbb3c34cc5d1101c786c7d7bf7468ccdbcd6a31c1810019b2",
       "requiredForRecomputation": true
     }
   ],
   "evidenceSetContract": {
     "schemaPath": "profiles/judge-protocol-rvr-v0/rvr.schema.json",
-    "schemaSha256": "ee7280deca4c265e303a213141add9a8bacb8f80df562d1988f195a709947d18",
+    "schemaSha256": "2f6658808ac928afbb3c34cc5d1101c786c7d7bf7468ccdbcd6a31c1810019b2",
     "schemaPointer": "#/$defs/evidenceSet",
     "digestRule": "sha256-utf8-rvr-canonical-json-v0-normalized-member-order"
   },
   "canonicalResultContract": {
     "schemaPath": "profiles/judge-protocol-rvr-v0/rvr.schema.json",
-    "schemaSha256": "ee7280deca4c265e303a213141add9a8bacb8f80df562d1988f195a709947d18",
+    "schemaSha256": "2f6658808ac928afbb3c34cc5d1101c786c7d7bf7468ccdbcd6a31c1810019b2",
     "schemaPointer": "#/$defs/canonicalResult",
     "outcomeProjection": "/outcome",
     "reasonCodeProjection": "/reasonCode"
@@ -121,7 +121,7 @@
       "rvr.recompute.identical",
       "rvr.recompute.canonical_result_diverged",
       "rvr.recompute.normative_dependency_unavailable",
-      "rvr.recompute.normative_dependency_pin_mismatch",
+      "rvr.recompute.normative_dependency_identity_mismatch",
       "rvr.recompute.committed_evidence_unavailable"
     ],
     "gateRejections": [
@@ -131,6 +131,7 @@
       "rvr.gate.evidence_closure_incomplete",
       "rvr.judge-protocol.v0.gate.snapshot_invalid",
       "rvr.judge-protocol.v0.gate.snapshot_not_canonical",
+      "rvr.judge-protocol.v0.gate.snapshot_inconsistent",
       "rvr.judge-protocol.v0.gate.snapshot_claim_mismatch",
       "rvr.judge-protocol.v0.gate.evaluator_not_judge",
       "rvr.judge-protocol.v0.gate.commitment_mismatch",

@@ -26,5 +26,6 @@ python profiles/judge-protocol-rvr-v0/test_profile.py
 
 The base vectors are two real rulings on Arc testnet, frozen at a named block:
 job 186779 (PASS, `VERIFIED`) and job 186780 (REJECT, `REFUTED`). The gate
-re-derives both and requires the recorded on-chain verdict to agree field by
-field, including the keccak256 `criteriaHash` and `evidenceHash`.
+re-derives both and requires each recorded on-chain verdict to agree on the
+seven fields a derivation can check (all but the signing timestamp), including
+the keccak256 `criteriaHash` and `evidenceHash`.

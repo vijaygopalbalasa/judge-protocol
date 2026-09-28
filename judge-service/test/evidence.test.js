@@ -68,3 +68,14 @@ test("data: URIs are read per RFC 2397: base64 when marked, percent-encoded othe
   assert.equal(upper.content.toString("utf8"), "x", "the base64 flag is case-insensitive and may follow parameters");
   await assert.rejects(resolveDeliverable("data:text/plain;base64"), /malformed data URI/, "no comma: not a data URI");
 });
+
+test("a member named __proto__ is hashed like any other member, never dropped", async () => {
+  // A plain object's __proto__ setter would swallow the member, so criteria with and
+  // without it would share one criteriaHash while the judge enforced them differently.
+  const { canonicalize, criteriaHash } = await import("../src/criteria.js");
+  const withProto = JSON.parse('{"checks":[{"kind":"schema","params":{"types":{"__proto__":"number"}}}]}');
+  const without = JSON.parse('{"checks":[{"kind":"schema","params":{"types":{}}}]}');
+  assert.match(canonicalize(withProto), /"__proto__":"number"/);
+  assert.notEqual(criteriaHash(withProto), criteriaHash(without));
+  assert.notEqual(criteriaHash(JSON.parse('{"__proto__":{"x":1},"checks":[]}')), criteriaHash({ checks: [] }));
+});

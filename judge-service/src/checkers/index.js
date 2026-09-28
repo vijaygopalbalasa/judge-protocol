@@ -5,6 +5,7 @@
 
 import crypto from "node:crypto";
 import { safeFetch, FetchError } from "../safe-fetch.js";
+import { WORD_RANGES } from "./word-characters.js";
 
 const sha256 = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
 
@@ -44,10 +45,43 @@ function checkSchema(spec, deliverable) {
   };
 }
 
-const escapeRegExp = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-/** True if `term` occurs in `text` not touching a letter, digit or underscore on either side. */
+// Word characters: "_" plus the pinned Unicode 17.0.0 letters and digits, never the runtime's own
+// \p{L}\p{N}, whose answer changes with the Node version (ERC-8404 profile SPEC section 10).
+const WORD_START = [], WORD_END = [];
+for (const range of WORD_RANGES) {
+  const [first, last = first] = range.split("-");
+  WORD_START.push(parseInt(first, 16));
+  WORD_END.push(parseInt(last, 16));
+}
+function isWordCodePoint(cp) {
+  if (cp === 0x5f) return true;
+  let lo = 0, hi = WORD_START.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (cp < WORD_START[mid]) hi = mid - 1;
+    else if (cp > WORD_END[mid]) lo = mid + 1;
+    else return true;
+  }
+  return false;
+}
+const isHigh = (u) => u >= 0xd800 && u <= 0xdbff;
+const isLow = (u) => u >= 0xdc00 && u <= 0xdfff;
+/**
+ * True if `term` occurs in `text` not touching a letter, digit or underscore on either side.
+ * It scans by code point, as a /u regular expression would: a match never splits a surrogate
+ * pair. A scan, not a regex per term, so thousands of terms cost no compile time.
+ */
 export function hasWholeWord(text, term) {
-  return new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(term)}(?![\\p{L}\\p{N}_])`, "u").test(text);
+  for (let at = text.indexOf(term); at !== -1; at = at < text.length ? text.indexOf(term, at + 1) : -1) {
+    const end = at + term.length;
+    if (at > 0 && isLow(text.charCodeAt(at)) && isHigh(text.charCodeAt(at - 1))) continue;
+    if (end > at && end < text.length && isHigh(text.charCodeAt(end - 1)) && isLow(text.charCodeAt(end))) continue;
+    const unit = at > 0 ? text.charCodeAt(at - 1) : -1;
+    const before = at > 1 && isLow(unit) && isHigh(text.charCodeAt(at - 2)) ? text.codePointAt(at - 2) : unit;
+    const after = end < text.length ? text.codePointAt(end) : -1;
+    if ((before === -1 || !isWordCodePoint(before)) && (after === -1 || !isWordCodePoint(after))) return true;
+  }
+  return false;
 }
 
 /** Required terms, literal and case-sensitive; with wholeWords, each must stand on its own. */
@@ -196,11 +230,25 @@ function paramsProblem(kind, p) {
  *                                          uint8 EIP-712 encode throws → job dropped,
  *                                          escrow stranded to expiry (client-triggerable DoS)
  */
+/** True when any object inside the value has its own member named __proto__. */
+function hasProtoMember(value) {
+  const stack = [value];
+  while (stack.length) {
+    const v = stack.pop();
+    if (!v || typeof v !== "object") continue;
+    if (!Array.isArray(v) && Object.prototype.hasOwnProperty.call(v, "__proto__")) return true;
+    for (const k of Object.keys(v)) stack.push(v[k]);
+  }
+  return false;
+}
+
 export function validateCriteria(criteria) {
   if (!criteria || typeof criteria !== "object")
     return { valid: false, reason: "criteria is not an object" };
   if (nestsDeeperThan(criteria, LIMITS.depth))
     return { valid: false, reason: `criteria nest deeper than ${LIMITS.depth} levels` };
+  if (hasProtoMember(criteria))
+    return { valid: false, reason: "criteria must not contain a member named __proto__" };
   if (!Array.isArray(criteria.checks) || criteria.checks.length === 0)
     return { valid: false, reason: "criteria.checks must be a non-empty array" };
   if (criteria.checks.length > LIMITS.checks)

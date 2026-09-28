@@ -111,10 +111,23 @@ function paramsProblem(kind, p) {
   }
 }
 
+/** True when any object inside the value has its own member named __proto__. */
+function hasProtoMember(value) {
+  const stack = [value];
+  while (stack.length) {
+    const v = stack.pop();
+    if (!v || typeof v !== "object") continue;
+    if (!Array.isArray(v) && Object.prototype.hasOwnProperty.call(v, "__proto__")) return true;
+    for (const k of Object.keys(v)) stack.push(v[k]);
+  }
+  return false;
+}
+
 /** The judge's own rules: criteria that break them are never scored (the judge abstains). */
 export function validateCriteria(criteria) {
   if (!criteria || typeof criteria !== "object") return { valid: false, reason: "criteria is not an object" };
   if (nestsDeeperThan(criteria, LIMITS.depth)) return { valid: false, reason: `criteria nest deeper than ${LIMITS.depth} levels` };
+  if (hasProtoMember(criteria)) return { valid: false, reason: "criteria must not contain a member named __proto__" };
   if (!Array.isArray(criteria.checks) || criteria.checks.length === 0) return { valid: false, reason: "criteria.checks must be a non-empty array" };
   if (criteria.checks.length > LIMITS.checks) return { valid: false, reason: `at most ${LIMITS.checks} checks` };
   if (criteria.passThreshold !== undefined) {
@@ -142,7 +155,8 @@ export function validateCriteria(criteria) {
 
 function sortKeys(x) {
   if (Array.isArray(x)) return x.map(sortKeys);
-  if (x && typeof x === "object") return Object.keys(x).sort().reduce((a, k) => { a[k] = sortKeys(x[k]); return a; }, {});
+  // Null prototype: on a plain {} the key "__proto__" would hit the setter and vanish from the hash.
+  if (x && typeof x === "object") return Object.keys(x).sort().reduce((a, k) => { a[k] = sortKeys(x[k]); return a; }, Object.create(null));
   return x;
 }
 export const canonicalize = (o) => JSON.stringify(sortKeys(o));

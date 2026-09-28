@@ -15,13 +15,13 @@ from __future__ import annotations
 
 import argparse
 import base64
+import bisect
 import copy
 import hashlib
 import json
 import math
 import re
 import sys
-import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -71,14 +71,34 @@ GATE = {
     "criteria_hash": "rvr.judge-protocol.v0.gate.criteria_hash_mismatch",
     "not_utf8": "rvr.judge-protocol.v0.gate.deliverable_not_utf8",
     "resource": "rvr.judge-protocol.v0.gate.resource_limit",
+    "snapshot_inconsistent": "rvr.judge-protocol.v0.gate.snapshot_inconsistent",
 }
 RECOMPUTE = {
     "identical": "rvr.recompute.identical",
     "diverged": "rvr.recompute.canonical_result_diverged",
     "dependency_unavailable": "rvr.recompute.normative_dependency_unavailable",
-    "dependency_pin": "rvr.recompute.normative_dependency_pin_mismatch",
+    "dependency_identity": "rvr.recompute.normative_dependency_identity_mismatch",
     "evidence_unavailable": "rvr.recompute.committed_evidence_unavailable",
 }
+
+MANIFEST_SCHEMA_ID = "verification-profile-manifest-schema"
+CONSTRAINTS_ID = "judge-protocol-rvr-v0-profile-schema"
+SPEC_ID = "judge-protocol-rvr-v0-verification-specification"
+RVR_SCHEMA_ID = "rvr-schema"
+MEDIA_TYPES = {"chain-snapshot": "application/json; profile=rvr-canonical-json-v0", "deliverable": "application/octet-stream"}
+ZERO_ADDRESS = "0x" + "0" * 40
+SUBMITTED_OR_LATER = ("2", "3", "4", "5")  # JobStatus Submitted, Completed, Rejected, Expired
+RESULT_SHAPES = {
+    ("VERIFIED", "rvr.judge-protocol.v0.score_meets_threshold", True),
+    ("REFUTED", "rvr.judge-protocol.v0.score_below_threshold", False),
+    ("UNVERIFIABLE", "rvr.judge-protocol.v0.required_chain_snapshot_unavailable", None),
+    ("UNVERIFIABLE", "rvr.judge-protocol.v0.required_deliverable_unavailable", None),
+}
+# Measured, never asserted: how many times evaluate() started, and how many times the pinned
+# constraints schema was applied to a profile. The gate reads them to report evaluationPerformed
+# and constraintsApplied.
+EVALUATIONS = [0]
+CONSTRAINTS_APPLIED = [0]
 
 PACKAGE_MEMBERS = (
     "conformance/rvr-v0/verification-profile-manifest.schema.json",
@@ -188,19 +208,25 @@ def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def has_surrogate(value: Any) -> bool:
-    if isinstance(value, str):
-        return any(0xD800 <= ord(character) <= 0xDFFF for character in value)
-    if isinstance(value, list):
-        return any(has_surrogate(item) for item in value)
-    if isinstance(value, dict):
-        return any(has_surrogate(key) or has_surrogate(item) for key, item in value.items())
+    """Iterative, so a deeply nested value cannot raise RecursionError here."""
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            if any(0xD800 <= ord(character) <= 0xDFFF for character in item):
+                return True
+        elif isinstance(item, list):
+            stack.extend(item)
+        elif isinstance(item, dict):
+            stack.extend(item.keys())
+            stack.extend(item.values())
     return False
 
 
 def parse_json(data: bytes, label: str) -> Any:
     try:
         value = json.loads(data.decode("utf-8"), object_pairs_hook=reject_duplicates, parse_constant=reject_constant)
-    except (UnicodeError, json.JSONDecodeError, RecursionError) as error:
+    except (UnicodeError, ValueError, RecursionError) as error:  # ValueError covers JSONDecodeError and huge integers
         raise ProfileError(f"invalid JSON in {label}: {error}") from error
     if has_surrogate(value):
         raise ProfileError(f"{label} contains a surrogate code point")
@@ -374,15 +400,33 @@ def safe_dependency_path(raw: str) -> Path:
     return path
 
 
-def load_profile(overrides: dict[str, bytes] | None = None, missing: tuple[str, ...] = ()) -> dict[str, Any]:
-    """Resolve the supplied profile package: resolve, read once, hash, then parse or use.
+def load_envelope(supplied: dict[str, Any] | None = None) -> dict[str, Any]:
+    """ERC step 1 for the profile: strictly parse the Verification Profile envelope against the bootstrap schema.
+
+    `supplied` replaces the profile file (the gate uses it to present altered profiles).
+    """
+    bootstrap = GENERIC_PROFILE_SCHEMA.read_bytes()
+    generic_schema = parse_json(bootstrap, "bootstrap generic schema")
+    try:
+        profile = supplied if supplied is not None else parse_json(PROFILE_PATH.read_bytes(), "verification profile")
+        validate_schema(profile, generic_schema, generic_schema)
+        digest = canonical_digest(profile)
+    except (ProfileError, OSError) as error:
+        raise GateRejected(GATE["schema"], f"invalid Verification Profile envelope: {error}") from error
+    identifiers = [dependency["id"] for dependency in profile_dependencies(profile)]
+    if len(identifiers) != len(set(identifiers)):
+        raise GateRejected(GATE["identity"], "duplicate profile dependency id")
+    return {"profile": profile, "bootstrap": bootstrap, "digest": digest}
+
+
+def resolve_dependencies(envelope: dict[str, Any], overrides: dict[str, bytes] | None = None,
+                         missing: tuple[str, ...] = ()) -> dict[str, Any]:
+    """ERC step 3 for the profile: resolve, read once, hash, and only then parse or use.
 
     Only dependencies marked requiredForRecomputation are resolved; conformance
     material marked false is never read here, so it cannot influence recomputation.
     """
-    generic_schema = load_json(GENERIC_PROFILE_SCHEMA)
-    profile = load_json(PROFILE_PATH)
-    validate_schema(profile, generic_schema, generic_schema)
+    profile = envelope["profile"]
     override_map = overrides or {}
     pinned: dict[str, bytes] = {}
     for dependency in profile_dependencies(profile):
@@ -394,18 +438,32 @@ def load_profile(overrides: dict[str, bytes] | None = None, missing: tuple[str, 
         if data is None:
             try:
                 data = safe_dependency_path(dependency["path"]).read_bytes()
-            except OSError as error:
-                raise CannotRecompute(RECOMPUTE["dependency_unavailable"], f"cannot read {dependency['path']}") from error
+            except (OSError, ProfileError) as error:
+                raise CannotRecompute(RECOMPUTE["dependency_unavailable"], f"cannot resolve {dependency['path']}") from error
         if sha256(data) != dependency["sha256"]:
-            raise CannotRecompute(RECOMPUTE["dependency_pin"], f"dependency failed its pin before use: {dependency['id']}")
+            raise CannotRecompute(RECOMPUTE["dependency_identity"], f"dependency failed its pin and was never parsed: {dependency['id']}")
         pinned[dependency["id"]] = data
-    manifest_schema = parse_json(pinned["verification-profile-manifest-schema"], "pinned manifest schema")
-    if manifest_schema != generic_schema:
-        raise ProfileError("the profile's generic-schema pin is not the bootstrap schema")
-    constraints = parse_json(pinned["judge-protocol-rvr-v0-profile-schema"], "pinned profile constraints")
-    validate_schema(profile, constraints, constraints)
-    rvr_schema = parse_json(pinned["rvr-schema"], "pinned RVR schema")
-    return {"profile": profile, "digest": canonical_digest(profile), "rvrSchema": rvr_schema, "pinned": pinned}
+    if any(identifier not in pinned for identifier in (MANIFEST_SCHEMA_ID, CONSTRAINTS_ID, SPEC_ID, RVR_SCHEMA_ID)):
+        raise GateRejected(GATE["schema"], "a normative dependency is not marked requiredForRecomputation")
+    if pinned[MANIFEST_SCHEMA_ID] != envelope["bootstrap"]:
+        raise GateRejected(GATE["identity"], "the generic-schema pin is not byte for byte the bootstrap schema")
+    try:
+        constraints = parse_json(pinned[CONSTRAINTS_ID], "pinned profile constraints")
+        CONSTRAINTS_APPLIED[0] += 1
+        validate_schema(profile, constraints, constraints)
+        rvr_schema = parse_json(pinned[RVR_SCHEMA_ID], "pinned RVR schema")
+        words = word_table(pinned[SPEC_ID])
+    except ProfileError as error:
+        raise GateRejected(GATE["schema"], f"the pinned profile package is not valid: {error}") from error
+    rvr_sha = sha256(pinned[RVR_SCHEMA_ID])
+    if rvr_sha != profile["evidenceSetContract"]["schemaSha256"] or rvr_sha != profile["canonicalResultContract"]["schemaSha256"]:
+        raise GateRejected(GATE["identity"], "a contract's schemaSha256 is not the pinned RVR schema")
+    return {"profile": profile, "digest": envelope["digest"], "rvrSchema": rvr_schema, "words": words, "pinned": pinned}
+
+
+def load_profile(overrides: dict[str, bytes] | None = None, missing: tuple[str, ...] = ()) -> dict[str, Any]:
+    """ERC steps 1 and 3 for the supplied profile package."""
+    return resolve_dependencies(load_envelope(), overrides, missing)
 
 
 # ------------------------------------------------ judge-protocol-sorted-json-v1 (keccak preimages)
@@ -414,7 +472,8 @@ _ARRAY_INDEX = re.compile(r"0|[1-9][0-9]*")
 
 
 def is_array_index(key: str) -> bool:
-    return _ARRAY_INDEX.fullmatch(key) is not None and int(key) < 4294967295
+    # At most 10 digits before int(): 2**32 - 2 has 10, and CPython refuses to convert very long digit strings.
+    return len(key) <= 10 and _ARRAY_INDEX.fullmatch(key) is not None and int(key) < 4294967295
 
 
 def utf16_order(key: str) -> bytes:
@@ -506,6 +565,8 @@ def _js_number(literal: str) -> Any:
 
 
 def _js_int(literal: str) -> int:
+    if len(literal.lstrip("-")) > 16:  # 2**53 - 1 has 16 digits; also avoids CPython's integer-string limit
+        raise OutOfScope(f"number {literal[:24]}... is not a safe integer")
     value = int(literal)
     if abs(value) > MAX_SAFE_INTEGER:
         raise OutOfScope(f"number {literal} is not a safe integer")
@@ -514,6 +575,9 @@ def _js_int(literal: str) -> int:
 
 def parse_criteria(text: str) -> Any:
     """ECMAScript JSON.parse restricted to v0: numbers must be safe integers, strings scalar values."""
+    # Syntax first (SPEC 5.2 item 2 before item 3): text that does not parse is criteria_invalid even
+    # when an out-of-scope number comes before the syntax error. float() reads any number without error.
+    json.loads(text, parse_int=float, parse_constant=reject_constant)
     value = json.loads(text, parse_float=_js_number, parse_int=_js_int, parse_constant=reject_constant)
     if has_surrogate(value):
         raise OutOfScope("criteria strings must be Unicode scalar values")
@@ -530,6 +594,20 @@ def nests_deeper_than(value: Any, limit: int) -> bool:
             return True
         children = item.values() if isinstance(item, dict) else item
         stack.extend((child, depth + 1) for child in children)
+    return False
+
+
+def has_proto_member(value: Any) -> bool:
+    """True when any object inside the value has a member named __proto__ (SPEC 5.2 item 4)."""
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            if "__proto__" in item:
+                return True
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
     return False
 
 
@@ -597,6 +675,8 @@ def validate_criteria(criteria: Any) -> str | None:
         return "criteria is not an object"
     if nests_deeper_than(criteria, LIMITS["depth"]):
         return "criteria nest too deep"
+    if has_proto_member(criteria):
+        return "criteria must not contain a member named __proto__"
     checks = criteria.get("checks")
     if not isinstance(checks, list) or not checks:
         return "checks must be a non-empty array"
@@ -628,17 +708,46 @@ def validate_criteria(criteria: Any) -> str | None:
     return None
 
 
-def is_word_character(character: str) -> bool:
-    return character == "_" or unicodedata.category(character)[0] in ("L", "N")
+WORD_FENCE = "```judge-protocol-word-ranges\n"
 
 
-def has_whole_word(text: str, term: str) -> bool:
+def word_table(spec: bytes) -> tuple[list[int], list[int]]:
+    """The word-character ranges of SPEC section 10, read from the pinned SPEC bytes."""
+    text = spec.decode("utf-8")
+    start = text.find(WORD_FENCE)
+    end = text.find("```", start + len(WORD_FENCE)) if start >= 0 else -1
+    if start < 0 or end < 0:
+        raise ProfileError("the pinned SPEC has no word-character table")
+    starts: list[int] = []
+    ends: list[int] = []
+    for line in text[start + len(WORD_FENCE):end].split():
+        found = re.fullmatch(r"([0-9A-F]{4,6})(?:-([0-9A-F]{4,6}))?", line)
+        if found is None:
+            raise ProfileError(f"malformed word-character range: {line}")
+        first, last = int(found.group(1), 16), int(found.group(2) or found.group(1), 16)
+        if last < first or last > 0x10FFFF or (ends and first <= ends[-1] + 1):
+            raise ProfileError(f"word-character ranges out of order: {line}")
+        starts.append(first)
+        ends.append(last)
+    return starts, ends
+
+
+def is_word_character(character: str, table: tuple[list[int], list[int]]) -> bool:
+    """SPEC 10: U+005F or a code point in the pinned Unicode 17.0.0 L* and N* ranges; never the runtime's database."""
+    if character == "_":
+        return True
+    point = ord(character)
+    index = bisect.bisect_right(table[0], point) - 1
+    return index >= 0 and point <= table[1][index]
+
+
+def has_whole_word(text: str, term: str, table: tuple[list[int], list[int]]) -> bool:
     """Some occurrence of term has no letter, number or underscore on either side."""
     start = text.find(term)
     while start != -1:
         after = start + len(term)
-        before_ok = start == 0 or not is_word_character(text[start - 1])
-        after_ok = after == len(text) or not is_word_character(text[after])
+        before_ok = start == 0 or not is_word_character(text[start - 1], table)
+        after_ok = after == len(text) or not is_word_character(text[after], table)
         if before_ok and after_ok:
             return True
         start = text.find(term, start + 1)
@@ -686,7 +795,7 @@ def js_typeof(value: Any) -> str:
     return "object"  # objects, arrays and null
 
 
-def run_check(check: dict[str, Any], content: bytes, text: str | None) -> bool:
+def run_check(check: dict[str, Any], content: bytes, text: str | None, table: tuple[list[int], list[int]]) -> bool:
     kind, params = check["kind"], check.get("params") or {}
     if kind == "checksum":
         return hashlib.sha256(content).hexdigest() == str(params["sha256"]).lower()
@@ -699,13 +808,14 @@ def run_check(check: dict[str, Any], content: bytes, text: str | None) -> bool:
     if kind == "contains":
         terms = params.get("all") if _has(params.get("all")) else []
         if params.get("wholeWords") is True:
-            return all(has_whole_word(text, term) for term in terms)
+            return all(has_whole_word(text, term, table) for term in terms)
         return all(term in text for term in terms)
     if kind == "schema":
         if json_depth(text) > MAX_DELIVERABLE_JSON_DEPTH:
             raise GateRejected(GATE["resource"], "deliverable JSON nests deeper than the profile limit")
         try:
-            parsed = json.loads(text, parse_constant=reject_constant)
+            # parse_int=float: ECMAScript reads every number as a double, and CPython's int() refuses long digit strings
+            parsed = json.loads(text, parse_constant=reject_constant, parse_int=float)
         except (json.JSONDecodeError, ProfileError, ValueError):
             return False
         if not isinstance(parsed, dict):
@@ -753,7 +863,8 @@ def criteria_from(description: str) -> dict[str, Any]:
     return criteria
 
 
-def derive_from(criteria: dict[str, Any], content: bytes, job_id: str, commitment: str) -> dict[str, Any]:
+def derive_from(criteria: dict[str, Any], content: bytes, job_id: str, commitment: str,
+                table: tuple[list[int], list[int]]) -> dict[str, Any]:
     """Run the checks, score and evidence core (SPEC 5.3 to 5.5) on validated criteria."""
     if len(content) > MAX_DELIVERABLE_BYTES:
         raise GateRejected(GATE["resource"], "deliverable is larger than the profile limit")
@@ -766,7 +877,7 @@ def derive_from(criteria: dict[str, Any], content: bytes, job_id: str, commitmen
     results = []
     for check in criteria["checks"]:
         weight = check["weight"] if "weight" in check else 1
-        results.append({"kind": check["kind"], "weight": weight, "pass": run_check(check, content, text)})
+        results.append({"kind": check["kind"], "weight": weight, "pass": run_check(check, content, text, table)})
     threshold = criteria["passThreshold"] if "passThreshold" in criteria else 100
     score, passed = score_of(results, threshold)
     c_hash = criteria_hash(criteria)
@@ -784,9 +895,9 @@ def derive_from(criteria: dict[str, Any], content: bytes, job_id: str, commitmen
             "pass": passed, "evidenceHash": keccak256(judge_json(core).encode("utf-8"))}
 
 
-def derive(description: str, content: bytes, job_id: str, commitment: str) -> dict[str, Any]:
+def derive(description: str, content: bytes, job_id: str, commitment: str, table: tuple[list[int], list[int]]) -> dict[str, Any]:
     """criteria_from, then derive_from: one Judge ruling from a description and deliverable."""
-    return derive_from(criteria_from(description), content, job_id, commitment)
+    return derive_from(criteria_from(description), content, job_id, commitment, table)
 
 
 # ----------------------------------------------------------------- claim, evidence, result
@@ -838,6 +949,16 @@ def evidence_digest(evidence_set: dict[str, Any]) -> str:
     return canonical_digest(normalized)
 
 
+def evidence_members(evidence_set: Any) -> list[dict[str, Any]]:
+    """Just enough structure to know which members are committed as PRESENT (ERC step 3)."""
+    members = evidence_set.get("members") if isinstance(evidence_set, dict) else None
+    if not isinstance(members, list) or not all(
+            isinstance(member, dict) and isinstance(member.get("id"), str) and member.get("status") in ("PRESENT", "UNAVAILABLE")
+            for member in members):
+        raise GateRejected(GATE["schema"], "malformed evidence descriptor")
+    return members
+
+
 def validate_evidence(evidence_set: dict[str, Any], payloads: dict[str, bytes], rvr_schema: dict[str, Any], *, require_payloads: bool) -> None:
     validate_at(evidence_set, rvr_schema, "#/$defs/evidenceSet", GATE["schema"])
     identifiers = [member["id"] for member in evidence_set["members"]]
@@ -849,6 +970,8 @@ def validate_evidence(evidence_set: dict[str, Any], payloads: dict[str, bytes], 
             if payload is not None:
                 raise GateRejected(GATE["identity"], "unavailable member has a payload")
             continue
+        if member["mediaType"] != MEDIA_TYPES[member["id"]]:
+            raise GateRejected(GATE["schema"], f"{member['id']} must have media type {MEDIA_TYPES[member['id']]}")
         if payload is None:
             if require_payloads:
                 raise GateRejected(GATE["identity"], "present member payload unavailable")
@@ -883,6 +1006,31 @@ def result(outcome: str, reason_code: str, evaluation: dict[str, Any]) -> dict[s
             "outcome": outcome, "reasonCode": reason_code, "evaluation": evaluation}
 
 
+def decimal_key(value: str) -> tuple[int, str]:
+    """Canonical unsigned decimals order by length, then digits; no int() on attacker-sized strings."""
+    return len(value), value
+
+
+def snapshot_inconsistency(snapshot: dict[str, Any]) -> str | None:
+    """SPEC 5.1: facts no single chain state could hold together."""
+    job, submission, verdict, read_at = snapshot["job"], snapshot["submission"], snapshot["verdict"], snapshot["readAt"]
+    if submission["jobId"] != job["id"]:
+        return "the submission is for another job"
+    if job["provider"] == ZERO_ADDRESS or submission["provider"] != job["provider"]:
+        return "the submission is not from the job's provider"
+    if decimal_key(submission["blockNumber"]) > decimal_key(read_at["blockNumber"]):
+        return "the submission is later than readAt"
+    if job["status"] not in SUBMITTED_OR_LATER:
+        return "a job with a submission cannot be Open or Funded"
+    if verdict is not None:
+        if verdict["jobId"] != job["id"]:
+            return "the verdict is for another job"
+        if verdict["blockNumber"] is not None and not (
+                decimal_key(submission["blockNumber"]) <= decimal_key(verdict["blockNumber"]) <= decimal_key(read_at["blockNumber"])):
+            return "the verdict is not between the submission and readAt"
+    return None
+
+
 def read_snapshot(payload: bytes, claim: dict[str, Any], rvr_schema: dict[str, Any]) -> dict[str, Any]:
     try:
         snapshot = parse_json(payload, "chain snapshot")
@@ -891,10 +1039,14 @@ def read_snapshot(payload: bytes, claim: dict[str, Any], rvr_schema: dict[str, A
     validate_at(snapshot, rvr_schema, "#/$defs/chainSnapshot", GATE["snapshot_invalid"])
     if canonical_bytes(snapshot) != payload:
         raise GateRejected(GATE["snapshot_not_canonical"], "chain snapshot bytes are not rvr-canonical-json-v0")
-    pinned = (snapshot["chainId"], snapshot["acp"], snapshot["evaluatorContract"]) == (CHAIN_ID, ACP, JUDGE_EVALUATOR)
-    bound = (claim["chainId"], claim["acp"], claim["evaluator"], claim["jobId"]) == (
-        snapshot["chainId"], snapshot["acp"], snapshot["evaluatorContract"], snapshot["job"]["id"])
-    if not pinned or not bound:
+    problem = snapshot_inconsistency(snapshot)
+    if problem:
+        raise GateRejected(GATE["snapshot_inconsistent"], problem)
+    # The claim schema pins chainId, acp and evaluator to this profile's deployment, so binding the
+    # snapshot to the claim also pins the snapshot to the deployment.
+    same_deployment = (claim["chainId"], claim["acp"], claim["evaluator"]) == (snapshot["chainId"], snapshot["acp"], snapshot["evaluatorContract"])
+    same_job = claim["jobId"] == snapshot["job"]["id"]
+    if not same_deployment or not same_job:
         raise GateRejected(GATE["snapshot_claim"], "the snapshot is not this profile's deployment or not the claimed job")
     if snapshot["job"]["evaluator"] != JUDGE_EVALUATOR:
         raise GateRejected(GATE["evaluator"], "the job does not name JudgeEvaluator as its evaluator")
@@ -906,9 +1058,9 @@ def read_snapshot(payload: bytes, claim: dict[str, Any], rvr_schema: dict[str, A
 def verdict_agreement(verdict: dict[str, Any] | None, claim: dict[str, Any], derived: dict[str, Any]) -> str:
     if verdict is None:
         return "NO_VERDICT"
+    # verdict["jobId"] equals the job's, and so the claim's: snapshot_inconsistency and the binding gate it.
     same = (
-        verdict["jobId"] == claim["jobId"]
-        and verdict["criteriaHash"] == derived["criteriaHash"]
+        verdict["criteriaHash"] == derived["criteriaHash"]
         and verdict["deliverable"] == claim["deliverableCommitment"]
         and verdict["score"] == str(derived["score"])
         and verdict["threshold"] == str(derived["threshold"])
@@ -918,11 +1070,20 @@ def verdict_agreement(verdict: dict[str, Any] | None, claim: dict[str, Any], der
     return "MATCHES" if same else "DIFFERS"
 
 
-def evaluate(claim: dict[str, Any], evidence_set: dict[str, Any], payloads: dict[str, bytes], rvr_schema: dict[str, Any]) -> dict[str, Any]:
+def evaluate(claim: dict[str, Any], evidence_set: dict[str, Any], payloads: dict[str, bytes], ctx: dict[str, Any]) -> dict[str, Any]:
+    EVALUATIONS[0] += 1
+    rvr_schema = ctx["rvrSchema"]
     validate_at(claim, rvr_schema, "#/$defs/claim", GATE["schema"])
     validate_evidence(evidence_set, payloads, rvr_schema, require_payloads=True)
     status = {member["id"]: member["status"] for member in evidence_set["members"]}
     evaluation = blank_evaluation(claim)
+    content = payloads.get(DELIVERABLE_MEMBER)
+    if content is not None:
+        # Checkable without the snapshot, so checked first: the bytes must be the committed deliverable.
+        if len(content) > MAX_DELIVERABLE_BYTES:
+            raise GateRejected(GATE["resource"], "deliverable is larger than the profile limit")
+        if keccak256(content) != claim["deliverableCommitment"]:
+            raise GateRejected(GATE["commitment"], "the deliverable bytes do not hash to the provider's commitment")
     if status[SNAPSHOT_MEMBER] == "UNAVAILABLE":
         return result("UNVERIFIABLE", REASON["no_snapshot"], evaluation)
     snapshot = read_snapshot(payloads[SNAPSHOT_MEMBER], claim, rvr_schema)
@@ -933,14 +1094,11 @@ def evaluate(claim: dict[str, Any], evidence_set: dict[str, Any], payloads: dict
     evaluation["criteriaHash"] = criteria_hash(criteria)
     if evaluation["criteriaHash"] != claim["criteriaHash"]:
         raise GateRejected(GATE["criteria_hash"], "the claim's criteriaHash is not the job's criteria")
-    if status[DELIVERABLE_MEMBER] == "UNAVAILABLE":
+    if content is None:
         return result("UNVERIFIABLE", REASON["no_deliverable"], evaluation)
-    content = payloads[DELIVERABLE_MEMBER]
-    if keccak256(content) != claim["deliverableCommitment"]:
-        raise GateRejected(GATE["commitment"], "the deliverable bytes do not hash to the provider's commitment")
-    derived = derive_from(criteria, content, claim["jobId"], claim["deliverableCommitment"])
+    derived = derive_from(criteria, content, claim["jobId"], claim["deliverableCommitment"], ctx["words"])
     evaluation.update({
-        "deliverableCommitment": keccak256(content),
+        "deliverableCommitment": claim["deliverableCommitment"],
         "checks": [{"index": str(i), "kind": item["kind"], "weight": str(item["weight"]), "pass": item["pass"]}
                    for i, item in enumerate(derived["results"])],
         "score": str(derived["score"]),
@@ -958,7 +1116,7 @@ def evaluate(claim: dict[str, Any], evidence_set: dict[str, Any], payloads: dict
 
 def make_bundle(claim: dict[str, Any], snapshot_bytes: bytes | None, deliverable: bytes | None, ctx: dict[str, Any]) -> dict[str, Any]:
     evidence_set, payloads = evidence_for(snapshot_bytes, deliverable)
-    canonical_result = evaluate(claim, evidence_set, payloads, ctx["rvrSchema"])
+    canonical_result = evaluate(claim, evidence_set, payloads, ctx)
     receipt = {
         "claimDigest": canonical_digest(claim),
         "evidenceSetDigest": evidence_digest(evidence_set),
@@ -970,15 +1128,36 @@ def make_bundle(claim: dict[str, Any], snapshot_bytes: bytes | None, deliverable
     return {"receipt": receipt, "claim": claim, "evidenceSet": evidence_set, "payloads": payloads, "canonicalResult": canonical_result}
 
 
+def stored_without_payloads(bundle: dict[str, Any]) -> dict[str, Any]:
+    """What a recomputer holds: the receipt, the original result, claim and descriptor, not the payloads."""
+    return {key: value for key, value in bundle.items() if key != "payloads"}
+
+
+def receipt_shape_problem(receipt: Any) -> str | None:
+    """ERC step 1 for the receipt: exactly the six members, in the shapes the ERC fixes."""
+    fields = {"claimDigest", "evidenceSetDigest", "verificationProfileDigest", "outcome", "reasonCode", "resultDigest"}
+    if not isinstance(receipt, dict) or set(receipt) != fields:
+        return "a receipt has exactly the six ERC-8404 members"
+    for field in ("claimDigest", "evidenceSetDigest", "verificationProfileDigest", "resultDigest"):
+        if not isinstance(receipt[field], str) or re.fullmatch(r"[0-9a-f]{64}", receipt[field]) is None:
+            return f"{field} is not a lowercase SHA-256 digest"
+    if receipt["outcome"] not in ("VERIFIED", "REFUTED", "UNVERIFIABLE") or not isinstance(receipt["reasonCode"], str):
+        return "malformed outcome or reasonCode"
+    return None
+
+
 def validate_bundle(bundle: dict[str, Any], ctx: dict[str, Any]) -> None:
+    """ERC step 4: the original receipt, the canonical result identity and the projections."""
     receipt, canonical_result, rvr_schema = bundle["receipt"], bundle["canonicalResult"], ctx["rvrSchema"]
     try:
         validate_schema(receipt, rvr_schema, rvr_schema)
         validate_schema(canonical_result, resolve_pointer(rvr_schema, "#/$defs/canonicalResult"), rvr_schema)
     except SchemaError as error:
         raise GateRejected(GATE["schema"], str(error)) from error
+    if (canonical_result["outcome"], canonical_result["reasonCode"], canonical_result["evaluation"]["pass"]) not in RESULT_SHAPES:
+        raise GateRejected(GATE["schema"], "the canonical result's outcome, reasonCode and pass contradict each other")
     validate_at(bundle["claim"], rvr_schema, "#/$defs/claim", GATE["schema"])
-    validate_evidence(bundle["evidenceSet"], bundle["payloads"], rvr_schema, require_payloads=True)
+    validate_evidence(bundle["evidenceSet"], bundle.get("payloads", {}), rvr_schema, require_payloads=False)
     identities = {
         "claimDigest": canonical_digest(bundle["claim"]),
         "evidenceSetDigest": evidence_digest(bundle["evidenceSet"]),
@@ -993,21 +1172,38 @@ def validate_bundle(bundle: dict[str, Any], ctx: dict[str, Any]) -> None:
 
 def recompute(stored: dict[str, Any], candidate_claim: dict[str, Any], candidate_evidence: dict[str, Any], candidate_payloads: dict[str, bytes],
               *, overrides: dict[str, bytes] | None = None, missing: tuple[str, ...] = (), hidden_inputs: dict[str, Any] | None = None) -> dict[str, Any]:
-    """ERC-8404 recomputation, in the specified order."""
+    """ERC-8404 recomputation, steps 1 to 10 in the ERC's order."""
+    evaluations, constraints = EVALUATIONS[0], CONSTRAINTS_APPLIED[0]
+
+    def cannot(reason_code: str) -> dict[str, Any]:
+        return {"recomputationStatus": "CANNOT_RECOMPUTE", "reasonCode": reason_code,
+                "evaluationPerformed": EVALUATIONS[0] != evaluations, "constraintsApplied": CONSTRAINTS_APPLIED[0] != constraints}
+
+    # 1. strictly parse the receipt and the generic Verification Profile envelope
+    problem = receipt_shape_problem(stored["receipt"])
+    if problem:
+        raise GateRejected(GATE["schema"], problem)
+    envelope = load_envelope()
+    # 2. the supplied profile must be the one the receipt names
+    if stored["receipt"]["verificationProfileDigest"] != envelope["digest"]:
+        raise GateRejected(GATE["identity"], "the supplied Verification Profile is not the receipt's")
+    # 3. required dependencies, hash before parse; then the committed-present candidate payloads
     try:
-        ctx = load_profile(overrides, missing)
+        ctx = resolve_dependencies(envelope, overrides, missing)
     except CannotRecompute as error:
-        return {"recomputationStatus": "CANNOT_RECOMPUTE", "reasonCode": error.reason_code, "evaluationPerformed": False, "constraintsApplied": False}
-    if stored["receipt"]["verificationProfileDigest"] != ctx["digest"]:
-        raise GateRejected(GATE["identity"], "receipt names another verification profile")
-    validate_bundle(stored, ctx)
-    if hidden_inputs:
-        raise GateRejected(GATE["closure"], "outcome-relevant ambient input supplied")
-    validate_evidence(candidate_evidence, candidate_payloads, ctx["rvrSchema"], require_payloads=False)
-    for member in candidate_evidence["members"]:
+        return cannot(error.reason_code)
+    for member in evidence_members(candidate_evidence):
         if member["status"] == "PRESENT" and member["id"] not in candidate_payloads:
-            return {"recomputationStatus": "CANNOT_RECOMPUTE", "reasonCode": RECOMPUTE["evidence_unavailable"], "evaluationPerformed": False}
-    candidate_result = evaluate(candidate_claim, candidate_evidence, candidate_payloads, ctx["rvrSchema"])
+            return cannot(RECOMPUTE["evidence_unavailable"])
+    # 4. the original receipt, canonical result identity and projections
+    validate_bundle(stored, ctx)
+    # 5. the candidate evidence closure
+    if hidden_inputs:
+        raise GateRejected(GATE["closure"], "outcome-relevant input outside the evidence closure")
+    validate_evidence(candidate_evidence, candidate_payloads, ctx["rvrSchema"], require_payloads=True)
+    # 6 to 8. candidate identities, the deterministic procedure, the canonical result
+    candidate_result = evaluate(candidate_claim, candidate_evidence, candidate_payloads, ctx)
+    # 9 and 10
     same = (
         canonical_digest(candidate_claim) == stored["receipt"]["claimDigest"]
         and evidence_digest(candidate_evidence) == stored["receipt"]["evidenceSetDigest"]
@@ -1016,7 +1212,7 @@ def recompute(stored: dict[str, Any], candidate_claim: dict[str, Any], candidate
     return {
         "recomputationStatus": "REPRODUCED" if same else "DIVERGED",
         "reasonCode": RECOMPUTE["identical"] if same else RECOMPUTE["diverged"],
-        "evaluationPerformed": True,
+        "evaluationPerformed": EVALUATIONS[0] != evaluations,
         "verificationOutcome": candidate_result["outcome"],
         "verificationReasonCode": candidate_result["reasonCode"],
         "canonicalResult": candidate_result,
@@ -1025,24 +1221,49 @@ def recompute(stored: dict[str, Any], candidate_claim: dict[str, Any], candidate
 
 # ------------------------------------------------------------------------------- the gate
 
-def base_case(ctx: dict[str, Any], snapshot_path: str, deliverable_path: str) -> tuple[dict[str, Any], bytes, bytes]:
-    snapshot_bytes = safe_dependency_path(snapshot_path).read_bytes()
-    deliverable = safe_dependency_path(deliverable_path).read_bytes()
-    snapshot = parse_json(snapshot_bytes, snapshot_path)
-    derived = derive(snapshot["job"]["description"], deliverable, snapshot["job"]["id"], snapshot["submission"]["deliverable"])
+def read_vector_set(profile: dict[str, Any]) -> dict[str, bytes]:
+    """Read every conformance file once, check its pin and the set digest, and keep exactly those bytes."""
+    members = profile["conformanceVectorSet"]["members"]
+    files: dict[str, bytes] = {}
+    for member in members:
+        data = safe_dependency_path(member["path"]).read_bytes()
+        if sha256(data) != member["sha256"]:
+            raise ProfileError(f"conformance vector drift: {member['id']}")
+        files[member["path"]] = data
+    if sha256(dependency_rows(members)) != profile["conformanceVectorSet"]["digest"]:
+        raise ProfileError("conformance vector set digest drift")
+    return files
+
+
+def base_case(files: dict[str, bytes], entry: dict[str, Any], ctx: dict[str, Any]) -> tuple[dict[str, Any], bytes, bytes]:
+    snapshot_bytes, deliverable = files[entry["snapshot"]], files[entry["deliverable"]]
+    if sha256(snapshot_bytes) != entry["snapshotSha256"] or sha256(deliverable) != entry["deliverableSha256"]:
+        raise ProfileError(f"base case identity drift: {entry['jobId']}")
+    snapshot = parse_json(snapshot_bytes, entry["snapshot"])
+    derived = derive(snapshot["job"]["description"], deliverable, snapshot["job"]["id"], snapshot["submission"]["deliverable"], ctx["words"])
     return claim_for(snapshot, derived["criteriaHash"]), snapshot_bytes, deliverable
 
 
+def set_path(value: dict[str, Any], path: list[str], new: Any) -> None:
+    for key in path[:-1]:
+        value = value[key]
+    value[path[-1]] = new
+
+
 def synthetic(snapshot_bytes: bytes, *, criteria: dict[str, Any] | None = None, content: bytes | None = None,
-              verdict: Any = "keep", evaluator: str | None = None, description: str | None = None) -> tuple[dict[str, Any], bytes, bytes]:
-    """A self-consistent variant of a base snapshot: the description, deliverable and commitment move together."""
+              verdict: Any = "keep", evaluator: str | None = None, description: str | None = None,
+              commitment: str | None = None, edits: list[Any] = ()) -> tuple[dict[str, Any], bytes, bytes]:
+    """A self-consistent variant of a base snapshot: the description, deliverable and commitment move together.
+
+    `edits` ([path, value] pairs) are applied after the claim is made, so the claim does not follow them.
+    """
     snapshot = parse_json(snapshot_bytes, "base snapshot")
     if criteria is not None:
         snapshot["job"]["description"] = "Synthetic conformance job.\n```judge-criteria\n" + json.dumps(criteria, ensure_ascii=False) + "\n```"
     if description is not None:
         snapshot["job"]["description"] = description
     if content is not None:
-        snapshot["submission"]["deliverable"] = keccak256(content)
+        snapshot["submission"]["deliverable"] = commitment or keccak256(content)
     if evaluator is not None:
         snapshot["job"]["evaluator"] = evaluator
     if verdict != "keep":
@@ -1052,17 +1273,34 @@ def synthetic(snapshot_bytes: bytes, *, criteria: dict[str, Any] | None = None, 
         c_hash = criteria_hash(parse_criteria(extract_criteria_text(snapshot["job"]["description"]) or ""))
     except (OutOfScope, ValueError, ProfileError):
         c_hash = "0x" + "0" * 64  # the criteria cannot be hashed; the evaluation rejects them before any hash comparison
-    return claim_for(snapshot, c_hash), canonical_bytes(snapshot), deliverable
+    claim = claim_for(snapshot, c_hash)
+    for path, value in edits:
+        set_path(snapshot, path, value)
+    return claim, canonical_bytes(snapshot), deliverable
 
 
 def expect_rejection(action: Any, reason_code: str) -> dict[str, Any]:
+    evaluations, constraints = EVALUATIONS[0], CONSTRAINTS_APPLIED[0]
     try:
         action()
     except GateRejected as error:
         if error.reason_code != reason_code:
             raise ProfileError(f"expected {reason_code}, received {error.reason_code}: {error}") from error
-        return {"gateStatus": "REJECTED", "reasonCode": error.reason_code}
+        return {"gateStatus": "REJECTED", "reasonCode": error.reason_code,
+                "evaluationPerformed": EVALUATIONS[0] != evaluations, "constraintsApplied": CONSTRAINTS_APPLIED[0] != constraints}
     raise ProfileError(f"negative control did not reject with {reason_code}")
+
+
+def expect_cannot(action: Any, reason_code: str) -> dict[str, Any]:
+    evaluations, constraints = EVALUATIONS[0], CONSTRAINTS_APPLIED[0]
+    try:
+        action()
+    except CannotRecompute as error:
+        if error.reason_code != reason_code:
+            raise ProfileError(f"expected {reason_code}, received {error.reason_code}: {error}") from error
+        return {"recomputationStatus": "CANNOT_RECOMPUTE", "reasonCode": error.reason_code,
+                "evaluationPerformed": EVALUATIONS[0] != evaluations, "constraintsApplied": CONSTRAINTS_APPLIED[0] != constraints}
+    raise ProfileError(f"control did not return CANNOT_RECOMPUTE with {reason_code}")
 
 
 def audit_manifest() -> tuple[str, int]:
@@ -1076,160 +1314,246 @@ def audit_manifest() -> tuple[str, int]:
     return digest, len(expected_members)
 
 
-def audit_vector_set(profile: dict[str, Any]) -> None:
-    members = profile["conformanceVectorSet"]["members"]
-    for member in members:
-        if sha256(safe_dependency_path(member["path"]).read_bytes()) != member["sha256"]:
-            raise ProfileError(f"conformance vector drift: {member['id']}")
-    if sha256(dependency_rows(members)) != profile["conformanceVectorSet"]["digest"]:
-        raise ProfileError("conformance vector set digest drift")
+def named(case_id: str, action: Any) -> Any:
+    """Run one conformance case; any failure names the case, so a mutation is traced to the case that caught it."""
+    try:
+        return action()
+    except Exception as error:  # a crash is a failure of this case too
+        raise ProfileError(f"case {case_id}: {type(error).__name__}: {error}") from error
+
+
+def gate_case(case: dict[str, Any], snapshot_bytes: bytes, ctx: dict[str, Any]) -> str:
+    """One vectors.json gate case: build it, evaluate it, and require exactly its gate rejection."""
+    kwargs: dict[str, Any] = {"verdict": "keep" if case.get("keepVerdict") else None, "edits": case.get("snapshotEdits", [])}
+    for key in ("criteria", "evaluator", "description", "commitment"):
+        if key in case:
+            kwargs[key] = case[key]
+    if "deliverableBase64" in case:
+        kwargs["content"] = base64.b64decode(case["deliverableBase64"])
+    elif "deliverableRepeat" in case:
+        kwargs["content"] = case["deliverableRepeat"]["text"].encode("utf-8") * case["deliverableRepeat"]["times"]
+    else:
+        kwargs["content"] = case.get("deliverable", "judged content").encode("utf-8")
+    claim, snapshot, deliverable = synthetic(snapshot_bytes, **kwargs)
+    for key, value in case.get("claimEdits", []):
+        claim[key] = value
+    evidence_set, payloads = evidence_for(snapshot, deliverable)
+    mutation = case.get("mutation")
+    if mutation == "claimCriteriaHash":
+        claim["criteriaHash"] = "0x" + "11" * 32
+    elif mutation == "deliverableNotCommitted":
+        payloads[DELIVERABLE_MEMBER] = deliverable + b"!"
+        evidence_set = evidence_for(snapshot, payloads[DELIVERABLE_MEMBER])[0]
+    elif mutation == "claimCommitmentElsewhere":
+        other = b"bytes the provider never submitted"
+        claim["deliverableCommitment"] = keccak256(other)
+        evidence_set, payloads = evidence_for(snapshot, other)
+    elif mutation == "snapshotWhitespace":
+        evidence_set, payloads = evidence_for(snapshot + b"\n", deliverable)
+    elif mutation == "snapshotNotJson":
+        evidence_set, payloads = evidence_for(b"{not json", deliverable)
+    elif mutation == "snapshotTooDeep":
+        # Deeper than any recomputer's JSON parser goes (3.9 stops near 1,000 levels, 3.14 past 100,000).
+        evidence_set, payloads = evidence_for(b'{"a":' * 1_000_000 + b"1" + b"}" * 1_000_000, deliverable)
+    elif mutation == "snapshotUnavailableWrongDeliverable":
+        evidence_set, payloads = evidence_for(None, deliverable + b"!")
+    elif mutation == "mediaType":
+        evidence_set["members"][1]["mediaType"] = "image/png"
+    elif mutation == "unavailableWithPayload":
+        evidence_set["members"][1] = unavailable_member(DELIVERABLE_MEMBER)
+    elif mutation == "memberOrder":
+        evidence_set["members"].reverse()
+    elif mutation is not None:
+        raise ProfileError(f"unknown gate mutation {mutation}")
+    return expect_rejection(lambda: evaluate(claim, evidence_set, payloads, ctx), case["expectedGate"])["reasonCode"]
+
+
+def verdict_field_controls(reject_snapshot: bytes, reject_deliverable: bytes, ctx: dict[str, Any], controls: dict[str, Any]) -> dict[str, str]:
+    """Change one field of the recorded verdict at a time: each derivable field must read DIFFERS, recorded context MATCHES."""
+    outcome: dict[str, str] = {}
+    for field, value in controls.items():
+        verdict = parse_json(reject_snapshot, "reject snapshot")["verdict"]
+        verdict[field] = value
+        claim, snapshot, deliverable = synthetic(reject_snapshot, verdict=verdict, content=reject_deliverable)
+        try:
+            outcome[field] = make_bundle(claim, snapshot, deliverable, ctx)["canonicalResult"]["evaluation"]["verdictAgreement"]
+        except GateRejected as error:
+            outcome[field] = error.reason_code
+    return outcome
 
 
 def run_gate() -> dict[str, Any]:
     ctx = load_profile()
     package_digest, member_count = audit_manifest()
-    audit_vector_set(ctx["profile"])
-    vectors = load_json(PACKAGE / "vectors.json")
-    expected = load_json(PACKAGE / "expected.json")
-    base = {name: base_case(ctx, entry["snapshot"], entry["deliverable"]) for name, entry in vectors["baseCases"].items()}
-    for name, entry in vectors["baseCases"].items():
-        claim, snapshot_bytes, deliverable = base[name]
-        if sha256(snapshot_bytes) != entry["snapshotSha256"] or sha256(deliverable) != entry["deliverableSha256"]:
-            raise ProfileError(f"base case identity drift: {name}")
+    files = read_vector_set(ctx["profile"])
+    vectors = parse_json(files[f"profiles/{PROFILE_ID}/vectors.json"], "vectors.json")
+    expected = parse_json(files[f"profiles/{PROFILE_ID}/expected.json"], "expected.json")
+    controls = vectors["negativeControls"]
+    claim, snapshot_bytes, deliverable = base_case(files, vectors["baseCases"]["pass"], ctx)
+    reject_claim, reject_snapshot, reject_deliverable = base_case(files, vectors["baseCases"]["reject"], ctx)
+    cases: dict[str, Any] = {}
 
-    claim, snapshot_bytes, deliverable = base["pass"]
+    def run(action: Any) -> dict[str, Any]:
+        evaluations, constraints = EVALUATIONS[0], CONSTRAINTS_APPLIED[0]
+        outcome = action()
+        outcome.setdefault("evaluationPerformed", EVALUATIONS[0] != evaluations)
+        outcome.setdefault("constraintsApplied", CONSTRAINTS_APPLIED[0] != constraints)
+        return outcome
+
     original = make_bundle(claim, snapshot_bytes, deliverable, ctx)
-    reproduced = recompute(original, claim, original["evidenceSet"], original["payloads"])
-    reproduced["onChainVerdict"] = original["canonicalResult"]["evaluation"]["onChainVerdict"]
-    reproduced["verdictAgreement"] = original["canonicalResult"]["evaluation"]["verdictAgreement"]
-
-    reject_claim, reject_snapshot, reject_deliverable = base["reject"]
+    stored = stored_without_payloads(original)
+    cases["REPRODUCED"] = named("REPRODUCED", lambda: recompute(stored, claim, original["evidenceSet"], original["payloads"]))
     rejected = make_bundle(reject_claim, reject_snapshot, reject_deliverable, ctx)
-    refuted_reproduced = recompute(rejected, reject_claim, rejected["evidenceSet"], rejected["payloads"])
-    refuted_reproduced["onChainVerdict"] = rejected["canonicalResult"]["evaluation"]["onChainVerdict"]
-    refuted_reproduced["verdictAgreement"] = rejected["canonicalResult"]["evaluation"]["verdictAgreement"]
+    cases["REFUTED_REPRODUCED"] = named("REFUTED_REPRODUCED", lambda: recompute(
+        stored_without_payloads(rejected), reject_claim, rejected["evidenceSet"], rejected["payloads"]))
+    for name, bundle in (("REPRODUCED", original), ("REFUTED_REPRODUCED", rejected)):
+        cases[name]["onChainVerdict"] = bundle["canonicalResult"]["evaluation"]["onChainVerdict"]
+        cases[name]["verdictAgreement"] = bundle["canonicalResult"]["evaluation"]["verdictAgreement"]
 
-    failing = vectors["negativeControls"]["divergedDeliverable"].encode("utf-8")
+    failing = controls["divergedDeliverable"].encode("utf-8")
     diverged_claim = copy.deepcopy(claim)
     diverged_snapshot = parse_json(snapshot_bytes, "base snapshot")
     diverged_snapshot["submission"]["deliverable"] = diverged_claim["deliverableCommitment"] = keccak256(failing)
     diverged_evidence, diverged_payloads = evidence_for(canonical_bytes(diverged_snapshot), failing)
-    diverged = recompute(original, diverged_claim, diverged_evidence, diverged_payloads)
+    diverged = named("DIVERGED", lambda: recompute(stored, diverged_claim, diverged_evidence, diverged_payloads))
     diverged["failingChecks"] = [c["kind"] for c in diverged["canonicalResult"]["evaluation"]["checks"] if not c["pass"]]
+    cases["DIVERGED"] = diverged
 
-    unavailable = make_bundle(claim, snapshot_bytes, None, ctx)
-    unavailable_reproduced = recompute(unavailable, claim, unavailable["evidenceSet"], unavailable["payloads"])
+    no_deliverable = make_bundle(claim, snapshot_bytes, None, ctx)
+    cases["UNVERIFIABLE_REPRODUCED"] = named("UNVERIFIABLE_REPRODUCED", lambda: recompute(
+        stored_without_payloads(no_deliverable), claim, no_deliverable["evidenceSet"], no_deliverable["payloads"]))
+    no_snapshot = make_bundle(claim, None, deliverable, ctx)
+    cases["UNVERIFIABLE_SNAPSHOT_REPRODUCED"] = named("UNVERIFIABLE_SNAPSHOT_REPRODUCED", lambda: recompute(
+        stored_without_payloads(no_snapshot), claim, no_snapshot["evidenceSet"], no_snapshot["payloads"]))
 
-    missing_payloads = dict(original["payloads"])
-    del missing_payloads[DELIVERABLE_MEMBER]
-    cannot = recompute(original, claim, original["evidenceSet"], missing_payloads)
-    normative_cannot = recompute(original, claim, original["evidenceSet"], original["payloads"],
-                                 missing=("judge-protocol-rvr-v0-verification-specification",))
-    tampered = recompute(original, claim, original["evidenceSet"], original["payloads"],
-                         overrides={"judge-protocol-rvr-v0-profile-schema": b"{not-valid-json"})
+    missing_payloads = {SNAPSHOT_MEMBER: original["payloads"][SNAPSHOT_MEMBER]}
+    cases["CANNOT_RECOMPUTE"] = named("CANNOT_RECOMPUTE", lambda: run(lambda: recompute(stored, claim, original["evidenceSet"], missing_payloads)))
+    contradicted = copy.deepcopy(stored)
+    contradicted["receipt"]["outcome"] = controls["projectionReplacement"]
+    cases["CANNOT_RECOMPUTE_PRECEDES_GATES"] = named("CANNOT_RECOMPUTE_PRECEDES_GATES", lambda: run(lambda: recompute(contradicted, claim, original["evidenceSet"], missing_payloads)))
+    cases["NORMATIVE_DEPENDENCY_CANNOT_RECOMPUTE"] = named("NORMATIVE_DEPENDENCY_CANNOT_RECOMPUTE", lambda: run(lambda: recompute(stored, claim, original["evidenceSet"], original["payloads"], missing=(SPEC_ID,))))
+    cases["REQUIRED_DEPENDENCY_IDENTITY_MISMATCH"] = named("REQUIRED_DEPENDENCY_IDENTITY_MISMATCH", lambda: run(lambda: recompute(
+        stored, claim, original["evidenceSet"], original["payloads"], overrides={SPEC_ID: controls["tamperedSpecificationBytes"].encode("utf-8") + b"\xff"})))
+    cases["TAMPERED_PROFILE_CONSTRAINTS_PIN"] = named("TAMPERED_PROFILE_CONSTRAINTS_PIN", lambda: run(lambda: recompute(
+        stored, claim, original["evidenceSet"], original["payloads"], overrides={CONSTRAINTS_ID: controls["permissiveConstraints"].encode("utf-8")})))
+    foreign = copy.deepcopy(stored)
+    foreign["receipt"]["verificationProfileDigest"] = "ab" * 32
+    cases["FOREIGN_PROFILE_REJECTED"] = named("FOREIGN_PROFILE_REJECTED", lambda: expect_rejection(lambda: recompute(foreign, claim, original["evidenceSet"], original["payloads"]), GATE["identity"]))
 
-    substituted_payloads = dict(original["payloads"])
-    substituted_payloads[DELIVERABLE_MEMBER] = deliverable + b" "
-    payload_mismatch = expect_rejection(
-        lambda: recompute(original, claim, original["evidenceSet"], substituted_payloads), GATE["identity"])
+    longer = copy.deepcopy(original["evidenceSet"])
+    longer["members"][1]["byteLength"] = str(len(deliverable) + 1)
+    cases["PAYLOAD_LENGTH_MISMATCH"] = named("PAYLOAD_LENGTH_MISMATCH", lambda: expect_rejection(lambda: recompute(stored, claim, longer, original["payloads"]), GATE["identity"]))
+    same_length = dict(original["payloads"])
+    same_length[DELIVERABLE_MEMBER] = deliverable[:-1] + bytes([deliverable[-1] ^ 1])
+    cases["PAYLOAD_DIGEST_MISMATCH"] = named("PAYLOAD_DIGEST_MISMATCH", lambda: expect_rejection(lambda: recompute(stored, claim, original["evidenceSet"], same_length), GATE["identity"]))
 
     non_required = [m for m in ctx["profile"]["conformanceVectorSet"]["members"] if not m["requiredForRecomputation"]]
-    withheld = recompute(original, claim, original["evidenceSet"], original["payloads"], missing=tuple(m["id"] for m in non_required))
-    swapped = recompute(original, claim, original["evidenceSet"], original["payloads"],
-                        overrides={m["id"]: b"substituted conformance material" for m in non_required})
-    def result_digest(outcome: dict[str, Any]) -> str | None:
-        return canonical_digest(outcome["canonicalResult"]) if "canonicalResult" in outcome else None
+    def non_required_control() -> dict[str, Any]:
+        withheld = recompute(stored, claim, original["evidenceSet"], original["payloads"], missing=tuple(m["id"] for m in non_required))
+        swapped = recompute(stored, claim, original["evidenceSet"], original["payloads"],
+                            overrides={m["id"]: b"substituted conformance material" for m in non_required})
+        digest = lambda outcome: canonical_digest(outcome["canonicalResult"]) if "canonicalResult" in outcome else None
+        return {"withheldStatus": withheld["recomputationStatus"], "substitutedStatus": swapped["recomputationStatus"],
+                "resultUnchanged": digest(withheld) == digest(swapped) == original["receipt"]["resultDigest"]}
+    cases["NON_REQUIRED_DEPENDENCY_CONTROL"] = named("NON_REQUIRED_DEPENDENCY_CONTROL", non_required_control)
 
-    non_required_control = {
-        "withheldStatus": withheld["recomputationStatus"],
-        "substitutedStatus": swapped["recomputationStatus"],
-        "resultUnchanged": result_digest(withheld) == result_digest(swapped) == original["receipt"]["resultDigest"],
-    }
-
-    contradictory = copy.deepcopy(original)
-    contradictory["receipt"]["outcome"] = vectors["negativeControls"]["projectionReplacement"]
-    projection = expect_rejection(lambda: validate_bundle(contradictory, ctx), GATE["projection"])
+    contradictory = copy.deepcopy(stored)
+    contradictory["receipt"]["outcome"] = controls["projectionReplacement"]
+    projection = named("PROJECTION_NEGATIVE_CONTROL", lambda: expect_rejection(
+        lambda: recompute(contradictory, claim, original["evidenceSet"], original["payloads"]), GATE["projection"]))
     projection["resultDigestPreserved"] = contradictory["receipt"]["resultDigest"] == canonical_digest(contradictory["canonicalResult"])
+    cases["PROJECTION_NEGATIVE_CONTROL"] = projection
 
-    hidden = expect_rejection(
-        lambda: recompute(original, claim, original["evidenceSet"], original["payloads"],
-                          hidden_inputs=vectors["negativeControls"]["hiddenAmbientInput"]), GATE["closure"])
-    hidden["evaluationPerformed"] = False
+    inconsistent = copy.deepcopy(stored_without_payloads(rejected))
+    inconsistent["canonicalResult"]["outcome"] = "VERIFIED"
+    inconsistent["receipt"]["outcome"] = "VERIFIED"
+    inconsistent["receipt"]["resultDigest"] = canonical_digest(inconsistent["canonicalResult"])
+    cases["CONTRADICTORY_RESULT_REJECTED"] = named("CONTRADICTORY_RESULT_REJECTED", lambda: expect_rejection(
+        lambda: recompute(inconsistent, reject_claim, rejected["evidenceSet"], rejected["payloads"]), GATE["schema"]))
 
-    tampered_verdict = copy.deepcopy(parse_json(reject_snapshot, "reject snapshot")["verdict"])
+    def envelope_with(change: Any) -> Any:
+        envelope = load_envelope()
+        change(envelope)
+        return lambda: resolve_dependencies(envelope)
+    def profile_with(change: Any) -> Any:
+        profile = copy.deepcopy(ctx["profile"])
+        change(profile)
+        return lambda: resolve_dependencies(load_envelope(profile))
+    duplicate = copy.deepcopy(ctx["profile"])
+    duplicate["schemaContracts"][0]["id"] = duplicate["verificationSpecification"]["id"]
+    cases["DUPLICATE_DEPENDENCY_ID_REJECTED"] = named("DUPLICATE_DEPENDENCY_ID_REJECTED", lambda: expect_rejection(
+        lambda: load_envelope(duplicate), GATE["identity"]))
+    cases["DEPENDENCY_FILE_ABSENT"] = named("DEPENDENCY_FILE_ABSENT", lambda: expect_cannot(
+        profile_with(lambda d: d["verificationSpecification"].update(path=f"profiles/{PROFILE_ID}/NOT-THERE.md")), RECOMPUTE["dependency_unavailable"]))
+    cases["DEPENDENCY_PATH_OUTSIDE_ROOT"] = named("DEPENDENCY_PATH_OUTSIDE_ROOT", lambda: expect_cannot(
+        profile_with(lambda d: d["verificationSpecification"].update(path="../outside/SPEC.md")), RECOMPUTE["dependency_unavailable"]))
+    cases["NORMATIVE_DEPENDENCY_NOT_REQUIRED"] = named("NORMATIVE_DEPENDENCY_NOT_REQUIRED", lambda: expect_rejection(
+        profile_with(lambda d: d["verificationSpecification"].update(requiredForRecomputation=False)), GATE["schema"]))
+    cases["PROFILE_CONSTRAINTS_APPLIED"] = named("PROFILE_CONSTRAINTS_APPLIED", lambda: expect_rejection(
+        profile_with(lambda d: d.update(profileId="another-profile")), GATE["schema"]))
+    cases["CANONICAL_RESULT_SCHEMA_PIN_REJECTED"] = named("CANONICAL_RESULT_SCHEMA_PIN_REJECTED", lambda: expect_rejection(
+        profile_with(lambda d: d["canonicalResultContract"].update(schemaSha256="00" * 32)), GATE["identity"]))
+    for status, name in (("2", "SUBMITTED_JOB_EVALUATED"), ("5", "EXPIRED_JOB_EVALUATED")):
+        def evaluated(status: str = status) -> dict[str, Any]:
+            s_claim, s_snapshot, s_deliverable = synthetic(snapshot_bytes, content=deliverable, verdict=None, edits=[[["job", "status"], status]])
+            result_ = make_bundle(s_claim, s_snapshot, s_deliverable, ctx)["canonicalResult"]
+            return {"verificationOutcome": result_["outcome"], "verdictAgreement": result_["evaluation"]["verdictAgreement"]}
+        cases[name] = named(name, evaluated)
+
+    cases["BOOTSTRAP_SCHEMA_BYTES_REJECTED"] = named("BOOTSTRAP_SCHEMA_BYTES_REJECTED", lambda: expect_rejection(
+        envelope_with(lambda e: e.update(bootstrap=e["bootstrap"] + b"\n")), GATE["identity"]))
+    cases["CONTRACT_SCHEMA_PIN_REJECTED"] = named("CONTRACT_SCHEMA_PIN_REJECTED", lambda: expect_rejection(
+        envelope_with(lambda e: e["profile"]["evidenceSetContract"].update(schemaSha256="00" * 32)), GATE["identity"]))
+
+    cases["HIDDEN_STATE_NEGATIVE_CONTROL"] = named("HIDDEN_STATE_NEGATIVE_CONTROL", lambda: expect_rejection(
+        lambda: recompute(stored, claim, original["evidenceSet"], original["payloads"], hidden_inputs=controls["hiddenAmbientInput"]), GATE["closure"]))
+
+    tampered_verdict = parse_json(reject_snapshot, "reject snapshot")["verdict"]
     tampered_verdict.update({"pass": True, "score": "100"})
     b_claim, b_snapshot, b_deliverable = synthetic(reject_snapshot, verdict=tampered_verdict, content=reject_deliverable)
-    boundary_bundle = make_bundle(b_claim, b_snapshot, b_deliverable, ctx)
-    altered_hash = copy.deepcopy(parse_json(reject_snapshot, "reject snapshot")["verdict"])
-    altered_hash["evidenceHash"] = "0x" + "ab" * 32
-    h_claim, h_snapshot, h_deliverable = synthetic(reject_snapshot, verdict=altered_hash, content=reject_deliverable)
-    verdict_boundary = {
-        "verificationOutcome": boundary_bundle["canonicalResult"]["outcome"],
-        "onChainVerdict": boundary_bundle["canonicalResult"]["evaluation"]["onChainVerdict"],
-        "verdictAgreement": boundary_bundle["canonicalResult"]["evaluation"]["verdictAgreement"],
-        "evidenceHashOnlyAgreement": make_bundle(h_claim, h_snapshot, h_deliverable, ctx)["canonicalResult"]["evaluation"]["verdictAgreement"],
-    }
+    boundary = named("ONCHAIN_VERDICT_BOUNDARY", lambda: make_bundle(b_claim, b_snapshot, b_deliverable, ctx)["canonicalResult"])
+    cases["ONCHAIN_VERDICT_BOUNDARY"] = {"verificationOutcome": boundary["outcome"], "onChainVerdict": boundary["evaluation"]["onChainVerdict"],
+                                         "verdictAgreement": boundary["evaluation"]["verdictAgreement"]}
+    cases["VERDICT_FIELD_CONTROLS"] = named("VERDICT_FIELD_CONTROLS", lambda: verdict_field_controls(
+        reject_snapshot, reject_deliverable, ctx, controls["verdictFieldChanges"]))
+
+    other_claim = copy.deepcopy(stored)
+    other_claim["claim"]["jobId"] = "1"
+    cases["STORED_CLAIM_MISMATCH"] = named("STORED_CLAIM_MISMATCH", lambda: expect_rejection(
+        lambda: recompute(other_claim, claim, original["evidenceSet"], original["payloads"]), GATE["identity"]))
+    seventh = copy.deepcopy(stored)
+    seventh["receipt"]["issuedBy"] = "someone"
+    cases["RECEIPT_SHAPE_REJECTED"] = named("RECEIPT_SHAPE_REJECTED", lambda: expect_rejection(
+        lambda: recompute(seventh, claim, original["evidenceSet"], original["payloads"]), GATE["schema"]))
 
     byte_contract: dict[str, str] = {}
     for case in vectors["byteContractVectors"]:
-        actual_hash = criteria_hash(parse_criteria(case["criteriaText"]))
+        actual_hash = named(case["id"], lambda: criteria_hash(parse_criteria(case["criteriaText"])))
         if actual_hash != case["criteriaHash"]:
-            raise ProfileError(f"byte contract vector {case['id']}: {actual_hash} != {case['criteriaHash']}")
+            raise ProfileError(f"case {case['id']}: {actual_hash} != {case['criteriaHash']}")
         byte_contract[case["id"]] = actual_hash
 
     semantic_results: dict[str, Any] = {}
     for case in vectors["semanticCases"]:
         s_claim, s_snapshot, s_deliverable = synthetic(snapshot_bytes, criteria=case["criteria"], content=case["deliverable"].encode("utf-8"), verdict=None)
-        bundle = make_bundle(s_claim, s_snapshot, s_deliverable, ctx)
-        evaluation = bundle["canonicalResult"]["evaluation"]
-        actual = {"outcome": bundle["canonicalResult"]["outcome"], "score": evaluation["score"],
-                  "failingChecks": [c["kind"] for c in evaluation["checks"] if not c["pass"]]}
+        evaluation = named(case["id"], lambda: make_bundle(s_claim, s_snapshot, s_deliverable, ctx)["canonicalResult"])
+        actual = {"outcome": evaluation["outcome"], "score": evaluation["evaluation"]["score"],
+                  "failingChecks": [c["kind"] for c in evaluation["evaluation"]["checks"] if not c["pass"]]}
         wanted = {key: case[key] for key in ("outcome", "score", "failingChecks")}
         if actual != wanted:
-            raise ProfileError(f"semantic case {case['id']}: expected {wanted}, got {actual}")
+            raise ProfileError(f"case {case['id']}: expected {wanted}, got {actual}")
         semantic_results[case["id"]] = actual
 
-    gate_results: dict[str, str] = {}
-    for case in vectors["gateCases"]:
-        kwargs: dict[str, Any] = {"verdict": None}
-        if "criteria" in case:
-            kwargs["criteria"] = case["criteria"]
-        if "deliverableBase64" in case:
-            kwargs["content"] = base64.b64decode(case["deliverableBase64"])
-        else:
-            kwargs["content"] = case.get("deliverable", "judged content").encode("utf-8")
-        for key in ("evaluator", "description"):
-            if key in case:
-                kwargs[key] = case[key]
-        g_claim, g_snapshot, g_deliverable = synthetic(snapshot_bytes, **kwargs)
-        if case.get("mutation") == "claimCriteriaHash":
-            g_claim["criteriaHash"] = "0x" + "11" * 32
-        elif case.get("mutation") == "deliverableNotCommitted":
-            g_deliverable = g_deliverable + b"!"
-        elif case.get("mutation") == "snapshotWhitespace":
-            g_snapshot = g_snapshot + b"\n"
-        evidence_set, payloads = evidence_for(g_snapshot, g_deliverable)
-        rejection = expect_rejection(lambda: evaluate(g_claim, evidence_set, payloads, ctx["rvrSchema"]), case["expectedGate"])
-        gate_results[case["id"]] = rejection["reasonCode"]
+    gate_results = {case["id"]: named(case["id"], lambda: gate_case(case, snapshot_bytes, ctx)) for case in vectors["gateCases"]}
 
-    cases = {
-        "REPRODUCED": reproduced,
-        "REFUTED_REPRODUCED": refuted_reproduced,
-        "DIVERGED": diverged,
-        "UNVERIFIABLE_REPRODUCED": unavailable_reproduced,
-        "CANNOT_RECOMPUTE": cannot,
-        "NORMATIVE_DEPENDENCY_CANNOT_RECOMPUTE": normative_cannot,
-        "TAMPERED_PROFILE_CONSTRAINTS_PIN": tampered,
-        "PAYLOAD_IDENTITY_MISMATCH": payload_mismatch,
-        "NON_REQUIRED_DEPENDENCY_CONTROL": non_required_control,
-        "PROJECTION_NEGATIVE_CONTROL": projection,
-        "HIDDEN_STATE_NEGATIVE_CONTROL": hidden,
-        "ONCHAIN_VERDICT_BOUNDARY": verdict_boundary,
-    }
     for identifier, expected_case in expected["cases"].items():
+        if identifier not in cases:
+            raise ProfileError(f"expected case {identifier} was not run")
         for key, value in expected_case.items():
             if cases[identifier].get(key) != value:
-                raise ProfileError(f"expected mismatch at {identifier}.{key}: {cases[identifier].get(key)!r} != {value!r}")
+                raise ProfileError(f"case {identifier}: {key} is {cases[identifier].get(key)!r}, expected {value!r}")
+    if set(cases) != set(expected["cases"]):
+        raise ProfileError(f"cases without expected results: {sorted(set(cases) - set(expected['cases']))}")
     counts = {"semanticCases": len(semantic_results), "gateCases": len(gate_results), "byteContractVectors": len(byte_contract)}
     if counts != expected["counts"]:
         raise ProfileError(f"case count drift: {counts} != {expected['counts']}")
@@ -1243,8 +1567,8 @@ def run_gate() -> dict[str, Any]:
         "verificationProfileDigest": ctx["digest"],
         "packageDigest": package_digest,
         "packageMembers": member_count,
-        "unicodeVersion": unicodedata.unidata_version,
-        "receipts": {"pass": original["receipt"], "reject": rejected["receipt"], "deliverableUnavailable": unavailable["receipt"]},
+        "wordCharacterRanges": len(ctx["words"][0]),
+        "receipts": {"pass": original["receipt"], "reject": rejected["receipt"], "deliverableUnavailable": no_deliverable["receipt"]},
         "byteContractVectors": {"passed": len(byte_contract), "results": byte_contract},
         "semanticCases": {"passed": len(semantic_results), "results": semantic_results},
         "gateCases": {"passed": len(gate_results), "results": gate_results},
@@ -1260,7 +1584,7 @@ def write_derived() -> None:
     rvr_digest = sha256(RVR_SCHEMA_PATH.read_bytes())
     profile["evidenceSetContract"]["schemaSha256"] = rvr_digest
     profile["canonicalResultContract"]["schemaSha256"] = rvr_digest
-    PROFILE_PATH.write_text(json.dumps(profile, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    PROFILE_PATH.write_bytes((json.dumps(profile, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
     members = [{"path": path, "sha256": sha256(safe_dependency_path(path).read_bytes())} for path in PACKAGE_MEMBERS]
     manifest = {
         "schema": "rvr.profile-package-manifest.v0",
@@ -1270,13 +1594,13 @@ def write_derived() -> None:
         "packageDigestRule": "sha256-utf8-sorted-path-tab-file-sha256-lf-rows-manifest-excluded",
         "packageDigest": sha256(dependency_rows(members)),
     }
-    MANIFEST_PATH.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    MANIFEST_PATH.write_bytes((json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
 
 
-def evaluate_request(request: dict[str, Any]) -> dict[str, Any]:
+def evaluate_request(request: dict[str, Any], words: tuple[list[int], list[int]]) -> dict[str, Any]:
     content = base64.b64decode(request["deliverableBase64"])
     try:
-        derived = derive(request["description"], content, request["jobId"], request["commitment"])
+        derived = derive(request["description"], content, request["jobId"], request["commitment"], words)
     except GateRejected as error:
         return {"gate": error.reason_code}
     return {"criteriaHash": derived["criteriaHash"], "checks": [{"kind": r["kind"], "pass": r["pass"]} for r in derived["results"]],
@@ -1285,10 +1609,11 @@ def evaluate_request(request: dict[str, Any]) -> dict[str, Any]:
 
 def evaluate_stdin() -> Any:
     """Cross-implementation aid (non-normative): derive rulings from JSON on stdin (one request or a list)."""
+    words = load_profile()["words"]
     request = json.loads(sys.stdin.read())
     if isinstance(request, list):
-        return [evaluate_request(item) for item in request]
-    return evaluate_request(request)
+        return [evaluate_request(item, words) for item in request]
+    return evaluate_request(request, words)
 
 
 def main() -> int:

@@ -32,7 +32,18 @@
       "recomputationStatus": "REPRODUCED",
       "evaluationPerformed": true
     },
+    "UNVERIFIABLE_SNAPSHOT_REPRODUCED": {
+      "verificationOutcome": "UNVERIFIABLE",
+      "verificationReasonCode": "rvr.judge-protocol.v0.required_chain_snapshot_unavailable",
+      "recomputationStatus": "REPRODUCED",
+      "evaluationPerformed": true
+    },
     "CANNOT_RECOMPUTE": {
+      "recomputationStatus": "CANNOT_RECOMPUTE",
+      "reasonCode": "rvr.recompute.committed_evidence_unavailable",
+      "evaluationPerformed": false
+    },
+    "CANNOT_RECOMPUTE_PRECEDES_GATES": {
       "recomputationStatus": "CANNOT_RECOMPUTE",
       "reasonCode": "rvr.recompute.committed_evidence_unavailable",
       "evaluationPerformed": false
@@ -40,17 +51,36 @@
     "NORMATIVE_DEPENDENCY_CANNOT_RECOMPUTE": {
       "recomputationStatus": "CANNOT_RECOMPUTE",
       "reasonCode": "rvr.recompute.normative_dependency_unavailable",
-      "evaluationPerformed": false
-    },
-    "TAMPERED_PROFILE_CONSTRAINTS_PIN": {
-      "recomputationStatus": "CANNOT_RECOMPUTE",
-      "reasonCode": "rvr.recompute.normative_dependency_pin_mismatch",
       "evaluationPerformed": false,
       "constraintsApplied": false
     },
-    "PAYLOAD_IDENTITY_MISMATCH": {
+    "REQUIRED_DEPENDENCY_IDENTITY_MISMATCH": {
+      "recomputationStatus": "CANNOT_RECOMPUTE",
+      "reasonCode": "rvr.recompute.normative_dependency_identity_mismatch",
+      "evaluationPerformed": false,
+      "constraintsApplied": false
+    },
+    "TAMPERED_PROFILE_CONSTRAINTS_PIN": {
+      "recomputationStatus": "CANNOT_RECOMPUTE",
+      "reasonCode": "rvr.recompute.normative_dependency_identity_mismatch",
+      "evaluationPerformed": false,
+      "constraintsApplied": false
+    },
+    "FOREIGN_PROFILE_REJECTED": {
       "gateStatus": "REJECTED",
-      "reasonCode": "rvr.gate.identity_mismatch"
+      "reasonCode": "rvr.gate.identity_mismatch",
+      "evaluationPerformed": false,
+      "constraintsApplied": false
+    },
+    "PAYLOAD_LENGTH_MISMATCH": {
+      "gateStatus": "REJECTED",
+      "reasonCode": "rvr.gate.identity_mismatch",
+      "evaluationPerformed": false
+    },
+    "PAYLOAD_DIGEST_MISMATCH": {
+      "gateStatus": "REJECTED",
+      "reasonCode": "rvr.gate.identity_mismatch",
+      "evaluationPerformed": false
     },
     "NON_REQUIRED_DEPENDENCY_CONTROL": {
       "withheldStatus": "REPRODUCED",
@@ -60,7 +90,13 @@
     "PROJECTION_NEGATIVE_CONTROL": {
       "gateStatus": "REJECTED",
       "reasonCode": "rvr.gate.result_projection_mismatch",
+      "evaluationPerformed": false,
       "resultDigestPreserved": true
+    },
+    "CONTRADICTORY_RESULT_REJECTED": {
+      "gateStatus": "REJECTED",
+      "reasonCode": "rvr.gate.schema_invalid",
+      "evaluationPerformed": false
     },
     "HIDDEN_STATE_NEGATIVE_CONTROL": {
       "gateStatus": "REJECTED",
@@ -70,13 +106,86 @@
     "ONCHAIN_VERDICT_BOUNDARY": {
       "verificationOutcome": "REFUTED",
       "onChainVerdict": "PASS",
-      "verdictAgreement": "DIFFERS",
-      "evidenceHashOnlyAgreement": "DIFFERS"
+      "verdictAgreement": "DIFFERS"
+    },
+    "VERDICT_FIELD_CONTROLS": {
+      "criteriaHash": "DIFFERS",
+      "deliverable": "DIFFERS",
+      "score": "DIFFERS",
+      "threshold": "DIFFERS",
+      "pass": "DIFFERS",
+      "evidenceHash": "DIFFERS",
+      "jobId": "rvr.judge-protocol.v0.gate.snapshot_inconsistent",
+      "timestamp": "MATCHES",
+      "txHash": "MATCHES",
+      "blockNumber": "MATCHES"
+    },
+    "STORED_CLAIM_MISMATCH": {
+      "gateStatus": "REJECTED",
+      "reasonCode": "rvr.gate.identity_mismatch",
+      "evaluationPerformed": false
+    },
+    "RECEIPT_SHAPE_REJECTED": {
+      "gateStatus": "REJECTED",
+      "reasonCode": "rvr.gate.schema_invalid",
+      "evaluationPerformed": false,
+      "constraintsApplied": false
+    },
+    "BOOTSTRAP_SCHEMA_BYTES_REJECTED": {
+      "gateStatus": "REJECTED",
+      "reasonCode": "rvr.gate.identity_mismatch",
+      "evaluationPerformed": false
+    },
+    "CONTRACT_SCHEMA_PIN_REJECTED": {
+      "gateStatus": "REJECTED",
+      "reasonCode": "rvr.gate.identity_mismatch",
+      "evaluationPerformed": false
+    },
+    "DUPLICATE_DEPENDENCY_ID_REJECTED": {
+      "gateStatus": "REJECTED",
+      "reasonCode": "rvr.gate.identity_mismatch",
+      "constraintsApplied": false
+    },
+    "DEPENDENCY_FILE_ABSENT": {
+      "recomputationStatus": "CANNOT_RECOMPUTE",
+      "reasonCode": "rvr.recompute.normative_dependency_unavailable",
+      "evaluationPerformed": false,
+      "constraintsApplied": false
+    },
+    "DEPENDENCY_PATH_OUTSIDE_ROOT": {
+      "recomputationStatus": "CANNOT_RECOMPUTE",
+      "reasonCode": "rvr.recompute.normative_dependency_unavailable",
+      "evaluationPerformed": false,
+      "constraintsApplied": false
+    },
+    "NORMATIVE_DEPENDENCY_NOT_REQUIRED": {
+      "gateStatus": "REJECTED",
+      "reasonCode": "rvr.gate.schema_invalid",
+      "constraintsApplied": false
+    },
+    "PROFILE_CONSTRAINTS_APPLIED": {
+      "gateStatus": "REJECTED",
+      "reasonCode": "rvr.gate.schema_invalid",
+      "constraintsApplied": true,
+      "evaluationPerformed": false
+    },
+    "CANONICAL_RESULT_SCHEMA_PIN_REJECTED": {
+      "gateStatus": "REJECTED",
+      "reasonCode": "rvr.gate.identity_mismatch",
+      "evaluationPerformed": false
+    },
+    "SUBMITTED_JOB_EVALUATED": {
+      "verificationOutcome": "VERIFIED",
+      "verdictAgreement": "NO_VERDICT"
+    },
+    "EXPIRED_JOB_EVALUATED": {
+      "verificationOutcome": "VERIFIED",
+      "verdictAgreement": "NO_VERDICT"
     }
   },
   "counts": {
-    "semanticCases": 21,
-    "gateCases": 15,
+    "semanticCases": 31,
+    "gateCases": 74,
     "byteContractVectors": 5
   }
 }
