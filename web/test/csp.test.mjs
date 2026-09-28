@@ -63,5 +63,6 @@ test('CSP stays strict: nothing is loosened to make the fix pass', () => {
   for (const loose of ['*', "'unsafe-eval'", 'http:', 'https:', 'data:', 'blob:']) {
     assert.ok(!all.split(/[\s;]+/).includes(loose), `CSP must not contain ${loose}`);
   }
-  assert.deepEqual([...d['connect-src']].sort(), ["'self'", 'https://rpc.testnet.arc.io', 'https://judge-protocol-api.vercel.app'].sort());
+  // Exactly the origins the page calls: the relay, Arc testnet and Arc mainnet RPCs (?network=arc-mainnet), the judge API.
+  assert.deepEqual([...d['connect-src']].sort(), ["'self'", 'https://rpc.testnet.arc.io', 'https://rpc.mainnet.arc.io', 'https://judge-protocol-api.vercel.app'].sort());
 });

@@ -52,6 +52,9 @@ settled Rejected (relay tx `0x3023bd2c...f66a6`). Anyone can re-check either fro
 node judge-service/src/verify.js 16 --network arc-mainnet   # VERIFIED: recomputed independently
 ```
 
+or in the browser, with no install: https://judge-protocol-verifier.vercel.app/?network=arc-mainnet (it reads
+Arc mainnet directly from the page).
+
 No third party has used the judge on mainnet yet, and the hosted API below still rules on testnet.
 
 ## Live on Arc testnet (chain 5042002) · v1.1
@@ -235,7 +238,7 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
   load abstaining instead of retrying forever), and paid rulings over x402 (payments signed by
   Circle's own client; a payment settles only once a verdict is ready and the contract would
   accept it).
-- ✅ **113/113 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
+- ✅ **118/118 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
   `judge-service` first): the page's CSP, the read-only relay, the public numbers, parity with the
   service's own checkers, the CLI, and the in-browser verifier run against a fake chain built from
   recorded Arc testnet data, including tampered inputs that must never verify.

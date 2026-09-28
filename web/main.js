@@ -12,9 +12,9 @@ const usdc = (v) => (Number(v) / 1e6).toFixed(2);
 
 /* ---------------------------------- footer -------------------------------- */
 set($('#addrs'), [
-  el('span', { text: 'JudgeEvaluator ' }), safeLink(short(CFG.judge), ex('/address/' + CFG.judge), CFG.explorer),
-  el('span', { text: ' · Hook ' }), safeLink(short(CFG.hook), ex('/address/' + CFG.hook), CFG.explorer),
-  el('span', { text: ' · Canonical ERC-8183 ' }), safeLink(short(CFG.acp), ex('/address/' + CFG.acp), CFG.explorer),
+  el('span', { text: `${CFG.label}: JudgeEvaluator ` }), safeLink(short(CFG.judge), ex('/address/' + CFG.judge), CFG.explorer),
+  ...(CFG.hook ? [el('span', { text: ' · Hook ' }), safeLink(short(CFG.hook), ex('/address/' + CFG.hook), CFG.explorer)] : []),
+  el('span', { text: ` · ${CFG.acpLabel} ` }), safeLink(short(CFG.acp), ex('/address/' + CFG.acp), CFG.explorer),
 ]);
 
 /* ------------------------------- measurement ------------------------------ */
@@ -25,9 +25,14 @@ set($('#measure'), MEASURED.map(([a, b, c]) => el('tr', {}, [
   el('td', { class: 'note', text: c }),
 ])));
 
+const MAINNET_LIMITS = 'On Arc mainnet since 2026-09-28. Circle has no ERC-8183 contract on Arc mainnet, so the judge '
+  + 'serves the ERC-8183 reference escrow ArcBounty deployed there. Its only rulings so far are two zero-budget '
+  + 'test jobs of our own (jobs 16 and 17), and the hosted judge still rules on Arc testnet only, so nobody can '
+  + 'ask it for a mainnet ruling from this page yet. Deterministic checks cover objective, structured '
+  + 'deliverables; subjective quality is deliberately out of scope for the trust path.';
 set($('#limits'), [
   el('strong', { text: 'Honest limits. ' }),
-  el('span', {
+  CFG.network === 'arc-mainnet' ? el('span', { text: MAINNET_LIMITS }) : el('span', {
     text: 'The judge runs on demand plus a daily sweep on Arc testnet: after a provider submits, anyone can '
       + 'ask it to rule (judge-protocol-api.vercel.app), and the sweep catches jobs nobody asked about. It is '
       + 'best effort with no uptime guarantee; if it never rules, claimRefund after the job expires returns '
@@ -46,10 +51,17 @@ set($('#limits'), [
 // see it took effect.
 {
   const relay = CFG.rpc === '/api/rpc';
-  set($('#rpcmode'), relay
-    ? [el('span', { text: 'Chain data from: the read-only /api/rpc relay on this site (' }),
-      el('a', { text: 'read the Arc RPC directly', href: '?rpc=direct' }), el('span', { text: ').' })]
-    : [el('span', { text: `Chain data from: ${CFG.rpc} (direct).` })]);
+  const other = CFG.network === 'arc-mainnet'
+    ? el('a', { text: 'switch to Arc testnet', href: '?' })
+    : el('a', { text: 'switch to Arc mainnet', href: '?network=arc-mainnet' });
+  set($('#rpcmode'), [
+    ...(CFG.unknownNetwork ? [el('strong', { text: `Unknown network "${CFG.unknownNetwork}", showing Arc testnet. ` })] : []),
+    el('span', { text: `Network: ${CFG.label} (` }), other, el('span', { text: '). ' }),
+    ...(relay
+      ? [el('span', { text: 'Chain data from: the read-only /api/rpc relay on this site (' }),
+        el('a', { text: 'read the Arc RPC directly', href: '?rpc=direct' }), el('span', { text: ').' })]
+      : [el('span', { text: `Chain data from: ${CFG.rpc} (direct).` })]),
+  ]);
 }
 
 /* ---------------------------------- stats --------------------------------- */
@@ -67,7 +79,7 @@ async function loadStats() {
       statCard('Escrow released', String(s.completed)),
       statCard('Escrow refunded', String(s.rejected)),
       statCard('Paused', s.paused ? 'yes' : 'no'),
-      statCard('Jobs on canonical ACP', jc.toLocaleString()),
+      statCard(CFG.network === 'arc-mainnet' ? 'Jobs on the escrow' : 'Jobs on canonical ACP', jc.toLocaleString()),
       statCard('Guardian', short(s.guardian), true),
     ]);
   } catch (e) {
@@ -218,10 +230,20 @@ function renderAwaiting(r) {
         el('div', { class: 'note', text: p.note }),
       ]),
     ]),
-    el('p', { class: 'note', style: 'margin-top:12px', text: 'Anyone can ask: the ruling is a pure function of the criteria in the job and the provider\'s commitment, so it does not matter who asks.' }),
-    el('div', { class: 'row', style: 'margin-top:8px' }, [btn]),
-    status,
+    ...askTheJudge(btn, status),
   ])]);
+}
+
+// The ask-the-judge button needs a hosted judge on this network; there is none on Arc mainnet yet.
+function askTheJudge(btn, status) {
+  if (CFG.judgeApi) {
+    return [
+      el('p', { class: 'note', style: 'margin-top:12px', text: 'Anyone can ask: the ruling is a pure function of the criteria in the job and the provider\'s commitment, so it does not matter who asks.' }),
+      el('div', { class: 'row', style: 'margin-top:8px' }, [btn]),
+      status,
+    ];
+  }
+  return [el('p', { class: 'note', style: 'margin-top:12px', text: `There is no hosted judge on ${CFG.label} yet, so this page cannot ask for a ruling here. Check back after the judge rules.` })];
 }
 
 function errBox(title, msg) {

@@ -18,8 +18,8 @@
 // --deliverable <file>  raw bytes of the deliverable (for https/ipfs deliverables)
 // --evidence <file>     a judge evidence JSON; only its deliverableURI is used, as a hint
 // --rpc <url>           JSON-RPC endpoint (default: ARC_RPC_URL or https://rpc.testnet.arc.io)
-// --network <name>     arc-mainnet: the Arc mainnet judge, the escrow it serves and the public RPC
-//                       (default: Arc testnet); --rpc, --judge and --acp still override it
+// --network <name>     arc-mainnet or arc-testnet (the default): that deployment's judge, escrow and
+//                       public RPC, from web/app.js; --rpc, --judge and --acp still override it
 // --judge <address>     the JudgeEvaluator to check against (default: the Arc testnet deployment)
 // --acp <address>       the ERC-8183 escrow the job lives on (default: Circle's Arc testnet contract)
 // --probe               re-run any http-endpoint probe NOW (the endpoint as it is today,
@@ -38,19 +38,15 @@ if (jobId === null) {
   console.error("usage: node judge-service/src/verify.js <jobId> [--deliverable file] [--evidence file] [--rpc url] [--probe]");
   process.exit(2);
 }
-// Deployments other than the default (Arc testnet). Arc mainnet: JudgeEvaluator (source-verified on
-// Sourcify) serving the ERC-8183 reference escrow ArcBounty runs there.
-const NETWORKS = {
-  "arc-mainnet": { rpc: "https://rpc.mainnet.arc.io", judge: "0xC9de51A6b440D834D05e22d0D500F41Df1B56321",
-    acp: "0x64cA39Fc57315D0D488acCaC07c37C6E841CD058" },
-};
+// Deployments: the same table the page uses (web/app.js NETWORKS), so the CLI and the page can never
+// disagree about an address. The default is Arc testnet.
 const network = opt("--network");
-if (network !== null && !Object.hasOwn(NETWORKS, network)) {
-  console.error(`unknown --network ${network} (known: ${Object.keys(NETWORKS).join(", ")})`);
+if (network !== null && !Object.hasOwn(app.NETWORKS, network)) {
+  console.error(`unknown --network ${network} (known: ${Object.keys(app.NETWORKS).join(", ")})`);
   process.exit(2);
 }
-const preset = network === null ? {} : NETWORKS[network];
-app.CFG.rpc = opt("--rpc") || preset.rpc || process.env.ARC_RPC_URL || app.CFG.directRpc;
+const preset = network === null ? {} : app.NETWORKS[network];
+app.CFG.rpc = opt("--rpc") || preset.directRpc || process.env.ARC_RPC_URL || app.CFG.directRpc;
 if (preset.judge) app.CFG.judge = preset.judge;
 if (preset.acp) app.CFG.acp = preset.acp;
 for (const [flag, key] of [["--judge", "judge"], ["--acp", "acp"]]) {

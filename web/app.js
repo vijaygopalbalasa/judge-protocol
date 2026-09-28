@@ -9,32 +9,68 @@
 import { keccak_256 } from './vendor/noble/sha3.js';
 import { WORD_RANGES } from './word-characters.js';
 
-const DIRECT_RPC = 'https://rpc.testnet.arc.io';
+// The deployments the page can read. The default is Arc testnet, read through this site's /api/rpc
+// relay; ?network=arc-mainnet reads the Arc mainnet judge straight from Arc's public RPC, which allows
+// this site's origin (the relay only forwards testnet calls). Circle has no ERC-8183 contract on Arc
+// mainnet, so the mainnet judge serves the reference escrow ArcBounty deployed there.
+export const NETWORKS = {
+  'arc-testnet': {
+    label: 'Arc testnet', chainId: 5042002, directRpc: 'https://rpc.testnet.arc.io', relay: true,
+    judge: '0x6EFF7d4BB514d341AbEd90bF4c667d0A980173AD',
+    hook: '0xfe38bF336148eb3F2E1A5DEE8Ed89AC3B8bcF1c8',
+    acp: '0x0747EEf0706327138c69792bF28Cd525089e4583', acpLabel: 'Canonical ERC-8183',
+    explorer: 'https://testnet.arcscan.app',
+    judgeApi: 'https://judge-protocol-api.vercel.app',
+    // Every job this evaluator has settled, newest first. Verified on-chain.
+    knownJobs: [186741, 186740, 171925, 171507, 170857, 170856, 170855],
+  },
+  'arc-mainnet': {
+    label: 'Arc mainnet', chainId: 5042, directRpc: 'https://rpc.mainnet.arc.io', relay: false,
+    judge: '0xC9de51A6b440D834D05e22d0D500F41Df1B56321',
+    hook: null,
+    acp: '0x64cA39Fc57315D0D488acCaC07c37C6E841CD058', acpLabel: 'ERC-8183 escrow (ArcBounty)',
+    explorer: 'https://explorer.arc.io',
+    judgeApi: null, // the hosted judge rules on testnet only
+    knownJobs: [17, 16],
+  },
+};
 
-// Deployed (Vercel) reads go through the same-origin /api/rpc relay so a
-// visitor's network or cross-origin rules can never make the page look broken.
-// Local static hosting (localhost / file://, e.g. the README's python3 http
-// server) has no such function, so it calls the Arc RPC directly, and so does
-// any visit with ?rpc=direct.
+/** The ?network= value, or 'arc-testnet' when there is none. */
+export function networkFrom(search) {
+  const m = /(?:^\?|&)network=([^&]*)/.exec(search || '');
+  return m ? decodeURIComponent(m[1]) : 'arc-testnet';
+}
+const REQUESTED = typeof location === 'undefined' ? 'arc-testnet' : networkFrom(location.search);
+const NETWORK = Object.hasOwn(NETWORKS, REQUESTED) ? REQUESTED : 'arc-testnet';
+const NET = NETWORKS[NETWORK];
+const DIRECT_RPC = NET.directRpc;
+
+// Deployed (Vercel) testnet reads go through the same-origin /api/rpc relay so a visitor's network or
+// cross-origin rules can never make the page look broken. Local static hosting (localhost / file://,
+// e.g. the README's python3 http server) has no such function, so it calls the Arc RPC directly, and
+// so does any visit with ?rpc=direct, and any network the relay does not serve.
 const RPC_ENDPOINT = (() => {
   if (typeof location === 'undefined') return DIRECT_RPC;
   const h = location.hostname;
   const local = h === 'localhost' || h === '127.0.0.1' || h === '' || location.protocol === 'file:';
   const direct = /(^|[?&])rpc=direct(&|$)/.test(location.search || '');
-  return local || direct ? DIRECT_RPC : '/api/rpc';
+  return local || direct || !NET.relay ? DIRECT_RPC : '/api/rpc';
 })();
 
 export const CFG = {
+  network: NETWORK,
+  unknownNetwork: NETWORK === REQUESTED ? null : REQUESTED,
+  label: NET.label,
   rpc: RPC_ENDPOINT,
   directRpc: DIRECT_RPC,
-  chainId: 5042002,
-  judge: '0x6EFF7d4BB514d341AbEd90bF4c667d0A980173AD',
-  hook: '0xfe38bF336148eb3F2E1A5DEE8Ed89AC3B8bcF1c8',
-  acp: '0x0747EEf0706327138c69792bF28Cd525089e4583',
-  explorer: 'https://testnet.arcscan.app',
-  judgeApi: 'https://judge-protocol-api.vercel.app',
-  // Every job this evaluator has settled, newest first. Verified on-chain.
-  knownJobs: [186741, 186740, 171925, 171507, 170857, 170856, 170855],
+  chainId: NET.chainId,
+  judge: NET.judge,
+  hook: NET.hook,
+  acp: NET.acp,
+  acpLabel: NET.acpLabel,
+  explorer: NET.explorer,
+  judgeApi: NET.judgeApi,
+  knownJobs: NET.knownJobs,
 };
 
 /* ------------------------------ input ------------------------------------ */
