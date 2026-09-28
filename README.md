@@ -99,6 +99,20 @@ Gateway, settled only once the judge has a verdict ready, before it signs).
   re-derives two real on-chain verdicts and agrees with the judge's own ruling path on 400 generated
   cases.
 
+## Standards
+
+Judge is an evaluator for ERC-8183, and two newer draft standards formalize its core ideas. Their
+authors invited a Judge profile for each.
+
+| Standard | What Judge does | Status |
+|---|---|---|
+| [ERC-8183](https://eips.ethereum.org/EIPS/eip-8183) Agentic Commerce | The evaluator a job names: checks the deliverable against criteria frozen in the job, then releases or refunds the escrow | Live on Circle's ERC-8183 contract on Arc testnet |
+| [ERC-8412](https://github.com/ethereum/ERCs/pull/2002) Preregistered Acceptance Criteria | Criteria preregistered before the work; the live judge writes itemized attestations on chain | Profile built at the author's invitation; records pass the ERC's reference verifier ([docs](docs/ERC-8412.md)) |
+| [ERC-8404](https://github.com/ethereum/ERCs/pull/1980) Recomputable Verification Receipts | A receipt anyone can recompute from a frozen chain snapshot and the deliverable | Profile built on the author's suggestion, posted for his review ([docs](docs/ERC-8404.md)) |
+| [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) Trustless Agents | Registered as agent #870004 in Arc testnet's Identity Registry | Registered |
+
+All four are drafts, and everything here runs on testnet.
+
 ## License, attribution and name
 
 The code is open source under the [MIT license](LICENSE): use it, change it, build on it.
