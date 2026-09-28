@@ -16,6 +16,8 @@ export function createHealthHandler(deps = {}) {
       judge: config.judgeAddress, acp: config.acpAddress, chainId: config.chain.id,
       minJobBudgetUSDC: String(Number(process.env.MIN_JOB_BUDGET || 10_000) / 1e6),
       commit: (process.env.VERCEL_GIT_COMMIT_SHA || "").slice(0, 7) || null,
+      // ERC-8412: preregister against this registry, naming this attestor as the verifier (docs/ERC-8412.md).
+      erc8412: config.erc8412Attestor ? { registry: config.erc8412Registry, attestor: config.erc8412Attestor } : null,
     };
     let clients;
     try { clients = deps.clients || (deps.makeClients || defaultMakeClients)(); } catch {

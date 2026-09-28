@@ -274,3 +274,73 @@ test("waitForRuling keeps waiting through a network blip, a 503 and an HTML erro
   // a final answer still ends the wait at once
   await assert.rejects(() => kit.waitForRuling({ jobId: 9, intervalMs: 1, fetchImpl: async () => reply(200, { result: "expired" }) }), /will not be judged: expired/);
 });
+
+/* ------------------------------ ERC-8412 ------------------------------------ */
+
+const svcErc8412 = await import("../../judge-service/src/erc8412.js");
+const KIT_CLIENT = "0xA3f1b2503838fc061af842eD2C719559E12ad973";
+
+/** What GET /api/erc8412 answers for job `id`, built by the judge service's own profile code. */
+function erc8412Answer(id, criteria = CRITERIA, over = {}) {
+  const c = svcErc8412.criteriaDocument(criteria, { chainId: kit.ARC_TESTNET.chainId, acp: kit.ARC_TESTNET.acp, jobId: BigInt(id),
+    verifier: kit.ARC_TESTNET.erc8412Attestor, expiry: 1790003600 });
+  return { status: "not-preregistered", jobId: String(id), registry: kit.ARC_TESTNET.erc8412Registry, attestor: kit.ARC_TESTNET.erc8412Attestor,
+    client: KIT_CLIENT, preregistrationId: "0x" + "77".repeat(32), criteriaDocument: c.doc,
+    preregister: { criteriaDigest: c.criteriaDigest, taskRef: c.taskRef, obligationCount: c.obligationCount, obligationFlags: c.obligationFlags,
+      expiry: c.doc.expiry, verifier: kit.ARC_TESTNET.erc8412Attestor, supersedes: "0x" + "0".repeat(64) }, ...over };
+}
+function erc8412Wallets(answer) {
+  const sent = [];
+  return { sent,
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => answer }),
+    walletClient: { account: { address: KIT_CLIENT }, writeContract: async (req) => { sent.push(req); return "0x" + "ab".repeat(32); } },
+    publicClient: { waitForTransactionReceipt: async () => ({ status: "success" }) } };
+}
+
+test("ERC-8412: the kit preregisters exactly the judge's document for this job", async () => {
+  const w = erc8412Wallets(erc8412Answer(186900));
+  const r = await kit.preregisterErc8412({ ...w, jobId: 186900, criteria: CRITERIA });
+  assert.equal(r.status, "preregistered");
+  assert.equal(w.sent.length, 1);
+  assert.equal(w.sent[0].address, kit.ARC_TESTNET.erc8412Registry);
+  assert.equal(w.sent[0].functionName, "preregister");
+  const a = erc8412Answer(186900).preregister;
+  assert.deepEqual(w.sent[0].args, [a.criteriaDigest, a.taskRef, a.obligationCount, a.obligationFlags, BigInt(a.expiry), a.verifier, a.supersedes]);
+});
+
+test("ERC-8412: the kit refuses a document the API could have swapped, and sends nothing", async () => {
+  const other = { ...CRITERIA, passThreshold: 50 };
+  const good = erc8412Answer(186901);
+  const cases = [
+    ["other criteria", erc8412Answer(186901, other), /does not name these criteria/],
+    ["a digest of something else", { ...good, preregister: { ...good.preregister, criteriaDigest: "0x" + "11".repeat(32) } }, /does not hash/],
+    ["another registry", { ...good, registry: "0x" + "12".repeat(20) }, /registry or verifier/],
+    ["another verifier", { ...good, preregister: { ...good.preregister, verifier: "0x" + "13".repeat(20) } }, /registry or verifier/],
+    ["another job's taskRef", erc8412Answer(186902), /taskRef/],
+    ["flags that disagree", { ...good, preregister: { ...good.preregister, obligationFlags: "0x40" } }, /disagree/],
+    ["another expiry", { ...good, preregister: { ...good.preregister, expiry: 1790009999 } }, /disagree/],
+  ];
+  for (const [label, answer, why] of cases) {
+    const w = erc8412Wallets(answer);
+    await assert.rejects(() => kit.preregisterErc8412({ ...w, jobId: 186901, criteria: CRITERIA }), why, label);
+    assert.deepEqual(w.sent, [], label);
+  }
+  const notClient = erc8412Wallets(good);
+  notClient.walletClient.account.address = PROVIDER;
+  await assert.rejects(() => kit.preregisterErc8412({ ...notClient, jobId: 186901, criteria: CRITERIA }), /only the job's client/);
+  assert.deepEqual(notClient.sent, []);
+});
+
+test("ERC-8412: a job already preregistered (or attested) is reported, not preregistered twice", async () => {
+  for (const status of ["preregistered", "attested"]) {
+    const w = erc8412Wallets(erc8412Answer(186903, CRITERIA, { status }));
+    const r = await kit.preregisterErc8412({ ...w, jobId: 186903, criteria: CRITERIA });
+    assert.equal(r.status, status);
+    assert.deepEqual(w.sent, []);
+  }
+});
+
+test("ERC-8412: the kit's registry and attestor are the judge service's", () => {
+  assert.equal(kit.ARC_TESTNET.erc8412Registry, svcConfig.erc8412Registry);
+  assert.equal(kit.ARC_TESTNET.erc8412Attestor, svcConfig.erc8412Attestor);
+});

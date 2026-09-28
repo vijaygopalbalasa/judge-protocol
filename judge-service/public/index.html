@@ -47,7 +47,8 @@
     <tr><td><code>GET /api/judge?jobId=N</code></td><td>Read-only status: pending, judged (with the on-chain verdict), not-submitted, expired, closed, not-ours, or not-found.</td></tr>
     <tr><td><code>POST /api/evaluate</code></td><td>Dry run: the exact checks, score and evidenceHash the judge would produce for a deliverable. Never signs, never settles, never makes a network request. For your own escrow, or to self-check before submitting.</td></tr>
     <tr><td><code>POST /api/x402/judge</code></td><td>The same ruling, paid over x402: 0.01 USDC through Circle Gateway on Arc testnet, settled only once the judge has a verdict ready and before it signs, so one payment never buys two rulings. Answers 402 with the terms for a job it can rule; everything else is free.</td></tr>
-    <tr><td><code>GET /api/health</code></td><td>The judge, its signer and whether it is authorized on chain, and whether the relayer has gas.</td></tr>
+    <tr><td><code>GET /api/erc8412?jobId=N</code></td><td>ERC-8412: the job's criteria document and the <code>preregister</code> arguments for its client, and once the judge has attested, the whole record rebuilt from chain data with our checker's result. See <a href="https://github.com/vijaygopalbalasa/judge-protocol/blob/master/docs/ERC-8412.md">docs/ERC-8412.md</a>.</td></tr>
+    <tr><td><code>GET /api/health</code></td><td>The judge, its signer and whether it is authorized on chain, whether the relayer has gas, and the ERC-8412 registry and attestor.</td></tr>
   </table>
 
   <h2>Honest limits</h2>

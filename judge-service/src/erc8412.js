@@ -159,11 +159,13 @@ export function criteriaDocument(criteria, { chainId, acp, jobId, verifier, expi
 }
 
 /** The evidence bundle: the provider's committed deliverable for every
- *  deterministic check, and the judge's record for every live probe. */
+ *  deterministic check, and the judge's record for every live probe. Every
+ *  field comes from chain data (the probe's pass bit is in the attestation),
+ *  so anyone can rebuild the bundle and check its digest. */
 export function evidenceBundle({ preregistrationId, criteria, deliverable, results, judgedAt }) {
   const items = criteria.checks.map((check, i) => {
     if (check.kind === "http-endpoint") {
-      const record = { check: i, kind: check.kind, pass: !!results[i].pass, detail: String(results[i].detail ?? ""), judgedAt: Number(judgedAt) };
+      const record = { check: i, kind: check.kind, pass: !!results[i].pass, judgedAt: Number(judgedAt) };
       return { obligationIndex: i, preregistrationId, digest: docDigest(record), mediaType: "application/json",
         locator: `#${NS}.probe`, captureMetadata: { timestamp: Number(judgedAt) }, [`${NS}.probe`]: record };
     }

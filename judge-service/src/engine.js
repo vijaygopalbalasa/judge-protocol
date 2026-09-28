@@ -7,6 +7,7 @@ import { extractDeliverableURI, resolveDeliverable, storeEvidence, evidenceHashO
 import { runAllChecks, validateCriteria, InvalidCriteriaError } from "./checkers/index.js";
 import { makeClients, signVerdict, submitVerdictOnChain } from "./signer.js";
 import { MAX_BYTES, FetchError } from "./safe-fetch.js";
+import { attestRuling } from "./erc8412-attest.js";
 import { loadCursor, saveCursor } from "./cursor.js";
 
 const processed = new Set();
@@ -103,10 +104,37 @@ export function fetchFailureOutcome(e, uri) {
   return { outcome: "abstain", reason: "unsupported deliverable URI scheme (use data:, https:// or ipfs://)" };
 }
 
-export async function evaluateJob(jobId, deliverableHash, clients, submitTxHash) {
+export async function evaluateJob(jobId, deliverableHash, clients, submitTxHash, { attest } = {}) {
   const prepared = await prepareRuling(jobId, deliverableHash, clients, submitTxHash);
   if (prepared.outcome !== "ready") return prepared;
-  return settleRuling(prepared, clients, clients.relayRetry);
+  const judged = await settleRuling(prepared, clients, clients.relayRetry);
+  const erc8412 = await offerToErc8412(prepared, judged, attest !== undefined ? attest : attesterFor(clients));
+  return erc8412 ? { ...judged, erc8412 } : judged;
+}
+
+/** This deployment's ERC-8412 attester (docs/ERC-8412.md), or null when it is switched off. */
+export function attesterFor(clients) {
+  if (!config.erc8412Attestor) return null;
+  return (ruling) => attestRuling(ruling, { ...clients, chainId: config.chain.id, acp: config.acpAddress,
+    registry: config.erc8412Registry, attestor: config.erc8412Attestor });
+}
+
+/**
+ * After a verdict settles, attest it on ERC-8412 if the client preregistered
+ * it. The verdict is already final, so a failure here is reported with its
+ * reason and never undoes or blocks the ruling.
+ */
+export async function offerToErc8412(prepared, judged, attest) {
+  if (!attest || judged?.outcome !== "judged") return null;
+  const v = prepared.verdictObj;
+  const ruling = { jobId: prepared.jobId, client: prepared.client, expiredAt: prepared.expiredAt, criteria: v.criteria,
+    results: v.results, pass: prepared.pass, judgedAt: judged.timestamp,
+    deliverable: { digest: prepared.deliverable, uri: v.deliverableURI, submitTx: prepared.submitTx } };
+  try {
+    return await attest(ruling);
+  } catch (e) {
+    return { status: "error", reason: String(e?.message ?? e).slice(0, 300) };
+  }
 }
 
 /**
@@ -129,6 +157,8 @@ export async function prepareRuling(jobId, deliverableHash, clients, submitTxHas
   const status = Number(job.status ?? job[7]);
   const description = job.description ?? job[4];
   const budget = BigInt(job.budget ?? job[5] ?? 0n);
+  const client = job.client ?? job[1];
+  const expiredAt = BigInt(job.expiredAt ?? job[6] ?? 0n);
   if (evaluator.toLowerCase() !== config.judgeAddress.toLowerCase()) {
     return { outcome: "not-ours" }; // silent: the vast majority of chain traffic
   }
@@ -212,7 +242,7 @@ export async function prepareRuling(jobId, deliverableHash, clients, submitTxHas
     judge: signerAccount.address,
   };
   return { outcome: "ready", jobId, verdictObj, criteriaHash: cHash, deliverable: deliverableHash, pass, score, threshold,
-    evidenceHash: evidenceHashOf(verdictObj) };
+    evidenceHash: evidenceHashOf(verdictObj), client, expiredAt, submitTx: submitTxHash };
 }
 
 // A revert is deterministic (the contract said no); anything else (an RPC
@@ -237,7 +267,8 @@ export async function settleRuling(prepared, clients, { retries = 2, retryDelayM
     timestamp: BigInt(Math.floor(Date.now() / 1000)),
   };
   const sig = await signVerdict(signerAccount, verdict);
-  const judged = (txHash) => ({ outcome: "judged", pass: prepared.pass, score: prepared.score, threshold: prepared.threshold, txHash, evidenceHash });
+  const judged = (txHash) => ({ outcome: "judged", pass: prepared.pass, score: prepared.score, threshold: prepared.threshold, txHash, evidenceHash,
+    timestamp: Number(verdict.timestamp) });
   for (let attempt = 0; ; attempt++) {
     try {
       const { hash } = await submitVerdictOnChain(relayerWallet, publicClient, verdict, sig);

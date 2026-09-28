@@ -37,6 +37,11 @@ It is free to use on Arc testnet. It is best effort with no uptime guarantee.
 4. **Anyone** asks for the ruling: `POST /api/judge` with the job id and the submit
    transaction hash. The judge settles on chain in the same request.
 
+Optional, between steps 1 and 3: the **client** can also record the criteria as an
+[ERC-8412](ERC-8412.md) preregistration (`kit.preregisterErc8412`, or the arguments from
+`GET /api/erc8412?jobId=<id>`). The judge then attests its ruling check by check on the ERC-8412
+registry, and anyone can rebuild and verify that record from chain data.
+
 With the kit (`kit/judge-kit.js`, one file, depends only on viem):
 
 ```js
@@ -184,8 +189,14 @@ payment, it is `Payment failed: <error>`, and every such error means nothing was
 one that says your payment settled (see above).
 
 ### `GET /api/health`
-The judge address, its signer and whether the signer is authorized on chain, and
-the relayer's gas balance.
+The judge address, its signer and whether the signer is authorized on chain, the
+relayer's gas balance, and the ERC-8412 registry and attestor.
+
+### `GET /api/erc8412?jobId=<id>`
+Before the provider submits: the job's ERC-8412 criteria document and the exact
+`preregister(...)` arguments for the job's client. After the judge attests: the whole
+package (chain state and the three documents) rebuilt from chain data, with our
+checker's result. Pass `submitTx` when the submission is more than about 4 hours old.
 
 ## How to check a ruling yourself
 

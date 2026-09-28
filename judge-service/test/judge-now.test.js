@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 
 process.env.EVIDENCE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "judge-evidence-"));
-const { mockChain, CRITERIA, TEXT, describe } = await import("./helpers/mock-chain.js");
+const { mockChain, CRITERIA, TEXT, describe, CLIENT } = await import("./helpers/mock-chain.js");
 const { judgeNow, sweepRecent, jobStatus } = await import("../src/judge-now.js");
 const { evaluateJob } = await import("../src/engine.js");
 
@@ -390,4 +390,47 @@ test("the judge never sends a verdict the contract would refuse", async () => {
   opts.registeredCriteria = { 5105: criteriaHash(extractCriteria(m.jobs.get(5105n).description)) };
   const ok = await judgeNow({ jobId: "5105" }, { clients: m.clients });
   assert.equal(ok.body.result, "judged", JSON.stringify(ok.body));
+});
+
+/* ----------------------------- ERC-8412 ------------------------------------ */
+
+test("a judged job is offered to ERC-8412 with the ruling's own facts, and the outcome is in the response", async () => {
+  const m = mockChain({ jobs: [{ id: 51 }, { id: 52, content: "Short and wrong." }] });
+  const seen = [];
+  const attest = async (ruling) => { seen.push(ruling); return { status: "not-preregistered", preregistrationId: "0x" + "11".repeat(32) }; };
+  const ok = await judgeNow({ jobId: "51" }, { clients: m.clients, attest });
+  assert.equal(ok.body.result, "judged");
+  assert.deepEqual(ok.body.erc8412, { status: "not-preregistered", preregistrationId: "0x" + "11".repeat(32) });
+  const [x] = seen;
+  assert.equal(x.jobId, 51n);
+  assert.equal(x.client, CLIENT);
+  assert.equal(x.expiredAt, m.jobs.get(51n).expiredAt);
+  assert.deepEqual(x.criteria, CRITERIA);
+  assert.equal(x.pass, true);
+  assert.deepEqual(x.results.map((r) => [r.kind, r.pass]), [["length", true], ["contains", true]]);
+  assert.equal(x.deliverable.digest, deliverableOf(m, 51));
+  assert.equal(x.deliverable.submitTx, txOf(m, 51));
+  assert.match(x.deliverable.uri, /^data:/);
+  assert.equal(x.judgedAt, Number(m.verdicts.get(51n).timestamp), "the signed verdict's own time");
+  const fail = await judgeNow({ jobId: "52" }, { clients: m.clients, attest });
+  assert.equal(fail.body.pass, false);
+  assert.equal(seen[1].pass, false, "a REJECT is attested too, as NotSatisfied");
+});
+
+test("an ERC-8412 failure never costs a ruling: the verdict stands and the reason is reported", async () => {
+  const m = mockChain({ jobs: [{ id: 53 }] });
+  const r = await judgeNow({ jobId: "53" }, { clients: m.clients, attest: async () => { throw new Error("registry unreachable"); } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.result, "judged");
+  assert.equal(r.body.erc8412.status, "error");
+  assert.match(r.body.erc8412.reason, /registry unreachable/);
+});
+
+test("by default the judge asks the ERC-8412 registry, and a job nobody preregistered is simply not attested", async () => {
+  const m = mockChain({ jobs: [{ id: 54 }] });
+  const r = await judgeNow({ jobId: "54" }, { clients: m.clients });
+  assert.equal(r.body.result, "judged");
+  assert.equal(r.body.erc8412.status, "not-preregistered");
+  assert.match(r.body.erc8412.preregistrationId, /^0x[0-9a-f]{64}$/);
+  assert.equal(m.calls.writeContract.filter((c) => c.functionName === "attest").length, 0);
 });

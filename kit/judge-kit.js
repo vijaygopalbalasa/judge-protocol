@@ -9,7 +9,7 @@
 // The ruling is a pure function of the criteria committed in the job and the
 // deliverable the provider committed to on chain, so anyone can recompute it:
 // https://judge-protocol-verifier.vercel.app
-import { decodeEventLog, isAddress, keccak256, toHex } from "viem";
+import { decodeEventLog, encodeAbiParameters, isAddress, keccak256, toHex } from "viem";
 
 export const ARC_TESTNET = {
   chainId: 5042002,
@@ -20,6 +20,8 @@ export const ARC_TESTNET = {
   api: "https://judge-protocol-api.vercel.app",
   feeAddress: "0xf493CF092768a4B7a533359F28Db82B06D259Dc2", // where paid rulings (x402) are credited
   verifier: "https://judge-protocol-verifier.vercel.app",
+  erc8412Registry: "0x48c3a1812F2dFc762a80dbD5c65e9C7B0BB25ae4", // ERC-8412 reference registry
+  erc8412Attestor: "0x78E87A8E43e8E2784C12bF39eB6e2ea7C990fB15",             // JudgeAttestor, the verifier to name
 };
 
 const ZERO = "0x0000000000000000000000000000000000000000";
@@ -314,4 +316,59 @@ export async function dryRun({ criteria, content, jobId, api = ARC_TESTNET.api, 
   const out = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(out.reason || out.error || `HTTP ${res.status}`);
   return out;
+}
+
+/* ------------------------------ ERC-8412 (optional) ------------------------------ */
+
+const PREREGISTER_ABI = [{ name: "preregister", type: "function", stateMutability: "nonpayable",
+  inputs: [{ name: "criteriaDigest", type: "bytes32" }, { name: "taskRef", type: "bytes32" }, { name: "obligationCount", type: "uint16" },
+    { name: "obligationFlags", type: "bytes" }, { name: "expiry", type: "uint64" }, { name: "verifier", type: "address" },
+    { name: "supersedes", type: "bytes32" }], outputs: [{ type: "bytes32" }] }];
+
+/** RFC 8785 canonical JSON for the integer-only documents ERC-8412 defines. */
+function jcs(v) {
+  if (v === null || typeof v === "boolean" || typeof v === "string") return JSON.stringify(v);
+  if (typeof v === "number" && Number.isSafeInteger(v)) return String(v);
+  if (Array.isArray(v)) return `[${v.map(jcs).join(",")}]`;
+  if (v && typeof v === "object") return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${jcs(v[k])}`).join(",")}}`;
+  throw new Error("ERC-8412 documents carry integers only");
+}
+const packFlags = (obligations) => {
+  const out = new Uint8Array(Math.ceil(obligations.length / 4));
+  obligations.forEach((o, i) => { out[i >> 2] |= ((o.required ? 1 : 0) | (o.waivable ? 2 : 0)) << (6 - 2 * (i % 4)); });
+  return "0x" + Array.from(out, (b) => b.toString(16).padStart(2, "0")).join("");
+};
+
+/**
+ * Optional: record the job's criteria on the ERC-8412 registry, so the judge
+ * also attests its ruling check by check (docs/ERC-8412.md). Call it as the
+ * job's client, after createJudgedJob and before the provider submits. The
+ * document comes from the judge's API, and the kit checks it before sending
+ * anything: it must name YOUR criteria, hash to the digest being registered,
+ * and use the known registry and verifier, so the API cannot slip in others.
+ */
+export async function preregisterErc8412({ walletClient, publicClient, jobId, criteria, api = ARC_TESTNET.api, fetchImpl = fetch, config = ARC_TESTNET }) {
+  const id = idString(jobId);
+  const res = await fetchImpl(`${api}/api/erc8412?jobId=${id}`);
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`);
+  if (out.status !== "not-preregistered") return { preregistrationId: out.preregistrationId, status: out.status };
+  const doc = out.criteriaDocument, a = out.preregister;
+  const same = (x, y) => String(x).toLowerCase() === String(y).toLowerCase();
+  if (doc?.["io.github.vijaygopalbalasa.judge.criteriaHash"] !== criteriaHash(criteria)) throw new Error("the ERC-8412 document does not name these criteria");
+  if (keccak256(toHex(jcs(doc))) !== a.criteriaDigest) throw new Error("the ERC-8412 document does not hash to the digest it would register");
+  if (!same(out.registry, config.erc8412Registry) || !same(a.verifier, config.erc8412Attestor) || !same(doc.verifier, a.verifier)) {
+    throw new Error("unexpected ERC-8412 registry or verifier");
+  }
+  const taskRef = keccak256(encodeAbiParameters([{ type: "uint256" }, { type: "address" }, { type: "uint256" }], [BigInt(config.chainId), config.acp, BigInt(id)]));
+  if (a.taskRef !== taskRef || doc.taskRef !== taskRef) throw new Error("the ERC-8412 taskRef is not this job's");
+  if (a.obligationCount !== doc.obligations.length || a.obligationFlags !== packFlags(doc.obligations) || a.expiry !== doc.expiry || !/^0x0{64}$/.test(a.supersedes)) {
+    throw new Error("the ERC-8412 arguments disagree with the document");
+  }
+  if (!same(walletClient.account.address, out.client)) throw new Error("only the job's client can preregister its criteria");
+  const hash = await walletClient.writeContract({ address: config.erc8412Registry, abi: PREREGISTER_ABI, functionName: "preregister",
+    args: [a.criteriaDigest, a.taskRef, a.obligationCount, a.obligationFlags, BigInt(a.expiry), a.verifier, a.supersedes] });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== "success") throw new Error(`preregister reverted: ${hash}`);
+  return { preregistrationId: out.preregistrationId, status: "preregistered", txHash: hash };
 }

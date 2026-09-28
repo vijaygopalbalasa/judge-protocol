@@ -27,3 +27,6 @@ Third-party material:
   conformance vectors and reference verifier by Richard (@richard7463), from
   https://github.com/ethereum/ERCs/pull/2002 at commit ff9fbc7, unchanged and
   under CC0. They are used only to test this project's ERC-8412 profile.
+- contracts/test/vendor/erc8412/PreregisteredCriteria.sol is the ERC-8412 reference
+  registry from the same commit, unchanged and under CC0, used to test
+  JudgeAttestor against the real registry.

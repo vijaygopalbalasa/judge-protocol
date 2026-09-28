@@ -12,7 +12,7 @@
 import { parseAbiItem, decodeEventLog } from "viem";
 import { config } from "./config.js";
 import { acpAbi, judgeAbi, STATUS } from "./abi.js";
-import { prepareRuling, settleRuling, pollOnce, isRevert, MIN_BUDGET } from "./engine.js";
+import { prepareRuling, settleRuling, offerToErc8412, attesterFor, pollOnce, isRevert, MIN_BUDGET } from "./engine.js";
 import { extractCriteria, criteriaHash } from "./criteria.js";
 import { validateCriteria } from "./checkers/index.js";
 import { makeClients as defaultMakeClients, makePublicClient as defaultMakePublicClient } from "./signer.js";
@@ -70,7 +70,7 @@ async function readVerdict(publicClient, jobId) {
 }
 
 /** Find the provider's JobSubmitted log for this job: from a tx hint, or by a bounded backward search. */
-async function findSubmission(publicClient, jobId, submitTx) {
+export async function findSubmission(publicClient, jobId, submitTx) {
   if (submitTx) {
     let receipt;
     try { receipt = await publicClient.getTransactionReceipt({ hash: submitTx }); } catch { return null; }
@@ -144,9 +144,9 @@ async function ruleOn(jobId, input, clients, deps) {
       error: `no JobSubmitted event for this job in the last ~${SEARCH_HOURS} hours; pass submitTx (the provider's submit transaction hash) to rule on an older submission (the daily sweep also finds submissions from the last ~2 days)` });
   }
 
-  let outcome;
+  let outcome, prepared;
   try {
-    const prepared = await prepareRuling(jobId, sub.deliverable, clients, sub.txHash);
+    prepared = await prepareRuling(jobId, sub.deliverable, clients, sub.txHash);
     if (prepared.outcome === "ready") {
       const refused = await contractRefusal(publicClient, jobId, prepared.criteriaHash, clients.signerAccount.address);
       if (refused) return refused;
@@ -167,7 +167,10 @@ async function ruleOn(jobId, input, clients, deps) {
   if (!outcome) return reply(500, { result: "error", jobId, error: "no outcome" });
   if (outcome.outcome === "judged") {
     const { pass, score, threshold, txHash, evidenceHash } = outcome;
-    return reply(200, { result: "judged", jobId, pass, score, threshold, txHash, evidenceHash, submitTx: sub.txHash });
+    const erc8412 = await offerToErc8412(prepared, outcome, deps.attest !== undefined ? deps.attest : attesterFor(clients));
+    // The documents can embed a large deliverable; GET /api/erc8412 serves them rebuilt from chain.
+    const { documents, ...attestation } = erc8412 ?? {};
+    return reply(200, { result: "judged", jobId, pass, score, threshold, txHash, evidenceHash, submitTx: sub.txHash, ...(erc8412 ? { erc8412: attestation } : {}) });
   }
   if (outcome.outcome === "abstain" || outcome.outcome === "retry") {
     const r = outcome.outcome === "abstain"

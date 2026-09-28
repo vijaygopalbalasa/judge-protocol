@@ -1,7 +1,7 @@
 // A small in-memory stand-in for the viem clients the judge uses, so the
 // on-demand judge and the sweep can be tested end to end without a network.
 // Jobs, verdicts, submissions and relay behaviour are all configurable.
-import { encodeFunctionData, encodeEventTopics, parseAbiItem, keccak256, toHex, stringToHex, padHex } from "viem";
+import { encodeFunctionData, encodeEventTopics, parseAbiItem, keccak256, toHex, stringToHex, padHex, recoverTypedDataAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 export const ACP = "0x0747EEf0706327138c69792bF28Cd525089e4583";
@@ -50,13 +50,14 @@ export function mockChain(o) {
   const txs = new Map();
   const logs = [];
   const calls = { writeContract: [], getLogs: [] };
+  const attestations = new Map(); // ERC-8412: preregistrationId -> getAttestation row
   for (const j of o.jobs) {
     const content = j.content ?? TEXT;
     const committed = keccak256(stringToHex(content));
     const job = {
       id: BigInt(j.id), client: CLIENT, provider: PROVIDER, evaluator: j.evaluator ?? JUDGE,
       description: j.description ?? describe(j.criteria), budget: j.budget ?? 1_000_000n,
-      expiredAt: 0n, status: STATUS[j.status ?? "Submitted"], hook: "0x0000000000000000000000000000000000000000",
+      expiredAt: j.expiredAt ?? 0n, status: STATUS[j.status ?? "Submitted"], hook: "0x0000000000000000000000000000000000000000",
     };
     jobs.set(job.id, job);
     if (j.verdict) verdicts.set(job.id, j.verdict);
@@ -73,6 +74,7 @@ export function mockChain(o) {
 
   const publicClient = {
     getBlockNumber: async () => latest,
+    getBlock: async ({ blockNumber }) => ({ number: BigInt(blockNumber), timestamp: blockTime(blockNumber) }),
     getLogs: async ({ address, fromBlock, toBlock, args }) => {
       calls.getLogs.push([fromBlock, toBlock]);
       if (toBlock - fromBlock + 1n > 10_000n) throw new Error("requested range too large");
@@ -98,6 +100,9 @@ export function mockChain(o) {
         return j;
       }
       if (functionName === "getVerdict") return verdicts.get(BigInt(args[0])) ?? EMPTY_VERDICT;
+      // ERC-8412 registry: nothing is preregistered unless a test says so.
+      if (functionName === "getPreregistration") return o.preregistrations?.[args[0]] ?? [ZERO_ADDR, padHex("0x0"), padHex("0x0"), 0, "0x", 0n, 0n, ZERO_ADDR, padHex("0x0"), padHex("0x0")];
+      if (functionName === "getAttestation") return attestations.get(args[0]) ?? [ZERO_ADDR, padHex("0x0"), padHex("0x0"), 0, "0x", 0n];
       if (functionName === "isSigner") return (o.signerAuthorized ?? true) && String(args[0]).toLowerCase() === TEST_SIGNER.address.toLowerCase();
       throw new Error(`mock: unexpected readContract ${functionName} on ${address}`);
     },
@@ -124,7 +129,7 @@ export function mockChain(o) {
   const relayState = { failedOnce: false };
   const relayerWallet = {
     account: o.sameKey ? TEST_SIGNER : TEST_RELAYER,
-    writeContract: async ({ abi, functionName, args }) => {
+    writeContract: async ({ address, abi, functionName, args }) => {
       calls.writeContract.push({ functionName, args });
       // Like viem + the real JudgeEvaluator: the function must exist in the ABI,
       // and submitVerdict() only accepts a transaction SENT by an allowlisted
@@ -132,6 +137,7 @@ export function mockChain(o) {
       if (!Array.isArray(abi) || !abi.some((x) => x.type === "function" && x.name === functionName)) {
         throw new Error(`Function "${functionName}" not found on ABI`);
       }
+      if (functionName === "attest") return attest(address, args);
       if (functionName === "submitVerdict" && relayerWallet.account.address !== TEST_SIGNER.address) {
         throw new Error('The contract function "submitVerdict" reverted with the following signature: 0xa1b035c8 (NotSigner)');
       }
@@ -176,5 +182,25 @@ export function mockChain(o) {
     },
   };
 
-  return { clients: { publicClient, signerAccount: TEST_SIGNER, relayerWallet }, calls, jobs, verdicts, logs, latest };
+  /** JudgeAttestor + the ERC-8412 registry, as far as the judge relies on them:
+   *  the signature must recover to the judge's key, the preregistration must
+   *  exist and name this attestor, and there is one attestation per record. */
+  async function attest(attestor, [id, bundleDigest, attestationDigest, verdict, outcomes, signature]) {
+    const signer = await recoverTypedDataAddress({
+      domain: { name: "JudgeAttestor", version: "1", chainId: 5042002, verifyingContract: attestor },
+      types: { Attestation: [{ name: "preregistrationId", type: "bytes32" }, { name: "bundleDigest", type: "bytes32" },
+        { name: "attestationDigest", type: "bytes32" }, { name: "verdict", type: "uint8" }, { name: "obligationOutcomes", type: "bytes" }] },
+      primaryType: "Attestation", message: { preregistrationId: id, bundleDigest, attestationDigest, verdict, obligationOutcomes: outcomes }, signature });
+    if (signer.toLowerCase() !== TEST_SIGNER.address.toLowerCase()) throw new Error("execution reverted: BadSignature()");
+    const row = o.preregistrations?.[id];
+    if (!row || String(row[7]).toLowerCase() !== String(attestor).toLowerCase()) throw new Error("execution reverted: E3");
+    if (attestations.has(id)) throw new Error("execution reverted: E3");
+    attestations.set(id, [attestor, bundleDigest, attestationDigest, verdict, outcomes, blockTime(latest)]);
+    return keccak256(toHex(`attest-${id}`));
+  }
+
+  return { clients: { publicClient, signerAccount: TEST_SIGNER, relayerWallet }, calls, jobs, verdicts, logs, latest, attestations, blockTime };
 }
+
+/** Block timestamps: one second per block, ending near the present. */
+export const blockTime = (n) => 1_790_000_000n + (BigInt(n) - 64_000_000n);

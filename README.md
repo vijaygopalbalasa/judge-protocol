@@ -89,8 +89,9 @@ Gateway, settled only once the judge has a verdict ready, before it signs).
   single-client evaluators carry half the third-party volume. One command reproduces it.
 - **ERC-8412 profile:** [`docs/ERC-8412.md`](docs/ERC-8412.md) writes a ruling as an ERC-8412
   (Preregistered Acceptance Criteria) record: the checks frozen before any work exists, then an
-  itemized attestation. Two live runs on Arc testnet (jobs 186777 and 186778) pass the ERC's own
-  reference verifier.
+  itemized attestation. When a job's client preregisters, the live judge attests its ruling on the
+  ERC-8412 registry through JudgeAttestor, and `GET /api/erc8412` rebuilds the record from chain
+  data. The records pass the ERC's own reference verifier.
 
 ## License, attribution and name
 
@@ -137,9 +138,10 @@ evidence for humans, never decide.
 contracts/        Foundry project (Solidity 0.8.28, cancun)
   src/JudgeEvaluator.sol        core evaluator: signed verdicts → complete()/reject()
   src/JudgeReputationHook.sol   IACPHook → ERC-8004 feedback + reputation gate
+  src/JudgeAttestor.sol         ERC-8412 verifier: records attestations a trusted judge key signed
   src/interfaces/               IACP, IACPHook, IReputationRegistry
   src/mocks/                    MockACP (faithful to Circle's reference), MockUSDC
-  test/                         27 Foundry tests (evaluator + hook + attack paths)
+  test/                         37 Foundry tests (evaluator + hook + attestor + attack paths)
   script/Deploy.s.sol           Arc testnet deploy
   broadcast/                    deploy receipts (public audit trail)
 judge-service/    Node/viem off-chain engine
@@ -155,18 +157,18 @@ judge-service/    Node/viem off-chain engine
   src/erc8412-live.mjs          one job end to end on Arc under ERC-8412 (preregister to attest)
   api/                          hosted judge (Vercel): /api/judge, /api/x402/judge, /api/evaluate,
                                 /api/health, /api/cron/sweep
-  test/                         163 unit tests (checker gate, SSRF, evidence determinism, hosted judge, x402, ERC-8412)
+  test/                         179 unit tests (checker gate, SSRF, evidence determinism, hosted judge, x402, ERC-8412)
   evidence/                     recomputable verdict evidence (public audit trail)
 ```
 
 ## Status
 
-- ✅ **27/27 contract tests** (`cd contracts && forge test`): full lifecycle, both settlement
+- ✅ **37/37 contract tests** (`cd contracts && forge test`): full lifecycle, both settlement
   paths, and attack paths: bad signer, double-resolution, pause, criteria mismatch, stale
   verdict, threshold enforcement, criteria-registration gating, withdraw auth, and the full
   hook feedback flow (7 hook tests; the hook decode bug that these now cover was previously
   untested).
-- ✅ **163/163 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
+- ✅ **179/179 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
   criteria defects, SSRF denylist with DNS pinning, evidence-hash determinism, and the hosted judge
   (on-demand rulings, races, reverted transactions, the daily sweep, deliverables that can never
   load abstaining instead of retrying forever), and paid rulings over x402 (payments signed by
@@ -176,7 +178,7 @@ judge-service/    Node/viem off-chain engine
   `judge-service` first): the page's CSP, the read-only relay, the public numbers, parity with the
   service's own checkers, the CLI, and the in-browser verifier run against a fake chain built from
   recorded Arc testnet data, including tampered inputs that must never verify.
-- ✅ **36/36 kit and docs tests** (`cd kit && npm ci && npm test`, after `npm ci` in
+- ✅ **40/40 kit and docs tests** (`cd kit && npm ci && npm test`, after `npm ci` in
   `judge-service`): the kit agrees with the judge on validation (down to the refusal reason),
   hashing and deliverable decoding, inline or hosted; nothing reaches the chain on bad input; the
   docs state every check, parameter, limit and API result with the code's own numbers, and every
@@ -200,10 +202,10 @@ judge-service/    Node/viem off-chain engine
 
 ```bash
 # contracts
-cd contracts && git submodule update --init --recursive && forge test   # 27/27
+cd contracts && git submodule update --init --recursive && forge test   # 37/37
 
 # service
-cd ../judge-service && npm install && npm test                          # 163/163
+cd ../judge-service && npm install && npm test                          # 179/179
 
 # run the judge against Arc testnet (needs a funded .env, see .env.example)
 node --env-file=.env src/index.js

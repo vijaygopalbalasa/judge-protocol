@@ -24,6 +24,12 @@ export const config = {
   // relayer's Gateway balance, which can be withdrawn to pay for verdict gas.
   feeAddress: process.env.JUDGE_FEE_ADDRESS || "0xf493CF092768a4B7a533359F28Db82B06D259Dc2",
 
+  // ERC-8412 (docs/ERC-8412.md): the registry, and JudgeAttestor, the verifier a
+  // client names when it preregisters a job's criteria. The judge attests every
+  // ruling whose client preregistered it. ERC8412_ATTESTOR="" switches this off.
+  erc8412Registry: process.env.ERC8412_REGISTRY || "0x48c3a1812F2dFc762a80dbD5c65e9C7B0BB25ae4",
+  erc8412Attestor: process.env.ERC8412_ATTESTOR ?? "0x78E87A8E43e8E2784C12bF39eB6e2ea7C990fB15",
+
   pollIntervalMs: Number(process.env.POLL_INTERVAL_MS || 4000),
   slaSeconds: Number(process.env.SLA_SECONDS || 300),
   evidenceDir: process.env.EVIDENCE_DIR || "./evidence",
