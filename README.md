@@ -195,6 +195,14 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
   verdict, threshold enforcement, criteria-registration gating, withdraw auth, and the full
   hook feedback flow (7 hook tests; the hook decode bug that these now cover was previously
   untested).
+- ✅ **Deploy-ready for Arc mainnet, not deployed yet.** Circle has no ERC-8183 escrow on Arc mainnet;
+  ArcBounty runs the ERC-8183 reference escrow there (`0x64cA39Fc...`, open to any client, Circle's Job
+  layout, fees 0). Eight fork tests run JudgeEvaluator against that live escrow on a fork of Arc mainnet
+  (`ARC_MAINNET_RPC=https://rpc.mainnet.arc.io forge test --match-contract ArcMainnetFork`; skipped
+  without it): both rulings settle, a job naming another evaluator is never touched, and an untrusted
+  signature or mismatched criteria is refused. `script/DeployArcMainnet.s.sol` refuses any other chain
+  and any escrow with another Job layout. Measured on the fork: deploying costs about 0.03 USDC of gas,
+  a ruling about 0.004.
 - ✅ **202/202 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
   criteria defects, SSRF denylist with DNS pinning, evidence-hash determinism, and the hosted judge
   (on-demand rulings, races, reverted transactions, the daily sweep, deliverables that can never
