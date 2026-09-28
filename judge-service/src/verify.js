@@ -18,6 +18,8 @@
 // --deliverable <file>  raw bytes of the deliverable (for https/ipfs deliverables)
 // --evidence <file>     a judge evidence JSON; only its deliverableURI is used, as a hint
 // --rpc <url>           JSON-RPC endpoint (default: ARC_RPC_URL or https://rpc.testnet.arc.io)
+// --judge <address>     the JudgeEvaluator to check against (default: the Arc testnet deployment)
+// --acp <address>       the ERC-8183 escrow the job lives on (default: Circle's Arc testnet contract)
 // --probe               re-run any http-endpoint probe NOW (the endpoint as it is today,
 //                       not as the judge saw it, so it can differ from the verdict)
 //
@@ -35,6 +37,12 @@ if (jobId === null) {
   process.exit(2);
 }
 app.CFG.rpc = opt("--rpc") || process.env.ARC_RPC_URL || app.CFG.directRpc;
+for (const [flag, key] of [["--judge", "judge"], ["--acp", "acp"]]) {
+  const value = opt(flag);
+  if (value === null) continue;
+  if (!/^0x[0-9a-fA-F]{40}$/.test(value)) { console.error(`${flag} must be an address`); process.exit(2); }
+  app.CFG[key] = value;
+}
 
 const color = { ok: "\x1b[32m", bad: "\x1b[31m", warn: "\x1b[33m", dim: "\x1b[2m", off: "\x1b[0m" };
 const tint = (c, s) => (process.stdout.isTTY ? color[c] + s + color.off : s);

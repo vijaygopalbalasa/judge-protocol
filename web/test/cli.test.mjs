@@ -83,3 +83,13 @@ function writeTmp(text) {
   writeFileSync(f, text);
   return f;
 }
+
+test('CLI: --judge and --acp point it at another deployment, and the job must name that judge', async () => {
+  const other = '0x000000000000000000000000000000000000dEaD';
+  const r = await cli('171925', '--judge', other);
+  assert.match(r.out, new RegExp(`judge ${other}`), 'the header shows the judge it checks against');
+  assert.notEqual(r.code, 0, 'a job naming a different evaluator never verifies against this one');
+  const bad = await cli('171925', '--acp', '0x1234');
+  assert.equal(bad.code, 2, bad.out);
+  assert.match(bad.out, /--acp must be an address/);
+});
