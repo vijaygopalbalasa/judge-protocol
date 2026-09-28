@@ -87,6 +87,10 @@ Gateway, settled only once the judge has a verdict ready, before it signs).
 - **Census:** [`docs/CENSUS.md`](docs/CENSUS.md), every job on Circle's testnet ERC-8183 contract
   read from chain: 71.79% are graded by the party that pays, no hook has ever been used, and five
   single-client evaluators carry half the third-party volume. One command reproduces it.
+- **ERC-8412 profile:** [`docs/ERC-8412.md`](docs/ERC-8412.md) writes a ruling as an ERC-8412
+  (Preregistered Acceptance Criteria) record: the checks frozen before any work exists, then an
+  itemized attestation. Two live runs on Arc testnet (jobs 186777 and 186778) pass the ERC's own
+  reference verifier.
 
 ## License, attribution and name
 
@@ -147,9 +151,11 @@ judge-service/    Node/viem off-chain engine
   src/engine.js                 watcher + evaluation pipeline
   src/verify.js                 independent verdict recomputation CLI
   src/measure-acp.js            on-chain ERC-8183 market measurement
+  src/erc8412.js                ERC-8412 profile: documents, packed outcomes, O1-O5 checker
+  src/erc8412-live.mjs          one job end to end on Arc under ERC-8412 (preregister to attest)
   api/                          hosted judge (Vercel): /api/judge, /api/x402/judge, /api/evaluate,
                                 /api/health, /api/cron/sweep
-  test/                         149 unit tests (checker gate, SSRF, evidence determinism, hosted judge, x402)
+  test/                         163 unit tests (checker gate, SSRF, evidence determinism, hosted judge, x402, ERC-8412)
   evidence/                     recomputable verdict evidence (public audit trail)
 ```
 
@@ -160,7 +166,7 @@ judge-service/    Node/viem off-chain engine
   verdict, threshold enforcement, criteria-registration gating, withdraw auth, and the full
   hook feedback flow (7 hook tests; the hook decode bug that these now cover was previously
   untested).
-- ✅ **149/149 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
+- ✅ **163/163 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
   criteria defects, SSRF denylist with DNS pinning, evidence-hash determinism, and the hosted judge
   (on-demand rulings, races, reverted transactions, the daily sweep, deliverables that can never
   load abstaining instead of retrying forever), and paid rulings over x402 (payments signed by
@@ -197,7 +203,7 @@ judge-service/    Node/viem off-chain engine
 cd contracts && git submodule update --init --recursive && forge test   # 27/27
 
 # service
-cd ../judge-service && npm install && npm test                          # 149/149
+cd ../judge-service && npm install && npm test                          # 163/163
 
 # run the judge against Arc testnet (needs a funded .env, see .env.example)
 node --env-file=.env src/index.js

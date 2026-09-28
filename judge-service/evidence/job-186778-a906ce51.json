@@ -1,0 +1,98 @@
+{
+  "jobId": "186778",
+  "criteriaHash": "0x81d6e6c194b5aae25941ecc9eddd83ea1381b28ce0f7d8b5f8a2154c89674df8",
+  "deliverable": "0x73e25fe0d19c44ad277ee9bbf0545ed57dbac669fc7abd2cb0535c9822aac481",
+  "criteria": {
+    "version": 1,
+    "jobType": "doc",
+    "passThreshold": 100,
+    "checks": [
+      {
+        "kind": "length",
+        "params": {
+          "min": 10,
+          "max": 5000
+        }
+      },
+      {
+        "kind": "contains",
+        "params": {
+          "all": [
+            "ERC-8183",
+            "USDC"
+          ],
+          "wholeWords": true
+        }
+      }
+    ]
+  },
+  "results": [
+    {
+      "pass": true,
+      "detail": "words=13 (need 10–5000)",
+      "kind": "length",
+      "weight": 1
+    },
+    {
+      "pass": false,
+      "detail": "missing terms: ERC-8183, USDC",
+      "kind": "contains",
+      "weight": 1
+    }
+  ],
+  "score": 50,
+  "pass": false,
+  "threshold": 100,
+  "deliverableSource": "data",
+  "deliverableAuthoredBy": "provider",
+  "deliverableURI": "data:text/plain;base64,QSBzaG9ydCBub3RlIHRoYXQgbmV2ZXIgbmFtZXMgdGhlIGVzY3JvdyBzdGFuZGFyZCBvciB0aGUgc2V0dGxlbWVudCB0b2tlbi4=",
+  "deliverableURL": null,
+  "startedAt": "2026-09-28T03:50:48.061Z",
+  "finishedAt": "2026-09-28T03:50:48.479Z",
+  "judge": "0xACD5a92c2bD5B5D30A91A49190936dCf85Dfe200",
+  "evidenceHash": "0xa906ce510ac9a1da12485024b978fd887dcf6c5555efa2d8a1b36893f04d45f6",
+  "evidenceCore": {
+    "jobId": "186778",
+    "criteriaHash": "0x81d6e6c194b5aae25941ecc9eddd83ea1381b28ce0f7d8b5f8a2154c89674df8",
+    "deliverable": "0x73e25fe0d19c44ad277ee9bbf0545ed57dbac669fc7abd2cb0535c9822aac481",
+    "criteria": {
+      "version": 1,
+      "jobType": "doc",
+      "passThreshold": 100,
+      "checks": [
+        {
+          "kind": "length",
+          "params": {
+            "min": 10,
+            "max": 5000
+          }
+        },
+        {
+          "kind": "contains",
+          "params": {
+            "all": [
+              "ERC-8183",
+              "USDC"
+            ],
+            "wholeWords": true
+          }
+        }
+      ]
+    },
+    "checks": [
+      {
+        "kind": "length",
+        "pass": true,
+        "weight": 1
+      },
+      {
+        "kind": "contains",
+        "pass": false,
+        "weight": 1
+      }
+    ],
+    "score": 50,
+    "threshold": 100,
+    "pass": false
+  }
+}

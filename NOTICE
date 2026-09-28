@@ -21,3 +21,9 @@ Public record of the original work, all verifiable by anyone:
 The names "Judge Protocol" and the Judge Protocol logo are not licensed under
 the MIT license. Forks and derivative services must use their own name and
 must not imply they are, or are endorsed by, Judge Protocol.
+
+Third-party material:
+- judge-service/test/fixtures/erc8412/ holds the ERC-8412 reference
+  conformance vectors and reference verifier by Richard (@richard7463), from
+  https://github.com/ethereum/ERCs/pull/2002 at commit ff9fbc7, unchanged and
+  under CC0. They are used only to test this project's ERC-8412 profile.
