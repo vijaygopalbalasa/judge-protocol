@@ -12,5 +12,17 @@
       "schedule": "23 3 * * *"
     }
   ],
-  "outputDirectory": "public"
+  "outputDirectory": "public",
+  "rewrites": [
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "judge-protocol-api-mainnet.vercel.app"
+        }
+      ],
+      "destination": "/mainnet.html"
+    }
+  ]
 }

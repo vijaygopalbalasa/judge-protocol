@@ -1,6 +1,9 @@
 // Judge service configuration. Chain-agnostic: everything Arc-specific lives here.
 import { arcTestnet } from "viem/chains";
 
+// ERC-8412's registry and JudgeAttestor exist on Arc testnet only; on any other chain they default to off.
+const ON_ARC_TESTNET = Number(process.env.CHAIN_ID || arcTestnet.id) === arcTestnet.id;
+
 export const config = {
   chain: process.env.ARC_RPC_URL
     ? { ...arcTestnet, id: Number(process.env.CHAIN_ID || arcTestnet.id), rpcUrls: { default: { http: [process.env.ARC_RPC_URL] } } }
@@ -27,8 +30,8 @@ export const config = {
   // ERC-8412 (docs/ERC-8412.md): the registry, and JudgeAttestor, the verifier a
   // client names when it preregisters a job's criteria. The judge attests every
   // ruling whose client preregistered it. ERC8412_ATTESTOR="" switches this off.
-  erc8412Registry: process.env.ERC8412_REGISTRY || "0x48c3a1812F2dFc762a80dbD5c65e9C7B0BB25ae4",
-  erc8412Attestor: process.env.ERC8412_ATTESTOR ?? "0x78E87A8E43e8E2784C12bF39eB6e2ea7C990fB15",
+  erc8412Registry: process.env.ERC8412_REGISTRY || (ON_ARC_TESTNET ? "0x48c3a1812F2dFc762a80dbD5c65e9C7B0BB25ae4" : ""),
+  erc8412Attestor: process.env.ERC8412_ATTESTOR ?? (ON_ARC_TESTNET ? "0x78E87A8E43e8E2784C12bF39eB6e2ea7C990fB15" : ""),
 
   pollIntervalMs: Number(process.env.POLL_INTERVAL_MS || 4000),
   slaSeconds: Number(process.env.SLA_SECONDS || 300),

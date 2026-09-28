@@ -5,8 +5,14 @@
 //   other job is answered for free. The free POST /api/judge still works.
 import { createPaidJudge, PRICE_LABEL, ARC_TESTNET_NETWORK } from "../../src/x402.js";
 import { cors, readJsonBody } from "../../src/vercel-util.js";
+import { config } from "../../src/config.js";
+
+// Payment runs through Circle Gateway on Arc testnet, so a deployment on any other chain (the Arc
+// mainnet judge, for one) must never take it: it would charge testnet USDC for a ruling elsewhere.
+const ARC_TESTNET_CHAIN_ID = 5042002;
 
 export function createX402JudgeHandler(opts = {}) {
+  const chainId = opts.chainId ?? config.chain.id;
   let paid; // built on first use
   return async function handler(req, res) {
     try { await handle(req, res); } catch (e) {
@@ -18,6 +24,10 @@ export function createX402JudgeHandler(opts = {}) {
     res.setHeader("access-control-allow-headers", "content-type, payment-signature");
     res.setHeader("access-control-expose-headers", "PAYMENT-REQUIRED, PAYMENT-RESPONSE");
     if (req.method === "OPTIONS") { res.status(204).end(); return; }
+    if (chainId !== ARC_TESTNET_CHAIN_ID) {
+      res.status(404).json({ error: `paid rulings run on Arc testnet only; on this network (chain ${chainId}) use the free POST /api/judge`, charged: false });
+      return;
+    }
     if (req.method !== "POST") {
       res.status(405).json({ error: "use POST {\"jobId\": \"<id>\"} from an x402 client", charged: false, price: `${PRICE_LABEL} per ruling, settled only once a verdict is ready`,
         network: ARC_TESTNET_NETWORK, settlement: "Circle Gateway (batched)", free: "POST /api/judge (testnet)" });

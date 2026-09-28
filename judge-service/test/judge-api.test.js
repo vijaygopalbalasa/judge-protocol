@@ -149,3 +149,23 @@ test("an unexpected failure inside any handler is a 503, never a 500 or a crash"
     assert.equal(res.code, 503);
   }
 });
+
+test("paid rulings run on Arc testnet only: elsewhere the x402 route refuses first and charges nothing", async () => {
+  const { createX402JudgeHandler } = await import("../api/x402/judge.js");
+  const touched = [];
+  const facilitator = { verify: async () => { touched.push("verify"); }, settle: async () => { touched.push("settle"); }, getSupported: async () => { touched.push("supported"); return { kinds: [] }; } };
+  const m = mockChain({ jobs: [{ id: 16 }] });
+  const mainnet = createX402JudgeHandler({ chainId: 5042, facilitator, deps: { clients: m.clients } });
+  for (const method of ["POST", "GET"]) {
+    const r = await call(mainnet, { method, body: { jobId: "16" }, headers: { "payment-signature": "eyJ4IjoxfQ==" } });
+    assert.equal(r.code, 404, `${method}: ${JSON.stringify(r.payload)}`);
+    assert.equal(r.payload.charged, false);
+    assert.match(r.payload.error, /Arc testnet only/);
+    assert.match(r.payload.error, /POST \/api\/judge/, "it points to the free ruling path");
+  }
+  assert.deepEqual(touched, [], "Circle Gateway is never asked");
+  assert.equal(m.calls.writeContract.length, 0, "nothing is signed or sent");
+  // Control: on Arc testnet the same route still answers with its terms.
+  const testnet = createX402JudgeHandler({ chainId: 5042002 });
+  assert.equal((await call(testnet, { method: "GET" })).code, 405);
+});
