@@ -10,6 +10,13 @@
 //
 //   node src/e2e.js            # passing deliverable → COMPLETE
 //   node src/e2e.js --reject   # criteria-violating deliverable → REJECT
+//
+// Any ERC-8183 escrow with Circle's Job layout works: set ACP_ADDRESS, JUDGE_ADDRESS, ARC_RPC_URL and
+// CHAIN_ID (5042 for Arc mainnet). E2E_BUDGET is the job's budget in USDC (default 1); 0 skips approve
+// and fund, for escrows that let a zero-budget job be submitted while Open (ArcBounty's and Virtuals').
+// --judge-now rules in this process right after submission (the hosted judge's judgeNow), so no
+// watcher or hosted API is needed. E2E_REGISTRAR_KEY registers the criteria (default JUDGE_SIGNER_KEY; the
+// judge's owner may also register).
 import { createPublicClient, createWalletClient, http, keccak256, toHex, stringToHex, parseUnits } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { config } from "./config.js";
@@ -40,7 +47,7 @@ async function main() {
   const pub = createPublicClient({ chain: config.chain, transport: http(config.rpcUrl) });
   const client = wc(process.env.CLIENT_KEY);
   const provider = wc(process.env.PROVIDER_KEY);
-  const signer = wc(process.env.JUDGE_SIGNER_KEY);
+  const registrar = wc(process.env.E2E_REGISTRAR_KEY || process.env.JUDGE_SIGNER_KEY); // a signer or the judge's owner
   const providerAddr = provider.account.address;
 
   // CLIENT authors ONLY the acceptance criteria, never the deliverable.
@@ -59,12 +66,12 @@ async function main() {
   // PROVIDER authors the deliverable independently, at submit time.
   const payload = rejectMode
     ? "Low-effort filler with no relevant content whatsoever."
-    : "This analysis covers ERC-8183 escrow mechanics and USDC settlement on Arc testnet in sufficient detail to satisfy the acceptance criteria.";
+    : "This analysis covers ERC-8183 escrow mechanics and USDC settlement on Arc in sufficient detail to satisfy the acceptance criteria.";
   const deliverableHash = keccak256(toHex(payload));
   const deliverableURI = `data:text/plain;base64,${Buffer.from(payload).toString("base64")}`;
   const optParams = stringToHex(`deliverableURI: ${deliverableURI}`); // provider's channel
 
-  const budget = parseUnits("1", 6);
+  const budget = parseUnits(process.env.E2E_BUDGET ?? "1", 6);
 
   console.log(`\n=== E2E (${rejectMode ? "REJECT" : "PASS"} path): provider-authored deliverable ===`);
   console.log("1) client createJob (criteria only, evaluator = JudgeEvaluator)");
@@ -83,22 +90,31 @@ async function main() {
   if (hosted) {
     console.log(`2) (third-party flow) no criteria registration; criteriaHash ${cHash} is bound by the description`);
   } else {
-    console.log("2) SIGNER registers criteria hash on-chain (while Open, before submission)");
-    const rc = await signer.writeContract({ address: config.judgeAddress, abi: JUDGE, functionName: "registerCriteria", args: [jobId, cHash] });
+    console.log("2) a signer (or the judge's owner) registers the criteria hash on-chain (while Open, before submission)");
+    const rc = await registrar.writeContract({ address: config.judgeAddress, abi: JUDGE, functionName: "registerCriteria", args: [jobId, cHash] });
     await pub.waitForTransactionReceipt({ hash: rc });
     console.log(`   criteriaHash ${cHash} committed`);
   }
 
   console.log("3) provider setBudget");
   await pub.waitForTransactionReceipt({ hash: await provider.writeContract({ address: config.acpAddress, abi: ACP, functionName: "setBudget", args: [jobId, budget, "0x"] }) });
-  console.log("4) client approve + fund");
-  await pub.waitForTransactionReceipt({ hash: await client.writeContract({ address: USDC, abi: erc20Abi, functionName: "approve", args: [config.acpAddress, budget] }) });
-  await pub.waitForTransactionReceipt({ hash: await client.writeContract({ address: config.acpAddress, abi: ACP, functionName: "fund", args: [jobId, "0x"] }) });
+  if (budget > 0n) {
+    console.log("4) client approve + fund");
+    await pub.waitForTransactionReceipt({ hash: await client.writeContract({ address: USDC, abi: erc20Abi, functionName: "approve", args: [config.acpAddress, budget] }) });
+    await pub.waitForTransactionReceipt({ hash: await client.writeContract({ address: config.acpAddress, abi: ACP, functionName: "fund", args: [jobId, "0x"] }) });
+  } else {
+    console.log("4) budget 0: nothing to escrow, the job stays Open until submitted");
+  }
 
   console.log("5) PROVIDER submit: deliverable hash + deliverable URI in optParams");
   const submitTx = await provider.writeContract({ address: config.acpAddress, abi: ACP, functionName: "submit", args: [jobId, deliverableHash, optParams] });
   await pub.waitForTransactionReceipt({ hash: submitTx });
-  if (hosted) {
+  if (process.argv.includes("--judge-now")) {
+    console.log("6) judge now, in this process");
+    const { judgeNow } = await import("./judge-now.js");
+    const r = await judgeNow({ jobId: jobId.toString(), submitTx });
+    console.log(`   ${r.status}: ${JSON.stringify(r.body, (k, v) => (typeof v === "bigint" ? v.toString() : v)).slice(0, 400)}`);
+  } else if (hosted) {
     console.log(`6) ask the hosted judge: POST ${hosted}/api/judge`);
     const r = await fetch(`${hosted}/api/judge`, { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ jobId: jobId.toString(), submitTx }) });

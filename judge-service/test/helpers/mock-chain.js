@@ -74,7 +74,11 @@ export function mockChain(o) {
 
   const publicClient = {
     getBlockNumber: async () => latest,
-    getBlock: async ({ blockNumber }) => ({ number: BigInt(blockNumber), timestamp: blockTime(blockNumber) }),
+    getBlock: async ({ blockNumber, blockTag } = {}) => {
+      const n = blockNumber !== undefined ? BigInt(blockNumber) : blockTag === undefined || blockTag === "latest" ? latest : null;
+      if (n === null) throw new Error(`mock chain: unsupported block tag ${blockTag}`);
+      return { number: n, timestamp: blockTime(n) };
+    },
     getLogs: async ({ address, fromBlock, toBlock, args }) => {
       calls.getLogs.push([fromBlock, toBlock]);
       if (toBlock - fromBlock + 1n > 10_000n) throw new Error("requested range too large");
@@ -175,6 +179,12 @@ export function mockChain(o) {
           jobs.get(BigInt(v.jobId)).status = v.pass ? STATUS.Completed : STATUS.Rejected;
         }
         return h; // accepted, mined, reverted: no verdict recorded by THIS tx
+      }
+      // Like JudgeEvaluator: a verdict dated after the block that records it, or more than a day
+      // before it, is refused (StaleVerdict). The relay lands in the next block.
+      const recordedAt = blockTime(latest + 1n);
+      if (BigInt(v.timestamp) > recordedAt || recordedAt - BigInt(v.timestamp) > 86_400n) {
+        throw new Error('The contract function "relay" reverted with the following signature: 0x8baae2f9 (StaleVerdict)');
       }
       verdicts.set(BigInt(v.jobId), { ...v });
       jobs.get(BigInt(v.jobId)).status = v.pass ? STATUS.Completed : STATUS.Rejected;

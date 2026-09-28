@@ -180,7 +180,7 @@ judge-service/    Node/viem off-chain engine
   src/rvr-snapshot.mjs          freezes one ruling's chain evidence for the ERC-8404 profile
   api/                          hosted judge (Vercel): /api/judge, /api/x402/judge, /api/evaluate,
                                 /api/health, /api/cron/sweep
-  test/                         202 unit tests (checker gate, SSRF, evidence determinism, hosted judge, x402, ERC-8412, ERC-8404)
+  test/                         203 unit tests (checker gate, SSRF, evidence determinism, hosted judge, x402, ERC-8412, ERC-8404)
   evidence/                     recomputable verdict evidence (public audit trail)
 rvr/              ERC-8404 profile, in the layout of the RVR reference repository
   profiles/judge-protocol-rvr-v0/   SPEC.md, standard-library Python adapter, vectors, gate
@@ -203,7 +203,7 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
   signature or mismatched criteria is refused. `script/DeployArcMainnet.s.sol` refuses any other chain
   and any escrow with another Job layout. Measured on the fork: deploying costs about 0.03 USDC of gas,
   a ruling about 0.004.
-- ✅ **202/202 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
+- ✅ **203/203 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
   criteria defects, SSRF denylist with DNS pinning, evidence-hash determinism, and the hosted judge
   (on-demand rulings, races, reverted transactions, the daily sweep, deliverables that can never
   load abstaining instead of retrying forever), and paid rulings over x402 (payments signed by
@@ -245,7 +245,7 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
 cd contracts && git submodule update --init --recursive && forge test   # 37/37
 
 # service
-cd ../judge-service && npm install && npm test                          # 202/202
+cd ../judge-service && npm install && npm test                          # 203/203
 
 # run the judge against Arc testnet (needs a funded .env, see .env.example)
 node --env-file=.env src/index.js

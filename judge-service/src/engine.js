@@ -250,10 +250,21 @@ export async function prepareRuling(jobId, deliverableHash, clients, submitTxHas
 export const isRevert = (e) => !!e?.reverted || /execution reverted|reverted with|ContractFunctionRevert/i.test(String(e?.message ?? e));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// JudgeEvaluator refuses a verdict dated after the block that records it (StaleVerdict). This machine's
+// clock can run ahead of the chain, so a verdict is dated by the earlier of the two, a few seconds back:
+// the relay lands at or after the head it was read from, even through a node that lags a little.
+export const VERDICT_CLOCK_MARGIN_S = 5n;
+export async function verdictTimestamp(publicClient, nowMs = Date.now()) {
+  const now = BigInt(Math.floor(nowMs / 1000));
+  const head = BigInt((await publicClient.getBlock({ blockTag: "latest" })).timestamp);
+  return (head < now ? head : now) - VERDICT_CLOCK_MARGIN_S;
+}
+
 /** Store the evidence, sign the verdict (EIP-712) and settle it on chain. */
 export async function settleRuling(prepared, clients, { retries = 2, retryDelayMs = 1500 } = {}) {
   const { publicClient, signerAccount, relayerWallet } = clients;
   const log = (...a) => console.log(`[job ${prepared.jobId}]`, ...a);
+  const timestamp = await verdictTimestamp(publicClient);
   const { evidenceHash, file } = storeEvidence(prepared.verdictObj);
   log(`evidence stored: ${file} (hash ${evidenceHash.slice(0, 18)}…)`);
   const verdict = {
@@ -264,7 +275,7 @@ export async function settleRuling(prepared, clients, { retries = 2, retryDelayM
     threshold: prepared.threshold,
     pass: prepared.pass,
     evidenceHash,
-    timestamp: BigInt(Math.floor(Date.now() / 1000)),
+    timestamp,
   };
   const sig = await signVerdict(signerAccount, verdict);
   const judged = (txHash) => ({ outcome: "judged", pass: prepared.pass, score: prepared.score, threshold: prepared.threshold, txHash, evidenceHash,
