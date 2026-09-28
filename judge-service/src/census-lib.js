@@ -14,6 +14,24 @@
 //                    clients who funded a job naming it
 
 const STATUS = ["Open", "Funded", "Submitted", "Completed", "Rejected", "Expired"];
+
+/**
+ * getJob's return tuple for each contract the census reads. Both use the status enum above.
+ *   circle       Circle's ERC-8183 contract (the reference layout)
+ *   virtuals-v3  Virtuals' AgenticCommerceV3 (Base and Arc mainnet): other order, no id
+ */
+export const JOB_LAYOUTS = {
+  circle: [["id", "uint256"], ["client", "address"], ["provider", "address"], ["evaluator", "address"], ["description", "string"],
+    ["budget", "uint256"], ["expiredAt", "uint256"], ["status", "uint8"], ["hook", "address"]],
+  "virtuals-v3": [["client", "address"], ["status", "uint8"], ["provider", "address"], ["expiredAt", "uint48"], ["evaluator", "address"],
+    ["hook", "address"], ["budget", "uint256"], ["description", "string"]],
+};
+
+/** One census record from a decoded getJob result, whatever the layout; `id` is the job that was asked for. */
+export function recordFromJob(job, id) {
+  if (job.id !== undefined && Number(job.id) !== id) throw new Error(`job ${id}: the contract answered for job ${job.id}`);
+  return { id, client: job.client, provider: job.provider, evaluator: job.evaluator, budget: job.budget.toString(), status: Number(job.status), hook: job.hook };
+}
 const ZERO = "0x0000000000000000000000000000000000000000";
 const ADDR = /^0x[0-9a-fA-F]{40}$/;
 

@@ -1,18 +1,19 @@
 #!/usr/bin/env node
 // Full census of an ERC-8183 contract: every job read from chain, no sampling.
 //
-//   node src/census.mjs [--out census.jsonl] [--rpc URL] [--acp ADDR] [--judge ADDR]... [--to N] [--no-logs] [--from-block N]
+//   node src/census.mjs [--out census.jsonl] [--rpc URL] [--acp ADDR] [--layout circle|virtuals-v3] [--judge ADDR]... [--to N] [--no-logs] [--from-block N]
 //
-// Defaults: Circle's ERC-8183 contract on Arc testnet and JudgeEvaluator. Jobs
-// go to --out as one JSON line each (resumable: jobs already there are not read
-// again). It also scans the contract's logs from its deployment for
+// Defaults: Circle's ERC-8183 contract on Arc testnet and JudgeEvaluator. --layout
+// virtuals-v3 reads Virtuals' AgenticCommerceV3 (on Base and Arc mainnet), whose getJob
+// returns the fields in another order. Jobs go to --out as one JSON line each
+// (resumable: jobs already there are not read again). It also scans the contract's logs from its deployment for
 // HookWhitelistUpdated, with a control: the JobCreated logs it finds must equal
 // the job counter at the same block, or the hook count is reported as unknown.
 // The summary (definitions in census-lib.js) is printed and written to
 // <out>.summary.json. No keys needed; it only reads.
 import fs from "node:fs";
 import { createPublicClient, http, keccak256, parseAbiItem, stringToBytes } from "viem";
-import { analyzeCensus, fetchAll, scanRanges } from "./census-lib.js";
+import { JOB_LAYOUTS, analyzeCensus, fetchAll, recordFromJob, scanRanges } from "./census-lib.js";
 
 const argv = process.argv.slice(2);
 const opt = (name, dflt) => { const i = argv.indexOf(name); return i > -1 ? argv[i + 1] : dflt; };
@@ -22,17 +23,18 @@ const ACP = opt("--acp", "0x0747EEf0706327138c69792bF28Cd525089e4583");
 const OUT = opt("--out", "census.jsonl");
 const JUDGES = all("--judge").length ? all("--judge") : ["0x6EFF7d4BB514d341AbEd90bF4c667d0A980173AD"];
 const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11";
+const LAYOUT = opt("--layout", "circle");
+if (!JOB_LAYOUTS[LAYOUT]) { console.error(`unknown --layout ${LAYOUT} (known: ${Object.keys(JOB_LAYOUTS).join(", ")})`); process.exit(2); }
 
 const abi = [
   parseAbiItem("function jobCounter() view returns (uint256)"),
   parseAbiItem("function evaluatorFeeBP() view returns (uint256)"),
   parseAbiItem("function platformFeeBP() view returns (uint256)"),
   { name: "getJob", type: "function", stateMutability: "view", inputs: [{ name: "jobId", type: "uint256" }],
-    outputs: [{ type: "tuple", components: [
-      { name: "id", type: "uint256" }, { name: "client", type: "address" }, { name: "provider", type: "address" },
-      { name: "evaluator", type: "address" }, { name: "description", type: "string" }, { name: "budget", type: "uint256" },
-      { name: "expiredAt", type: "uint256" }, { name: "status", type: "uint8" }, { name: "hook", type: "address" }] }] },
+    outputs: [{ type: "tuple", components: JOB_LAYOUTS[LAYOUT].map(([name, type]) => ({ name, type })) }] },
+  parseAbiItem("function paymentToken() view returns (address)"),
 ];
+const erc20 = [parseAbiItem("function symbol() view returns (string)"), parseAbiItem("function decimals() view returns (uint8)")];
 const HOOK_WHITELIST_TOPIC = keccak256(stringToBytes("HookWhitelistUpdated(address,bool)"));
 const JOB_CREATED_TOPIC = keccak256(stringToBytes("JobCreated(uint256,address,address,address,uint256,address)"));
 
@@ -44,8 +46,7 @@ async function readBatch(ids) {
     contracts: ids.map((id) => ({ address: ACP, abi, functionName: "getJob", args: [BigInt(id)] })) });
   return res.map((r, i) => {
     if (r.status !== "success") throw new Error(`job ${ids[i]}: ${r.error?.shortMessage || "failed"}`);
-    const j = r.result;
-    return { id: ids[i], client: j.client, provider: j.provider, evaluator: j.evaluator, budget: j.budget.toString(), status: Number(j.status), hook: j.hook };
+    return recordFromJob(r.result, ids[i]);
   });
 }
 
@@ -107,14 +108,24 @@ if (!argv.includes("--no-logs")) {
   logScan = { fromBlock: from, toBlock: Number(block), jobCreatedLogs: totals.created ?? 0, hookWhitelistLogs: totals.hooks ?? 0,
     failedRanges, controlPassed: failedRanges.length === 0 && (totals.created ?? 0) === onChain };
 }
+// A read the contract may not have (null), retried when the public RPC is merely busy.
+const optional = (fn) => patient(fn, 4).catch(() => null);
 const [evaluatorFeeBP, platformFeeBP] = await Promise.all([
-  read("evaluatorFeeBP", undefined, block).then(Number).catch(() => null), read("platformFeeBP", undefined, block).then(Number).catch(() => null)]);
-const summary = { acp: ACP, rpc: RPC, block: block.toString(), jobCounter: onChain, measured: total, measuredAt: new Date().toISOString(),
-  evaluatorFeeBP, platformFeeBP, hookWhitelistEvents: logScan?.controlPassed ? logScan.hookWhitelistLogs : null, logScan, ...stats };
+  optional(() => read("evaluatorFeeBP", undefined, block)).then((x) => (x === null ? null : Number(x))),
+  optional(() => read("platformFeeBP", undefined, block)).then((x) => (x === null ? null : Number(x)))]);
+// Budgets are summed as 6-decimal USDC; say which token the contract escrows, and warn if it is not 6 decimals.
+const paymentToken = await optional(() => read("paymentToken", undefined, block));
+const token = paymentToken && await Promise.all([
+  optional(() => client.readContract({ address: paymentToken, abi: erc20, functionName: "symbol", blockNumber: block })),
+  optional(() => client.readContract({ address: paymentToken, abi: erc20, functionName: "decimals", blockNumber: block })),
+]).then(([symbol, decimals]) => ({ address: paymentToken, symbol, decimals: decimals === null ? null : Number(decimals) }));
+if (token && token.decimals !== 6) console.error(`warning: the payment token has ${token.decimals} decimals; budgets below are scaled as 6-decimal USDC`);
+const summary = { acp: ACP, rpc: RPC, layout: LAYOUT, block: block.toString(), jobCounter: onChain, measured: total, measuredAt: new Date().toISOString(),
+  paymentToken: token, evaluatorFeeBP, platformFeeBP, hookWhitelistEvents: logScan?.controlPassed ? logScan.hookWhitelistLogs : null, logScan, ...stats };
 fs.writeFileSync(`${OUT}.summary.json`, JSON.stringify(summary, null, 2) + "\n");
 
 const pct = (x) => `${(100 * x).toFixed(2)}%`;
-console.log(`ERC-8183 census: ${ACP} at block ${block} (${summary.measuredAt})`);
+console.log(`ERC-8183 census: ${ACP} (${LAYOUT} layout) at block ${block} (${summary.measuredAt})${token ? `, escrow token ${token.symbol ?? token.address} (${token.decimals} decimals)` : ""}`);
 console.log(`  jobs ${stats.jobs}; self-evaluated ${pct(stats.selfEvaluatedRate)} (client ${stats.evaluator.client}, provider ${stats.evaluator.provider}); third party ${stats.evaluator.thirdParty}; no evaluator ${stats.evaluator.zero}`);
 console.log(`  funded ${stats.funded}, median ${stats.medianFundedUSDC} USDC; statuses ${JSON.stringify(stats.statuses)}`);
 console.log(`  third-party evaluators ${stats.thirdParty.distinctEvaluators}; paid through ${stats.thirdParty.paidThrough.jobs} jobs by ${stats.thirdParty.paidThrough.distinctEvaluators} evaluators, ${stats.thirdParty.paidThrough.totalUSDC} USDC`);

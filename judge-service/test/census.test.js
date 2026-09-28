@@ -130,3 +130,19 @@ test("USDC amounts round to the nearest cent, so a rerun prints what a report qu
   assert.equal(analyzeCensus([mk(1, "22671466192")]).thirdParty.paidThrough.totalUSDC, "22671.47");
   assert.equal(analyzeCensus([mk(1, "999999")]).thirdParty.paidThrough.totalUSDC, "1.00", "carries into the dollars");
 });
+
+test("a Virtuals AgenticCommerceV3 job and a Circle job decode to the same record", async () => {
+  // Virtuals' getJob returns (client, status, provider, expiredAt, evaluator, hook, budget,
+  // description) and no id; Circle's returns (id, client, provider, evaluator, description,
+  // budget, expiredAt, status, hook). The census must read both into one record shape.
+  const { JOB_LAYOUTS, recordFromJob } = await import("../src/census-lib.js");
+  const circle = { id: 7n, client: a(1), provider: a(2), evaluator: a(3), description: "d", budget: 1_500_000n, expiredAt: 99n, status: 3, hook: Z };
+  const virtuals = { client: a(1), status: 3, provider: a(2), expiredAt: 99, evaluator: a(3), hook: Z, budget: 1_500_000n, description: "d" };
+  const want = { id: 7, client: a(1), provider: a(2), evaluator: a(3), budget: "1500000", status: 3, hook: Z };
+  assert.deepEqual(recordFromJob(circle, 7), want);
+  assert.deepEqual(recordFromJob(virtuals, 7), want);
+  assert.deepEqual(JOB_LAYOUTS["virtuals-v3"].map(([name]) => name), ["client", "status", "provider", "expiredAt", "evaluator", "hook", "budget", "description"]);
+  assert.deepEqual(JOB_LAYOUTS.circle.map(([name]) => name), ["id", "client", "provider", "evaluator", "description", "budget", "expiredAt", "status", "hook"]);
+  // A contract that answers for another job is an error, never a silently wrong record.
+  assert.throws(() => recordFromJob({ ...circle, id: 8n }, 7), /answered for job 8/);
+});
