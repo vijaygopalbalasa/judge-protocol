@@ -259,21 +259,31 @@ export async function runCheck(check, deliverable) {
  */
 export class InvalidCriteriaError extends Error {}
 
+/**
+ * The weighted score 0-100 and the decision (score >= threshold). A score of
+ * 100 means every check passed: a failing check whose weight rounds away
+ * scores 99, never 100, so a threshold of 100 always means every check must
+ * pass. Mirrored in web/app.js; the two must agree.
+ */
+export function scoreOf(results, threshold) {
+  let weightSum = 0, weightedPass = 0;
+  for (const r of results) {
+    const w = r.weight ?? 1;
+    weightSum += w;
+    if (r.pass) weightedPass += w;
+  }
+  const rounded = weightSum === 0 ? 0 : Math.round((weightedPass / weightSum) * 100);
+  const score = results.every((r) => r.pass) ? rounded : Math.min(rounded, 99);
+  return { score, pass: score >= threshold };
+}
+
 export async function runAllChecks(criteria, deliverable) {
   const v = validateCriteria(criteria);
   if (!v.valid) throw new InvalidCriteriaError(v.reason);
 
   const results = [];
-  let weightSum = 0, weightedPass = 0;
-  for (const check of criteria.checks) {
-    const r = await runCheck(check, deliverable);
-    results.push(r);
-    const w = r.weight ?? 1;
-    weightSum += w;
-    if (r.pass) weightedPass += w;
-  }
-  const score = Math.round((weightedPass / weightSum) * 100);
+  for (const check of criteria.checks) results.push(await runCheck(check, deliverable));
   const threshold = criteria.passThreshold ?? 100; // default: ALL must pass
-  const pass = score >= threshold;
+  const { score, pass } = scoreOf(results, threshold);
   return { results, score, pass, threshold };
 }

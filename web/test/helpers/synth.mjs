@@ -58,9 +58,8 @@ export async function synthJob(o) {
   let results, score, threshold, pass;
   if (o.assumePass) {
     results = o.criteria.checks.map((c, i) => ({ kind: c.kind, weight: c.weight ?? 1, pass: o.assumePass[i] }));
-    const wSum = results.reduce((a, r) => a + r.weight, 0);
-    score = Math.round((results.filter((r) => r.pass).reduce((a, r) => a + r.weight, 0) / wSum) * 100);
-    threshold = o.criteria.passThreshold ?? 100; pass = score >= threshold;
+    threshold = o.criteria.passThreshold ?? 100;
+    ({ score, pass } = service.checkers.scoreOf(results, threshold));
   } else if (service.checkers.validateCriteria(o.criteria).valid) {
     ({ results, score, threshold, pass } = await service.checkers.runAllChecks(o.criteria, { content }));
   } else {

@@ -149,7 +149,7 @@ judge-service/    Node/viem off-chain engine
   src/measure-acp.js            on-chain ERC-8183 market measurement
   api/                          hosted judge (Vercel): /api/judge, /api/x402/judge, /api/evaluate,
                                 /api/health, /api/cron/sweep
-  test/                         146 unit tests (checker gate, SSRF, evidence determinism, hosted judge, x402)
+  test/                         149 unit tests (checker gate, SSRF, evidence determinism, hosted judge, x402)
   evidence/                     recomputable verdict evidence (public audit trail)
 ```
 
@@ -160,13 +160,13 @@ judge-service/    Node/viem off-chain engine
   verdict, threshold enforcement, criteria-registration gating, withdraw auth, and the full
   hook feedback flow (7 hook tests; the hook decode bug that these now cover was previously
   untested).
-- ✅ **146/146 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
+- ✅ **149/149 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
   criteria defects, SSRF denylist with DNS pinning, evidence-hash determinism, and the hosted judge
   (on-demand rulings, races, reverted transactions, the daily sweep, deliverables that can never
   load abstaining instead of retrying forever), and paid rulings over x402 (payments signed by
   Circle's own client; a payment settles only once a verdict is ready and the contract would
   accept it).
-- ✅ **106/106 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
+- ✅ **109/109 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
   `judge-service` first): the page's CSP, the read-only relay, the public numbers, parity with the
   service's own checkers, the CLI, and the in-browser verifier run against a fake chain built from
   recorded Arc testnet data, including tampered inputs that must never verify.
@@ -197,7 +197,7 @@ judge-service/    Node/viem off-chain engine
 cd contracts && git submodule update --init --recursive && forge test   # 27/27
 
 # service
-cd ../judge-service && npm install && npm test                          # 146/146
+cd ../judge-service && npm install && npm test                          # 149/149
 
 # run the judge against Arc testnet (needs a funded .env, see .env.example)
 node --env-file=.env src/index.js

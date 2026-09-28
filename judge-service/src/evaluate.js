@@ -9,7 +9,7 @@
 import { keccak256 } from "viem";
 import { criteriaHash } from "./criteria.js";
 import { evidenceHashOf } from "./evidence.js";
-import { runCheck, validateCriteria, InvalidCriteriaError } from "./checkers/index.js";
+import { runCheck, scoreOf, validateCriteria, InvalidCriteriaError } from "./checkers/index.js";
 
 export const MAX_DELIVERABLE_BYTES = 256 * 1024;
 const LIVE = new Set(["http-endpoint"]);
@@ -36,7 +36,6 @@ export async function dryRunEvaluate(input = {}, { allowLiveProbes = false } = {
 
   const results = [];
   const notRun = [];
-  let wSum = 0, wPass = 0;
   for (const check of criteria.checks) {
     const w = check.weight ?? 1;
     if (!allowLiveProbes && LIVE.has(check.kind)) {
@@ -50,7 +49,6 @@ export async function dryRunEvaluate(input = {}, { allowLiveProbes = false } = {
       throw e;
     }
     results.push(r);
-    wSum += w; if (r.pass) wPass += w;
   }
   const cHash = criteriaHash(criteria);
   const commitment = keccak256(content);
@@ -59,8 +57,7 @@ export async function dryRunEvaluate(input = {}, { allowLiveProbes = false } = {
     return { status: 200, body: jsonable({ dryRun: true, valid: true, criteriaHash: cHash, deliverable: commitment,
       results, notRun: [...new Set(notRun)], score: null, pass: null, threshold, evidenceHash: null }) };
   }
-  const score = Math.round((wPass / wSum) * 100);
-  const pass = score >= threshold;
+  const { score, pass } = scoreOf(results, threshold);
   const evidenceHash = evidenceHashOf({ jobId: String(jobId ?? "0"), criteriaHash: cHash, deliverable: commitment,
     criteria, results, score, threshold, pass });
   return { status: 200, body: jsonable({ dryRun: true, valid: true, criteriaHash: cHash, deliverable: commitment,

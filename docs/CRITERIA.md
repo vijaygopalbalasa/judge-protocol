@@ -45,6 +45,11 @@ is optional (default 1) and must be a number greater than 0 and at most 1000.
 the job passes when `score >= passThreshold`. PASS releases the escrow to the
 provider; REJECT refunds the client.
 
+A score of 100 means every check passed. If any check failed, the score is at most 99,
+even when the failed check's weight is too small to move the rounded number (weights 1000
+and 1 with the light check failing score 99, not 100). So a `passThreshold` of 100 always
+means every check must pass.
+
 ## Check kinds
 
 ### `length`

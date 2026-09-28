@@ -396,22 +396,29 @@ const CHECKERS = {
   'http-endpoint': () => ({ pass: false, unsupported: true, detail: 'live network probe, recorded once by the judge' }),
 };
 
+/** The weighted score 0-100 and the decision, exactly as the service's
+ *  scoreOf: a score of 100 means every check passed, so a failing check whose
+ *  weight rounds away scores 99 and a threshold of 100 needs every check. */
+export function scoreOf(results, threshold) {
+  let wSum = 0, wPass = 0;
+  for (const r of results) { const w = r.weight ?? 1; wSum += w; if (r.pass) wPass += w; }
+  const rounded = wSum === 0 ? 0 : Math.round((wPass / wSum) * 100);
+  const score = results.every((r) => r.pass) ? rounded : Math.min(rounded, 99);
+  return { score, pass: score >= threshold };
+}
+
 /** Recompute score/pass exactly as the service does, over the raw deliverable bytes. */
 export async function runChecks(criteria, bytes) {
   const d = { bytes, text: utf8.decode(bytes) };
   const results = [], unsupported = [];
-  let wSum = 0, wPass = 0;
   for (const c of criteria.checks || []) {
     const fn = CHECKERS[c.kind];
     const r = fn ? await fn(c.params || {}, d) : { pass: false, detail: `unknown checker kind: ${c.kind}` };
     if (r.unsupported) unsupported.push(c.kind);
-    const w = c.weight ?? 1;
-    results.push({ ...r, kind: c.kind, weight: w });
-    wSum += w; if (r.pass) wPass += w;
+    results.push({ ...r, kind: c.kind, weight: c.weight ?? 1 });
   }
-  const score = wSum === 0 ? 0 : Math.round((wPass / wSum) * 100);
   const threshold = criteria.passThreshold ?? 100;
-  return { results, score, threshold, pass: score >= threshold, unsupported };
+  return { results, threshold, ...scoreOf(results, threshold), unsupported };
 }
 
 /** The evidence core. Must mirror judge-service/src/evidence.js exactly. */
@@ -656,9 +663,7 @@ export async function verifyJob(jobId, pastedDeliverable) {
     for (let mask = 0; mask < (1 << probes.length) && !match; mask++) {
       const trial = results.map((x) => ({ ...x }));
       probes.forEach((ri, b) => { trial[ri].pass = !!(mask & (1 << b)); });
-      let w = 0, wp = 0;
-      for (const x of trial) { w += x.weight; if (x.pass) wp += x.weight; }
-      const sc = w === 0 ? 0 : Math.round((wp / w) * 100), ps = sc >= threshold;
+      const { score: sc, pass: ps } = scoreOf(trial, threshold);
       if (sc === verdict.score) scoreSeen = true;
       if (ps === verdict.pass) passSeen = true;
       const eh = evidenceHashOf({ jobId, criteriaHash: ch, deliverable: verdict.deliverable, criteria, results: trial, score: sc, threshold, pass: ps });

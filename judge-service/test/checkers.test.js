@@ -154,3 +154,37 @@ test("a failed probe says what kind of failure it was, never the addresses behin
     assert.doesNotMatch(r.detail, /127\.0\.0\.1|::1|10\.9\.8\.7|resolves to|blocked address|user:pw/, r.detail);
   }
 });
+
+// A score used to be round(100 * passing weight / all weight), so a failing
+// check whose weight rounds away (1 of 1001) still scored 100 and PASSED a
+// passThreshold of 100, which the docs promise means every check must pass.
+const HEAVY_LIGHT = (threshold) => ({
+  version: 1, ...(threshold === undefined ? {} : { passThreshold: threshold }),
+  checks: [
+    { kind: "length", params: { min: 1 }, weight: 1000 },          // pass
+    { kind: "contains", params: { all: ["ZZZ"] }, weight: 1 },      // fail
+  ],
+});
+
+test("a threshold of 100 means every check passes, even when a failing check's weight rounds away", async () => {
+  for (const threshold of [100, undefined]) {
+    const r = await runAllChecks(HEAVY_LIGHT(threshold), deliverable);
+    assert.equal(r.pass, false, `threshold ${threshold}: a failed check must fail the job`);
+    assert.equal(r.score, 99, "a score of 100 means every check passed");
+  }
+});
+
+test("the 100 rule changes nothing else: all-pass still scores 100, and lower thresholds keep the documented rounding", async () => {
+  const allPass = HEAVY_LIGHT(100);
+  allPass.checks[1].params.all = ["hello"];
+  assert.deepEqual((({ score, pass }) => ({ score, pass }))(await runAllChecks(allPass, deliverable)), { score: 100, pass: true });
+  const r99 = await runAllChecks(HEAVY_LIGHT(99), deliverable);
+  assert.deepEqual({ score: r99.score, pass: r99.pass }, { score: 99, pass: true }, "99.9 still clears a threshold of 99");
+  // The CRITERIA.md example: weights 2 and 1 at a threshold of 67; 2 of 3 rounds to 67 and passes.
+  const doc = { version: 1, passThreshold: 67, checks: [
+    { kind: "contains", params: { all: ["hello"] }, weight: 2 },
+    { kind: "contains", params: { all: ["ZZZ"] }, weight: 1 },
+  ] };
+  const rd = await runAllChecks(doc, deliverable);
+  assert.deepEqual({ score: rd.score, pass: rd.pass }, { score: 67, pass: true });
+});

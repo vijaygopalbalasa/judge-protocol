@@ -190,3 +190,14 @@ test("a request without content-length (chunked) is still held to the size cap",
   const r = await call(h, { body: { criteria: { checks: [{ kind: "contains", params: { all: terms } }] }, deliverable: "y".repeat(250_000) } });
   assert.equal(r.code, 413, JSON.stringify(r.payload).slice(0, 120));
 });
+
+test("the dry run applies the same rule: at a threshold of 100 one failed check fails the job, whatever its weight", async () => {
+  const criteria = { version: 1, passThreshold: 100, checks: [
+    { kind: "length", params: { min: 1 }, weight: 1000 },
+    { kind: "contains", params: { all: ["NOT-IN-THE-TEXT"] }, weight: 1 },
+  ] };
+  const r = await dryRunEvaluate({ criteria, deliverable: TEXT });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.score, 99);
+  assert.equal(r.body.pass, false);
+});
