@@ -9,7 +9,7 @@
     },
     {
       "path": "profiles/judge-protocol-rvr-v0/README.md",
-      "sha256": "76e0f5aa151c41a24ece13f0958c284412634f5798c23a501e7d1aa5ada00126"
+      "sha256": "ab2114196c3228c9f85276f93af7f4506524f412eada989a7ab4705cb884ccc6"
     },
     {
       "path": "profiles/judge-protocol-rvr-v0/SPEC.md",
@@ -17,7 +17,7 @@
     },
     {
       "path": "profiles/judge-protocol-rvr-v0/adapter.py",
-      "sha256": "4b1efe2bf4ede1134d2c93e1f1c05458de506013265236ea2654745fc31cecf0"
+      "sha256": "43e520b675e2fd2da06f633fb58a8abde0986f8997622b69cd4d91470b5b5f21"
     },
     {
       "path": "profiles/judge-protocol-rvr-v0/expected.json",
@@ -33,7 +33,7 @@
     },
     {
       "path": "profiles/judge-protocol-rvr-v0/test_profile.py",
-      "sha256": "b0797a7caf76121c123f92a8e395d0ef45c3f9c1e6d6f3769af074ac4a6158ab"
+      "sha256": "cf532e542c50a2fc84988c20643b38ee67c6ea478e3a49e57d0f7ea3755bd269"
     },
     {
       "path": "profiles/judge-protocol-rvr-v0/upstream/job-186779.deliverable.bin",
@@ -61,5 +61,5 @@
     }
   ],
   "packageDigestRule": "sha256-utf8-sorted-path-tab-file-sha256-lf-rows-manifest-excluded",
-  "packageDigest": "ffe72d46550af695bb437a7b5658b1e6ba21cbd0b6f33f40bcadbf0709957e03"
+  "packageDigest": "72725aaaa0adbdfdbd4d1a3ca441d73d348891c2bc2c92c7ece683ca96196e8b"
 }

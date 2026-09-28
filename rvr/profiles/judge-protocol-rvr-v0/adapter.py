@@ -7,9 +7,9 @@ pinned evidence closure under the checker contract in SPEC.md.
 
 Changed from the reference profile adapters in Pavlo Tvardovskyi's
 pipavlo82/recomputable-verification-receipts (commit 287c0ea, Apache License
-2.0, see rvr/LICENSE-rvr-core-Apache-2.0): the canonical JSON, schema subset,
-pinned dependency loading and recomputation scaffolding follow those adapters,
-with changes. The Judge-specific derivation was written for this profile.
+2.0): the canonical JSON, schema subset, pinned dependency loading and
+recomputation scaffolding follow those adapters, with changes. The
+Judge-specific derivation was written for this profile.
 """
 from __future__ import annotations
 

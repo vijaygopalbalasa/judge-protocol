@@ -1,7 +1,7 @@
 """Focused test for judge-protocol-rvr-v0.
 
 Modeled, with changes, on the profile tests in pipavlo82/recomputable-verification-receipts
-(commit 287c0ea, Apache License 2.0, see rvr/LICENSE-rvr-core-Apache-2.0).
+(commit 287c0ea, Apache License 2.0).
 """
 import json
 import subprocess
