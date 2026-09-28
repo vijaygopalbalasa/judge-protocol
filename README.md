@@ -88,6 +88,16 @@ Gateway, settled only once the judge has a verdict ready, before it signs).
   read from chain: 71.79% are graded by the party that pays, no hook has ever been used, and five
   single-client evaluators carry half the third-party volume. One command reproduces it.
 
+## License, attribution and name
+
+The code is open source under the [MIT license](LICENSE): use it, change it, build on it.
+The one condition is to keep the copyright notice and license with every copy; please keep
+the [NOTICE](NOTICE) too and credit the project ([CITATION.cff](CITATION.cff)). The name
+"Judge Protocol" and its logo are not part of the license, so forks need their own name.
+The NOTICE also lists the public, dated record of the original work (first commit and the
+on-chain deployment on 2026-08-07, ERC-8004 agent #870004). Security reports:
+[SECURITY.md](SECURITY.md).
+
 ## How it works
 
 ```

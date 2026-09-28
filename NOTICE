@@ -1,0 +1,23 @@
+Judge Protocol
+Copyright (c) 2026 Vijay Gopal (https://github.com/vijaygopalbalasa)
+
+Judge Protocol was designed, written and first published by Vijay Gopal.
+The MIT license lets anyone use, change and redistribute the code, on one
+condition: keep the copyright notice and the license text with every copy or
+substantial portion. Please keep this NOTICE too, and credit the original
+project when you build on it.
+
+Public record of the original work, all verifiable by anyone:
+- First public commit: 2026-08-07, https://github.com/vijaygopalbalasa/judge-protocol
+- JudgeEvaluator deployed on Arc testnet (chain 5042002) at
+  0x6EFF7d4BB514d341AbEd90bF4c667d0A980173AD on 2026-08-07 01:51 UTC,
+  transaction 0x92be31bfa2696030f8ba931297071f625bbe4e72b2f7f6ba5e3e01e31beefa55
+- Registered as ERC-8004 agent #870004 on Arc testnet's Identity Registry
+  (0x8004A818BFB912233c491871b3d84c89A494BD9e), owned by the deployer
+  0xf629006403580E2A7d94B666daA8374353a1d368
+- Every verdict on chain is signed by keys only the original operator holds;
+  a fork of this code is a different evaluator with no shared history.
+
+The names "Judge Protocol" and the Judge Protocol logo are not licensed under
+the MIT license. Forks and derivative services must use their own name and
+must not imply they are, or are endorsed by, Judge Protocol.

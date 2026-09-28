@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use or build on Judge Protocol, please cite it and keep the copyright notice."
+title: "Judge Protocol: a neutral, deterministic evaluator for ERC-8183 agent escrow"
+authors:
+  - name: "Vijay Gopal"
+    alias: "vijaygopalbalasa"
+repository-code: "https://github.com/vijaygopalbalasa/judge-protocol"
+url: "https://judge-protocol-verifier.vercel.app"
+license: MIT
+date-released: "2026-08-07"
+keywords:
+  - ERC-8183
+  - ERC-8004
+  - evaluator
+  - escrow
+  - Arc
+  - USDC
+  - x402
