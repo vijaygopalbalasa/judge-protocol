@@ -1,0 +1,82 @@
+{
+  "schema": "rvr.judge-protocol.expected-results.v0",
+  "cases": {
+    "REPRODUCED": {
+      "verificationOutcome": "VERIFIED",
+      "verificationReasonCode": "rvr.judge-protocol.v0.score_meets_threshold",
+      "recomputationStatus": "REPRODUCED",
+      "evaluationPerformed": true,
+      "onChainVerdict": "PASS",
+      "verdictAgreement": "MATCHES"
+    },
+    "REFUTED_REPRODUCED": {
+      "verificationOutcome": "REFUTED",
+      "verificationReasonCode": "rvr.judge-protocol.v0.score_below_threshold",
+      "recomputationStatus": "REPRODUCED",
+      "evaluationPerformed": true,
+      "onChainVerdict": "REJECT",
+      "verdictAgreement": "MATCHES"
+    },
+    "DIVERGED": {
+      "verificationOutcome": "REFUTED",
+      "verificationReasonCode": "rvr.judge-protocol.v0.score_below_threshold",
+      "recomputationStatus": "DIVERGED",
+      "evaluationPerformed": true,
+      "failingChecks": [
+        "contains"
+      ]
+    },
+    "UNVERIFIABLE_REPRODUCED": {
+      "verificationOutcome": "UNVERIFIABLE",
+      "verificationReasonCode": "rvr.judge-protocol.v0.required_deliverable_unavailable",
+      "recomputationStatus": "REPRODUCED",
+      "evaluationPerformed": true
+    },
+    "CANNOT_RECOMPUTE": {
+      "recomputationStatus": "CANNOT_RECOMPUTE",
+      "reasonCode": "rvr.recompute.committed_evidence_unavailable",
+      "evaluationPerformed": false
+    },
+    "NORMATIVE_DEPENDENCY_CANNOT_RECOMPUTE": {
+      "recomputationStatus": "CANNOT_RECOMPUTE",
+      "reasonCode": "rvr.recompute.normative_dependency_unavailable",
+      "evaluationPerformed": false
+    },
+    "TAMPERED_PROFILE_CONSTRAINTS_PIN": {
+      "recomputationStatus": "CANNOT_RECOMPUTE",
+      "reasonCode": "rvr.recompute.normative_dependency_pin_mismatch",
+      "evaluationPerformed": false,
+      "constraintsApplied": false
+    },
+    "PAYLOAD_IDENTITY_MISMATCH": {
+      "gateStatus": "REJECTED",
+      "reasonCode": "rvr.gate.identity_mismatch"
+    },
+    "NON_REQUIRED_DEPENDENCY_CONTROL": {
+      "withheldStatus": "REPRODUCED",
+      "substitutedStatus": "REPRODUCED",
+      "resultUnchanged": true
+    },
+    "PROJECTION_NEGATIVE_CONTROL": {
+      "gateStatus": "REJECTED",
+      "reasonCode": "rvr.gate.result_projection_mismatch",
+      "resultDigestPreserved": true
+    },
+    "HIDDEN_STATE_NEGATIVE_CONTROL": {
+      "gateStatus": "REJECTED",
+      "reasonCode": "rvr.gate.evidence_closure_incomplete",
+      "evaluationPerformed": false
+    },
+    "ONCHAIN_VERDICT_BOUNDARY": {
+      "verificationOutcome": "REFUTED",
+      "onChainVerdict": "PASS",
+      "verdictAgreement": "DIFFERS",
+      "evidenceHashOnlyAgreement": "DIFFERS"
+    }
+  },
+  "counts": {
+    "semanticCases": 21,
+    "gateCases": 15,
+    "byteContractVectors": 5
+  }
+}

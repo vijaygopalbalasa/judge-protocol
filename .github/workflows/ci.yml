@@ -88,6 +88,24 @@ jobs:
         working-directory: agent
         run: npm test
 
+  rvr:
+    name: ERC-8404 profile (python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: profile gate (standard library only)
+        working-directory: rvr
+        run: python profiles/judge-protocol-rvr-v0/adapter.py --check > /dev/null
+      - name: profile test
+        working-directory: rvr
+        run: python profiles/judge-protocol-rvr-v0/test_profile.py
+      - name: mutation check (20 adapter shortcuts must each fail the gate)
+        working-directory: rvr
+        run: python mutants.py
+
   secrets:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest

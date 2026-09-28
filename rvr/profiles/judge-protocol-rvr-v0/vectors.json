@@ -1,0 +1,726 @@
+{
+  "schema": "rvr.judge-protocol.conformance-vectors.v0",
+  "chain": {
+    "chainId": "5042002",
+    "acp": "0x0747eef0706327138c69792bf28cd525089e4583",
+    "judgeEvaluator": "0x6eff7d4bb514d341abed90bf4c667d0a980173ad"
+  },
+  "baseCases": {
+    "pass": {
+      "jobId": "186779",
+      "submitTx": "0x306df79d2845d7879ad0aa4d2519f6469b53ac9aed1fe15c40daaef2e662897e",
+      "verdictTx": "0x216c16c385fd9131128e77ff4d85d7df5e79768c4e8c37a67c9e762bca7d374c",
+      "snapshot": "profiles/judge-protocol-rvr-v0/upstream/job-186779.snapshot.json",
+      "snapshotSha256": "1019834ee7dae19b0ca14d4118cd66a0f98dc5840e332c061cbef9ce4ce5f74f",
+      "deliverable": "profiles/judge-protocol-rvr-v0/upstream/job-186779.deliverable.bin",
+      "deliverableSha256": "56b43515559a9aa63b5b2edb6bbaba63f273d504922690b8947f2de1d9adbee6"
+    },
+    "reject": {
+      "jobId": "186780",
+      "submitTx": "0xf7e67e45edf5724ead6303b78139bd9d35250750a7eb227ce8e91762aee1850b",
+      "verdictTx": "0x79a1da8e97b1a19a6cda7e4950a8feb8c18eabec4d7280be1b2580f5edb9fad2",
+      "snapshot": "profiles/judge-protocol-rvr-v0/upstream/job-186780.snapshot.json",
+      "snapshotSha256": "a2c7beb6dc2c3c86d58a31848243e215adbfc5f43d06c0c94b082d47765a914c",
+      "deliverable": "profiles/judge-protocol-rvr-v0/upstream/job-186780.deliverable.bin",
+      "deliverableSha256": "7da686ec7213c5a4df0796d8c6290bbac63e64849bc69552ae846b110f1ff5a3"
+    }
+  },
+  "negativeControls": {
+    "divergedDeliverable": "A short note that never names the escrow standard or the settlement token.",
+    "projectionReplacement": "REFUTED",
+    "hiddenAmbientInput": {
+      "name": "liveRpcVerdict",
+      "value": "https://rpc.testnet.arc.io"
+    }
+  },
+  "byteContractVectors": [
+    {
+      "id": "integer-index-keys-first",
+      "criteriaText": "{\"version\":1,\"checks\":[{\"kind\":\"schema\",\"params\":{\"types\":{\"b\":\"string\",\"10\":\"number\",\"9\":\"boolean\",\"a\":\"object\"}}}]}",
+      "criteriaHash": "0x1b0bf23cb57d21503602040b518d4ab612a17cd0ea3f0f556ce03b26bd87609e"
+    },
+    {
+      "id": "utf16-order-not-code-point",
+      "criteriaText": "{\"version\":1,\"checks\":[{\"kind\":\"schema\",\"params\":{\"types\":{\"\\ue000\":\"string\",\"\\ud83d\\ude00\":\"string\",\"z\":\"string\"}}}]}",
+      "criteriaHash": "0x52c4b2c71c92f4b95cfb315cc4969c176e7f5049ba8a97f6c3fae5fdad778c34"
+    },
+    {
+      "id": "integral-doubles-and-negative-zero",
+      "criteriaText": "{\"version\":1.0,\"passThreshold\":1e2,\"extra\":-0,\"checks\":[{\"kind\":\"length\",\"params\":{\"min\":0.1e1,\"max\":20}}]}",
+      "criteriaHash": "0x9c6a5144fbf138463f67a4c55843fb0717dd64ecd63e5d1d20bab336d33578d6"
+    },
+    {
+      "id": "duplicate-key-last-wins",
+      "criteriaText": "{\"version\":1,\"version\":2,\"checks\":[{\"kind\":\"contains\",\"params\":{\"all\":[\"a\"]}}]}",
+      "criteriaHash": "0x4c37544c0ba18104f9754e58c8703e1ac340751b45cb46491db1eed04d5b71f1"
+    },
+    {
+      "id": "string-escapes",
+      "criteriaText": "{\"version\":1,\"note\":\"tab\\there\\u0001 slash/ ls\\u2028 quote\\\" bs\\\\\",\"checks\":[{\"kind\":\"contains\",\"params\":{\"all\":[\"caf\\u00e9\",\"\\ud83d\\ude00\"]}}]}",
+      "criteriaHash": "0x4c39c21d81cac53b8112ca18b70356030012a01899fe951bf444eba222003b20"
+    }
+  ],
+  "semanticCases": [
+    {
+      "id": "length-words-below-min",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "length",
+            "params": {
+              "min": 5
+            }
+          }
+        ]
+      },
+      "deliverable": "four words right here",
+      "outcome": "REFUTED",
+      "score": "0",
+      "failingChecks": [
+        "length"
+      ]
+    },
+    {
+      "id": "length-chars-counts-utf16-units",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "length",
+            "params": {
+              "unit": "chars",
+              "max": 2
+            }
+          }
+        ]
+      },
+      "deliverable": "a😀",
+      "outcome": "REFUTED",
+      "score": "0",
+      "failingChecks": [
+        "length"
+      ]
+    },
+    {
+      "id": "length-js-whitespace-set",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "length",
+            "params": {
+              "min": 3
+            }
+          }
+        ]
+      },
+      "deliverable": "one two　three",
+      "outcome": "VERIFIED",
+      "score": "100",
+      "failingChecks": []
+    },
+    {
+      "id": "length-information-separator-is-not-whitespace",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "length",
+            "params": {
+              "min": 3
+            }
+          }
+        ]
+      },
+      "deliverable": "one\u001ctwo three",
+      "outcome": "REFUTED",
+      "score": "0",
+      "failingChecks": [
+        "length"
+      ]
+    },
+    {
+      "id": "contains-whole-word-rejects-suffix",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "contains",
+            "params": {
+              "all": [
+                "USDC"
+              ],
+              "wholeWords": true
+            }
+          }
+        ]
+      },
+      "deliverable": "Paid in USDCx only",
+      "outcome": "REFUTED",
+      "score": "0",
+      "failingChecks": [
+        "contains"
+      ]
+    },
+    {
+      "id": "contains-whole-word-allows-punctuation",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "contains",
+            "params": {
+              "all": [
+                "USDC"
+              ],
+              "wholeWords": true
+            }
+          }
+        ]
+      },
+      "deliverable": "Paid in USDC, done",
+      "outcome": "VERIFIED",
+      "score": "100",
+      "failingChecks": []
+    },
+    {
+      "id": "contains-whole-word-letter-boundary",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "contains",
+            "params": {
+              "all": [
+                "USDC"
+              ],
+              "wholeWords": true
+            }
+          }
+        ]
+      },
+      "deliverable": "éUSDC",
+      "outcome": "REFUTED",
+      "score": "0",
+      "failingChecks": [
+        "contains"
+      ]
+    },
+    {
+      "id": "contains-substring-without-whole-words",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "contains",
+            "params": {
+              "all": [
+                "USDC"
+              ]
+            }
+          }
+        ]
+      },
+      "deliverable": "Paid in USDCx",
+      "outcome": "VERIFIED",
+      "score": "100",
+      "failingChecks": []
+    },
+    {
+      "id": "schema-null-is-object",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "schema",
+            "params": {
+              "required": [
+                "a"
+              ],
+              "types": {
+                "a": "object"
+              }
+            }
+          }
+        ]
+      },
+      "deliverable": "{\"a\":null}",
+      "outcome": "VERIFIED",
+      "score": "100",
+      "failingChecks": []
+    },
+    {
+      "id": "schema-top-level-array-is-not-an-object",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "schema",
+            "params": {
+              "required": [
+                "a"
+              ],
+              "types": {
+                "a": "object"
+              }
+            }
+          }
+        ]
+      },
+      "deliverable": "[{\"a\":{}}]",
+      "outcome": "REFUTED",
+      "score": "0",
+      "failingChecks": [
+        "schema"
+      ]
+    },
+    {
+      "id": "schema-nan-is-not-json",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "schema",
+            "params": {
+              "required": [
+                "a"
+              ]
+            }
+          }
+        ]
+      },
+      "deliverable": "{\"a\":NaN}",
+      "outcome": "REFUTED",
+      "score": "0",
+      "failingChecks": [
+        "schema"
+      ]
+    },
+    {
+      "id": "schema-byte-order-mark-is-not-json",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "schema",
+            "params": {
+              "required": [
+                "a"
+              ]
+            }
+          }
+        ]
+      },
+      "deliverable": "﻿{\"a\":{}}",
+      "outcome": "REFUTED",
+      "score": "0",
+      "failingChecks": [
+        "schema"
+      ]
+    },
+    {
+      "id": "schema-type-mismatch",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "schema",
+            "params": {
+              "types": {
+                "n": "number"
+              }
+            }
+          }
+        ]
+      },
+      "deliverable": "{\"n\":\"12\"}",
+      "outcome": "REFUTED",
+      "score": "0",
+      "failingChecks": [
+        "schema"
+      ]
+    },
+    {
+      "id": "schema-duplicate-key-last-wins",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "schema",
+            "params": {
+              "types": {
+                "n": "number"
+              }
+            }
+          }
+        ]
+      },
+      "deliverable": "{\"n\":\"x\",\"n\":5}",
+      "outcome": "VERIFIED",
+      "score": "100",
+      "failingChecks": []
+    },
+    {
+      "id": "checksum-match",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "checksum",
+            "params": {
+              "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+            }
+          }
+        ]
+      },
+      "deliverable": "hello",
+      "outcome": "VERIFIED",
+      "score": "100",
+      "failingChecks": []
+    },
+    {
+      "id": "checksum-uppercase-parameter",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "checksum",
+            "params": {
+              "sha256": "2CF24DBA5FB0A30E26E83B2AC5B9E29E1B161E5C1FA7425E73043362938B9824"
+            }
+          }
+        ]
+      },
+      "deliverable": "hello",
+      "outcome": "VERIFIED",
+      "score": "100",
+      "failingChecks": []
+    },
+    {
+      "id": "score-cap-at-threshold-100",
+      "criteria": {
+        "version": 1,
+        "passThreshold": 100,
+        "checks": [
+          {
+            "kind": "length",
+            "params": {
+              "min": 1
+            },
+            "weight": 1000
+          },
+          {
+            "kind": "contains",
+            "params": {
+              "all": [
+                "ZZZ"
+              ]
+            },
+            "weight": 1
+          }
+        ]
+      },
+      "deliverable": "hello world",
+      "outcome": "REFUTED",
+      "score": "99",
+      "failingChecks": [
+        "contains"
+      ]
+    },
+    {
+      "id": "score-cap-still-clears-99",
+      "criteria": {
+        "version": 1,
+        "passThreshold": 99,
+        "checks": [
+          {
+            "kind": "length",
+            "params": {
+              "min": 1
+            },
+            "weight": 1000
+          },
+          {
+            "kind": "contains",
+            "params": {
+              "all": [
+                "ZZZ"
+              ]
+            },
+            "weight": 1
+          }
+        ]
+      },
+      "deliverable": "hello world",
+      "outcome": "VERIFIED",
+      "score": "99",
+      "failingChecks": [
+        "contains"
+      ]
+    },
+    {
+      "id": "round-half-up-two-thirds",
+      "criteria": {
+        "version": 1,
+        "passThreshold": 67,
+        "checks": [
+          {
+            "kind": "contains",
+            "params": {
+              "all": [
+                "hello"
+              ]
+            },
+            "weight": 2
+          },
+          {
+            "kind": "contains",
+            "params": {
+              "all": [
+                "ZZZ"
+              ]
+            },
+            "weight": 1
+          }
+        ]
+      },
+      "deliverable": "hello",
+      "outcome": "VERIFIED",
+      "score": "67",
+      "failingChecks": [
+        "contains"
+      ]
+    },
+    {
+      "id": "round-half-up-at-point-five",
+      "criteria": {
+        "version": 1,
+        "passThreshold": 1,
+        "checks": [
+          {
+            "kind": "contains",
+            "params": {
+              "all": [
+                "hello"
+              ]
+            },
+            "weight": 1
+          },
+          {
+            "kind": "contains",
+            "params": {
+              "all": [
+                "ZZZ"
+              ]
+            },
+            "weight": 199
+          }
+        ]
+      },
+      "deliverable": "hello",
+      "outcome": "VERIFIED",
+      "score": "1",
+      "failingChecks": [
+        "contains"
+      ]
+    },
+    {
+      "id": "contains-whole-word-underscore-boundary",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "contains",
+            "params": {
+              "all": [
+                "USDC"
+              ],
+              "wholeWords": true
+            }
+          }
+        ]
+      },
+      "deliverable": "pay_USDC now",
+      "outcome": "REFUTED",
+      "score": "0",
+      "failingChecks": [
+        "contains"
+      ]
+    }
+  ],
+  "gateCases": [
+    {
+      "id": "http-endpoint-out-of-scope",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "http-endpoint",
+            "params": {
+              "url": "https://example.com/health"
+            }
+          }
+        ]
+      },
+      "expectedGate": "rvr.judge-protocol.v0.gate.criteria_out_of_scope"
+    },
+    {
+      "id": "non-integer-weight-out-of-scope",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "length",
+            "params": {
+              "min": 1
+            },
+            "weight": 0.5
+          }
+        ]
+      },
+      "expectedGate": "rvr.judge-protocol.v0.gate.criteria_out_of_scope"
+    },
+    {
+      "id": "unknown-check-field",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "length",
+            "param": {
+              "min": 1
+            }
+          }
+        ]
+      },
+      "expectedGate": "rvr.judge-protocol.v0.gate.criteria_invalid"
+    },
+    {
+      "id": "unknown-check-kind",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "code-test"
+          }
+        ]
+      },
+      "expectedGate": "rvr.judge-protocol.v0.gate.criteria_invalid"
+    },
+    {
+      "id": "null-pass-threshold",
+      "criteria": {
+        "version": 1,
+        "passThreshold": null,
+        "checks": [
+          {
+            "kind": "length",
+            "params": {
+              "min": 1
+            }
+          }
+        ]
+      },
+      "expectedGate": "rvr.judge-protocol.v0.gate.criteria_invalid"
+    },
+    {
+      "id": "no-criteria-block",
+      "description": "A job whose description carries no acceptance criteria.",
+      "expectedGate": "rvr.judge-protocol.v0.gate.criteria_missing"
+    },
+    {
+      "id": "evaluator-is-not-the-judge",
+      "evaluator": "0x000000000000000000000000000000000000dead",
+      "expectedGate": "rvr.judge-protocol.v0.gate.evaluator_not_judge"
+    },
+    {
+      "id": "deliverable-not-the-committed-bytes",
+      "mutation": "deliverableNotCommitted",
+      "expectedGate": "rvr.judge-protocol.v0.gate.commitment_mismatch"
+    },
+    {
+      "id": "claim-names-other-criteria",
+      "mutation": "claimCriteriaHash",
+      "expectedGate": "rvr.judge-protocol.v0.gate.criteria_hash_mismatch"
+    },
+    {
+      "id": "snapshot-not-canonical",
+      "mutation": "snapshotWhitespace",
+      "expectedGate": "rvr.judge-protocol.v0.gate.snapshot_not_canonical"
+    },
+    {
+      "id": "deliverable-not-utf8",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "contains",
+            "params": {
+              "all": [
+                "x"
+              ]
+            }
+          }
+        ]
+      },
+      "deliverableBase64": "//4A",
+      "expectedGate": "rvr.judge-protocol.v0.gate.deliverable_not_utf8"
+    },
+    {
+      "id": "deliverable-json-too-deep",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "schema",
+            "params": {
+              "required": [
+                "a"
+              ]
+            }
+          }
+        ]
+      },
+      "deliverable": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+      "expectedGate": "rvr.judge-protocol.v0.gate.resource_limit"
+    },
+    {
+      "id": "criteria-fence-then-information-separator",
+      "description": "Job.\n```judge-criteria\u001c{\"version\":1,\"checks\":[{\"kind\":\"length\",\"params\":{\"min\":1}}]}\n```",
+      "expectedGate": "rvr.judge-protocol.v0.gate.criteria_invalid"
+    },
+    {
+      "id": "zero-weight",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "length",
+            "params": {
+              "min": 1
+            },
+            "weight": 0
+          }
+        ]
+      },
+      "expectedGate": "rvr.judge-protocol.v0.gate.criteria_invalid"
+    },
+    {
+      "id": "min-above-max",
+      "criteria": {
+        "version": 1,
+        "checks": [
+          {
+            "kind": "length",
+            "params": {
+              "min": 5,
+              "max": 2
+            }
+          }
+        ]
+      },
+      "expectedGate": "rvr.judge-protocol.v0.gate.criteria_invalid"
+    }
+  ]
+}

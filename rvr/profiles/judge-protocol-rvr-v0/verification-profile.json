@@ -1,0 +1,155 @@
+{
+  "schema": "rvr.verification-profile.v0",
+  "profileId": "judge-protocol-rvr-v0",
+  "profileSchemaContract": {
+    "manifest": {
+      "id": "verification-profile-manifest-schema",
+      "path": "conformance/rvr-v0/verification-profile-manifest.schema.json",
+      "sha256": "148afeb484d3866c1caae82e574182c1b748dd461dfaeb1d8095ecf4905690c1",
+      "requiredForRecomputation": true
+    },
+    "constraints": {
+      "id": "judge-protocol-rvr-v0-profile-schema",
+      "path": "profiles/judge-protocol-rvr-v0/profile.schema.json",
+      "sha256": "219ca45f2f75f149fa6b20c205d6fad5c161517864f91f93198b8c257c0b1249",
+      "requiredForRecomputation": true
+    }
+  },
+  "dependencyResolution": {
+    "base": "SUPPLIED_PROFILE_PACKAGE_ROOT",
+    "pathFormat": "relative-posix-no-empty-dot-dotdot-or-colon-segments",
+    "locatorRole": "NORMATIVE_PACKAGE_RELATIVE_PATH",
+    "verificationOrder": "resolve-read-sha256-match-use"
+  },
+  "verificationSpecification": {
+    "id": "judge-protocol-rvr-v0-verification-specification",
+    "path": "profiles/judge-protocol-rvr-v0/SPEC.md",
+    "sha256": "a1d9de54c0058326a61b55588f59f32553f1fdda96a8b5dda332456c303bb7ae",
+    "requiredForRecomputation": true
+  },
+  "conformanceVectorSet": {
+    "id": "judge-protocol-rvr-v0-vectors",
+    "members": [
+      {
+        "id": "judge-protocol-rvr-v0-expected-results",
+        "path": "profiles/judge-protocol-rvr-v0/expected.json",
+        "sha256": "9c183ebcc7fe6d17609c23001e671a777ff5c37253d675ccd93e67be5b9e1c96",
+        "requiredForRecomputation": false
+      },
+      {
+        "id": "job-186779-deliverable",
+        "path": "profiles/judge-protocol-rvr-v0/upstream/job-186779.deliverable.bin",
+        "sha256": "56b43515559a9aa63b5b2edb6bbaba63f273d504922690b8947f2de1d9adbee6",
+        "requiredForRecomputation": false
+      },
+      {
+        "id": "job-186779-snapshot",
+        "path": "profiles/judge-protocol-rvr-v0/upstream/job-186779.snapshot.json",
+        "sha256": "1019834ee7dae19b0ca14d4118cd66a0f98dc5840e332c061cbef9ce4ce5f74f",
+        "requiredForRecomputation": false
+      },
+      {
+        "id": "job-186780-deliverable",
+        "path": "profiles/judge-protocol-rvr-v0/upstream/job-186780.deliverable.bin",
+        "sha256": "7da686ec7213c5a4df0796d8c6290bbac63e64849bc69552ae846b110f1ff5a3",
+        "requiredForRecomputation": false
+      },
+      {
+        "id": "job-186780-snapshot",
+        "path": "profiles/judge-protocol-rvr-v0/upstream/job-186780.snapshot.json",
+        "sha256": "a2c7beb6dc2c3c86d58a31848243e215adbfc5f43d06c0c94b082d47765a914c",
+        "requiredForRecomputation": false
+      },
+      {
+        "id": "judge-protocol-rvr-v0-verification-vectors",
+        "path": "profiles/judge-protocol-rvr-v0/vectors.json",
+        "sha256": "e7fd9ae89ac6982cf3aabf27589385625c8a7960d5d0d7180dd3aa39e33246e7",
+        "requiredForRecomputation": false
+      }
+    ],
+    "digest": "272b393895bfe209a430385a6c74dcf25069b66da24dfc5c76c7599de88a1a2e",
+    "digestRule": "sha256-utf8-sorted-path-tab-file-sha256-lf-rows"
+  },
+  "canonicalByteContract": {
+    "id": "rvr-canonical-json-v0",
+    "encoding": "UTF-8",
+    "domain": "null-boolean-unicode-scalar-string-array-object",
+    "objectKeyOrder": "unicode-scalar-value-ascending",
+    "arrayOrder": "preserved-with-duplicates",
+    "unicode": "scalar-values-only-no-normalization",
+    "numbers": "forbidden",
+    "stringEscaping": "rvr-json-string-escaping-v0",
+    "solidus": "literal",
+    "lineSeparators": "U+2028-and-U+2029-literal",
+    "whitespace": "none"
+  },
+  "schemaContracts": [
+    {
+      "id": "rvr-schema",
+      "path": "profiles/judge-protocol-rvr-v0/rvr.schema.json",
+      "sha256": "ee7280deca4c265e303a213141add9a8bacb8f80df562d1988f195a709947d18",
+      "requiredForRecomputation": true
+    }
+  ],
+  "evidenceSetContract": {
+    "schemaPath": "profiles/judge-protocol-rvr-v0/rvr.schema.json",
+    "schemaSha256": "ee7280deca4c265e303a213141add9a8bacb8f80df562d1988f195a709947d18",
+    "schemaPointer": "#/$defs/evidenceSet",
+    "digestRule": "sha256-utf8-rvr-canonical-json-v0-normalized-member-order"
+  },
+  "canonicalResultContract": {
+    "schemaPath": "profiles/judge-protocol-rvr-v0/rvr.schema.json",
+    "schemaSha256": "ee7280deca4c265e303a213141add9a8bacb8f80df562d1988f195a709947d18",
+    "schemaPointer": "#/$defs/canonicalResult",
+    "outcomeProjection": "/outcome",
+    "reasonCodeProjection": "/reasonCode"
+  },
+  "resultHashRules": {
+    "algorithm": "SHA-256",
+    "input": "rvr-canonical-json-v0(canonicalResult)",
+    "encoding": "UTF-8-exactly-once",
+    "output": "lowercase-hex-no-prefix"
+  },
+  "reasonCodeNamespace": {
+    "verification": [
+      "rvr.judge-protocol.v0.score_meets_threshold",
+      "rvr.judge-protocol.v0.score_below_threshold",
+      "rvr.judge-protocol.v0.required_chain_snapshot_unavailable",
+      "rvr.judge-protocol.v0.required_deliverable_unavailable"
+    ],
+    "recomputation": [
+      "rvr.recompute.identical",
+      "rvr.recompute.canonical_result_diverged",
+      "rvr.recompute.normative_dependency_unavailable",
+      "rvr.recompute.normative_dependency_pin_mismatch",
+      "rvr.recompute.committed_evidence_unavailable"
+    ],
+    "gateRejections": [
+      "rvr.gate.schema_invalid",
+      "rvr.gate.identity_mismatch",
+      "rvr.gate.result_projection_mismatch",
+      "rvr.gate.evidence_closure_incomplete",
+      "rvr.judge-protocol.v0.gate.snapshot_invalid",
+      "rvr.judge-protocol.v0.gate.snapshot_not_canonical",
+      "rvr.judge-protocol.v0.gate.snapshot_claim_mismatch",
+      "rvr.judge-protocol.v0.gate.evaluator_not_judge",
+      "rvr.judge-protocol.v0.gate.commitment_mismatch",
+      "rvr.judge-protocol.v0.gate.criteria_missing",
+      "rvr.judge-protocol.v0.gate.criteria_invalid",
+      "rvr.judge-protocol.v0.gate.criteria_out_of_scope",
+      "rvr.judge-protocol.v0.gate.criteria_hash_mismatch",
+      "rvr.judge-protocol.v0.gate.deliverable_not_utf8",
+      "rvr.judge-protocol.v0.gate.resource_limit"
+    ]
+  },
+  "externalContextPolicy": {
+    "mode": "COMMITTED_SNAPSHOTS_ONLY",
+    "ambientInputs": "FORBIDDEN",
+    "immutableCommitments": [
+      "judge-protocol-committed-chain-snapshot",
+      "eip155:5042002",
+      "judge-protocol-acp:0x0747eef0706327138c69792bf28cd525089e4583",
+      "judge-protocol-evaluator:0x6eff7d4bb514d341abed90bf4c667d0a980173ad"
+    ]
+  }
+}

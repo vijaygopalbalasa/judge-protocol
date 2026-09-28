@@ -30,3 +30,12 @@ Third-party material:
 - contracts/test/vendor/erc8412/PreregisteredCriteria.sol is the ERC-8412 reference
   registry from the same commit, unchanged and under CC0, used to test
   JudgeAttestor against the real registry.
+- rvr/conformance/rvr-v0/verification-profile-manifest.schema.json is from
+  Pavlo Tvardovskyi's ERC-8404 reference repository,
+  https://github.com/pipavlo82/recomputable-verification-receipts at commit
+  287c0ea, unchanged and under the Apache License 2.0 (a copy is in
+  rvr/LICENSE-rvr-core-Apache-2.0).
+- rvr/profiles/judge-protocol-rvr-v0/ follows that repository's profile layout.
+  Its adapter.py, test_profile.py and JSON schemas are changed from the
+  reference profiles there (Apache License 2.0), and each says so. SPEC.md, the
+  vectors and the Judge-specific derivation were written for this project.

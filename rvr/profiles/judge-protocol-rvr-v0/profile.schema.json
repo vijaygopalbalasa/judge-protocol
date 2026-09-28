@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Structure follows the reference profiles in pipavlo82/recomputable-verification-receipts (commit 287c0ea, Apache License 2.0), with changes.",
+  "$id": "https://github.com/vijaygopalbalasa/judge-protocol/rvr/profiles/judge-protocol-rvr-v0/profile.schema.json",
+  "title": "RVR Judge Protocol profile constraints v0",
+  "type": "object",
+  "required": [
+    "schema",
+    "profileId",
+    "profileSchemaContract",
+    "verificationSpecification",
+    "conformanceVectorSet",
+    "schemaContracts",
+    "evidenceSetContract",
+    "canonicalResultContract",
+    "reasonCodeNamespace",
+    "externalContextPolicy"
+  ],
+  "properties": {
+    "schema": { "const": "rvr.verification-profile.v0" },
+    "profileId": { "const": "judge-protocol-rvr-v0" },
+    "profileSchemaContract": {
+      "type": "object",
+      "properties": {
+        "manifest": {
+          "type": "object",
+          "properties": {
+            "id": { "const": "verification-profile-manifest-schema" },
+            "path": { "const": "conformance/rvr-v0/verification-profile-manifest.schema.json" },
+            "sha256": { "const": "148afeb484d3866c1caae82e574182c1b748dd461dfaeb1d8095ecf4905690c1" },
+            "requiredForRecomputation": { "const": true }
+          }
+        },
+        "constraints": {
+          "type": "object",
+          "properties": {
+            "id": { "const": "judge-protocol-rvr-v0-profile-schema" },
+            "path": { "const": "profiles/judge-protocol-rvr-v0/profile.schema.json" },
+            "requiredForRecomputation": { "const": true }
+          }
+        }
+      }
+    },
+    "verificationSpecification": {
+      "type": "object",
+      "properties": {
+        "id": { "const": "judge-protocol-rvr-v0-verification-specification" },
+        "path": { "const": "profiles/judge-protocol-rvr-v0/SPEC.md" },
+        "requiredForRecomputation": { "const": true }
+      }
+    },
+    "conformanceVectorSet": {
+      "type": "object",
+      "properties": {
+        "id": { "const": "judge-protocol-rvr-v0-vectors" }
+      }
+    },
+    "schemaContracts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "const": "rvr-schema" },
+          "path": { "const": "profiles/judge-protocol-rvr-v0/rvr.schema.json" },
+          "requiredForRecomputation": { "const": true }
+        }
+      }
+    },
+    "evidenceSetContract": {
+      "type": "object",
+      "properties": {
+        "schemaPath": { "const": "profiles/judge-protocol-rvr-v0/rvr.schema.json" },
+        "schemaPointer": { "const": "#/$defs/evidenceSet" },
+        "digestRule": { "const": "sha256-utf8-rvr-canonical-json-v0-normalized-member-order" }
+      }
+    },
+    "canonicalResultContract": {
+      "type": "object",
+      "properties": {
+        "schemaPath": { "const": "profiles/judge-protocol-rvr-v0/rvr.schema.json" },
+        "schemaPointer": { "const": "#/$defs/canonicalResult" },
+        "outcomeProjection": { "const": "/outcome" },
+        "reasonCodeProjection": { "const": "/reasonCode" }
+      }
+    },
+    "reasonCodeNamespace": {
+      "type": "object",
+      "properties": {
+        "verification": {
+          "const": [
+            "rvr.judge-protocol.v0.score_meets_threshold",
+            "rvr.judge-protocol.v0.score_below_threshold",
+            "rvr.judge-protocol.v0.required_chain_snapshot_unavailable",
+            "rvr.judge-protocol.v0.required_deliverable_unavailable"
+          ]
+        }
+      }
+    },
+    "externalContextPolicy": {
+      "type": "object",
+      "properties": {
+        "mode": { "const": "COMMITTED_SNAPSHOTS_ONLY" },
+        "ambientInputs": { "const": "FORBIDDEN" },
+        "immutableCommitments": {
+          "const": [
+            "judge-protocol-committed-chain-snapshot",
+            "eip155:5042002",
+            "judge-protocol-acp:0x0747eef0706327138c69792bf28cd525089e4583",
+            "judge-protocol-evaluator:0x6eff7d4bb514d341abed90bf4c667d0a980173ad"
+          ]
+        }
+      }
+    }
+  }
+}

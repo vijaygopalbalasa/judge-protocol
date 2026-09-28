@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Structure follows the reference profiles in pipavlo82/recomputable-verification-receipts (commit 287c0ea, Apache License 2.0), with changes.",
+  "$id": "https://github.com/vijaygopalbalasa/judge-protocol/rvr/profiles/judge-protocol-rvr-v0/rvr.schema.json",
+  "title": "RVR Judge Protocol checker derivation contracts v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["claimDigest", "evidenceSetDigest", "verificationProfileDigest", "outcome", "reasonCode", "resultDigest"],
+  "properties": {
+    "claimDigest": { "$ref": "#/$defs/digest" },
+    "evidenceSetDigest": { "$ref": "#/$defs/digest" },
+    "verificationProfileDigest": { "$ref": "#/$defs/digest" },
+    "outcome": { "$ref": "#/$defs/outcome" },
+    "reasonCode": { "$ref": "#/$defs/verificationReasonCode" },
+    "resultDigest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "bytes32": { "type": "string", "pattern": "^0x[0-9a-f]{64}$" },
+    "address": { "type": "string", "pattern": "^0x[0-9a-f]{40}$" },
+    "decimal": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
+    "identifier": { "type": "string", "pattern": "^[a-z][a-z0-9._-]*$" },
+    "nullableBytes32": { "oneOf": [{ "$ref": "#/$defs/bytes32" }, { "type": "null" }] },
+    "nullableDecimal": { "oneOf": [{ "$ref": "#/$defs/decimal" }, { "type": "null" }] },
+    "outcome": { "enum": ["VERIFIED", "REFUTED", "UNVERIFIABLE"] },
+    "verificationReasonCode": {
+      "enum": [
+        "rvr.judge-protocol.v0.score_meets_threshold",
+        "rvr.judge-protocol.v0.score_below_threshold",
+        "rvr.judge-protocol.v0.required_chain_snapshot_unavailable",
+        "rvr.judge-protocol.v0.required_deliverable_unavailable"
+      ]
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "proposition", "chainId", "acp", "evaluator", "jobId", "criteriaHash", "deliverableCommitment", "snapshotMember", "deliverableMember", "checkerContract", "judgeByteContract"],
+      "properties": {
+        "schema": { "const": "rvr.claim.judge-protocol.v0" },
+        "proposition": { "const": "rvr.judge-protocol.v0.deliverable_meets_criteria" },
+        "chainId": { "const": "5042002" },
+        "acp": { "const": "0x0747eef0706327138c69792bf28cd525089e4583" },
+        "evaluator": { "const": "0x6eff7d4bb514d341abed90bf4c667d0a980173ad" },
+        "jobId": { "$ref": "#/$defs/decimal" },
+        "criteriaHash": { "$ref": "#/$defs/bytes32" },
+        "deliverableCommitment": { "$ref": "#/$defs/bytes32" },
+        "snapshotMember": { "const": "chain-snapshot" },
+        "deliverableMember": { "const": "deliverable" },
+        "checkerContract": { "const": "judge-protocol-checkers-v1" },
+        "judgeByteContract": { "const": "judge-protocol-sorted-json-v1" }
+      }
+    },
+    "presentEvidenceMember": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "mediaType", "byteLength", "digest"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "status": { "const": "PRESENT" },
+        "mediaType": { "type": "string" },
+        "byteLength": { "$ref": "#/$defs/decimal" },
+        "digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "unavailableEvidenceMember": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "reasonCode"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "status": { "const": "UNAVAILABLE" },
+        "reasonCode": { "const": "rvr.judge-protocol.v0.evidence_unavailable" }
+      }
+    },
+    "evidenceSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "members"],
+      "properties": {
+        "schema": { "const": "rvr.evidence-set.v0" },
+        "members": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "oneOf": [{ "$ref": "#/$defs/presentEvidenceMember" }, { "$ref": "#/$defs/unavailableEvidenceMember" }] }
+        }
+      }
+    },
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jobId", "criteriaHash", "deliverable", "score", "threshold", "pass", "evidenceHash", "timestamp", "txHash", "blockNumber"],
+      "properties": {
+        "jobId": { "$ref": "#/$defs/decimal" },
+        "criteriaHash": { "$ref": "#/$defs/bytes32" },
+        "deliverable": { "$ref": "#/$defs/bytes32" },
+        "score": { "$ref": "#/$defs/decimal" },
+        "threshold": { "$ref": "#/$defs/decimal" },
+        "pass": { "type": "boolean" },
+        "evidenceHash": { "$ref": "#/$defs/bytes32" },
+        "timestamp": { "$ref": "#/$defs/decimal" },
+        "txHash": { "$ref": "#/$defs/nullableBytes32" },
+        "blockNumber": { "$ref": "#/$defs/nullableDecimal" }
+      }
+    },
+    "chainSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "chainId", "acp", "evaluatorContract", "readAt", "job", "submission", "verdict"],
+      "properties": {
+        "schema": { "const": "rvr.judge-protocol.chain-snapshot.v0" },
+        "chainId": { "$ref": "#/$defs/decimal" },
+        "acp": { "$ref": "#/$defs/address" },
+        "evaluatorContract": { "$ref": "#/$defs/address" },
+        "readAt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["blockNumber", "blockHash"],
+          "properties": {
+            "blockNumber": { "$ref": "#/$defs/decimal" },
+            "blockHash": { "$ref": "#/$defs/bytes32" }
+          }
+        },
+        "job": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "client", "provider", "evaluator", "description", "budget", "expiredAt", "status", "hook"],
+          "properties": {
+            "id": { "$ref": "#/$defs/decimal" },
+            "client": { "$ref": "#/$defs/address" },
+            "provider": { "$ref": "#/$defs/address" },
+            "evaluator": { "$ref": "#/$defs/address" },
+            "description": { "type": "string" },
+            "budget": { "$ref": "#/$defs/decimal" },
+            "expiredAt": { "$ref": "#/$defs/decimal" },
+            "status": { "$ref": "#/$defs/decimal" },
+            "hook": { "$ref": "#/$defs/address" }
+          }
+        },
+        "submission": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["txHash", "blockNumber", "blockHash", "provider", "deliverable"],
+          "properties": {
+            "txHash": { "$ref": "#/$defs/bytes32" },
+            "blockNumber": { "$ref": "#/$defs/decimal" },
+            "blockHash": { "$ref": "#/$defs/bytes32" },
+            "provider": { "$ref": "#/$defs/address" },
+            "deliverable": { "$ref": "#/$defs/bytes32" }
+          }
+        },
+        "verdict": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/verdict" }] }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "kind", "weight", "pass"],
+      "properties": {
+        "index": { "$ref": "#/$defs/decimal" },
+        "kind": { "enum": ["length", "contains", "schema", "checksum"] },
+        "weight": { "$ref": "#/$defs/decimal" },
+        "pass": { "type": "boolean" }
+      }
+    },
+    "evaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["procedure", "checkerContract", "judgeByteContract", "chainSemantics", "timestampSemantics", "jobId", "snapshotBlock", "criteriaHash", "deliverableCommitment", "checks", "score", "threshold", "pass", "evidenceHash", "onChainVerdict", "verdictAgreement"],
+      "properties": {
+        "procedure": { "const": "JUDGE_PROTOCOL_CHECKER_DERIVATION_V0" },
+        "checkerContract": { "const": "judge-protocol-checkers-v1" },
+        "judgeByteContract": { "const": "judge-protocol-sorted-json-v1" },
+        "chainSemantics": { "const": "SNAPSHOT_BOUND_CANONICALITY_NOT_ESTABLISHED" },
+        "timestampSemantics": { "const": "RECORDED_NOT_REDERIVED" },
+        "jobId": { "$ref": "#/$defs/decimal" },
+        "snapshotBlock": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["number", "hash"],
+              "properties": {
+                "number": { "$ref": "#/$defs/decimal" },
+                "hash": { "$ref": "#/$defs/bytes32" }
+              }
+            }
+          ]
+        },
+        "criteriaHash": { "$ref": "#/$defs/nullableBytes32" },
+        "deliverableCommitment": { "$ref": "#/$defs/nullableBytes32" },
+        "checks": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/check" } },
+        "score": { "$ref": "#/$defs/nullableDecimal" },
+        "threshold": { "$ref": "#/$defs/nullableDecimal" },
+        "pass": { "oneOf": [{ "type": "boolean" }, { "type": "null" }] },
+        "evidenceHash": { "$ref": "#/$defs/nullableBytes32" },
+        "onChainVerdict": { "oneOf": [{ "enum": ["PASS", "REJECT", "NONE"] }, { "type": "null" }] },
+        "verdictAgreement": { "enum": ["MATCHES", "DIFFERS", "NO_VERDICT", "NOT_EVALUATED"] }
+      }
+    },
+    "canonicalResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "proposition", "outcome", "reasonCode", "evaluation"],
+      "properties": {
+        "schema": { "const": "rvr.canonical-result.judge-protocol.v0" },
+        "proposition": { "const": "rvr.judge-protocol.v0.deliverable_meets_criteria" },
+        "outcome": { "$ref": "#/$defs/outcome" },
+        "reasonCode": { "$ref": "#/$defs/verificationReasonCode" },
+        "evaluation": { "$ref": "#/$defs/evaluation" }
+      }
+    }
+  }
+}
