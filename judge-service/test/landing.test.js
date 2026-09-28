@@ -21,9 +21,12 @@ test("the Arc mainnet landing page names the mainnet judge and escrow, and keeps
 
 test("the mainnet host serves the mainnet page; every other host keeps the testnet page", () => {
   const vercel = JSON.parse(read("../vercel.json"));
-  const r = (vercel.rewrites || []).find((x) => x.destination === "/mainnet.html");
-  assert.ok(r, "a rewrite to the mainnet page");
+  // A redirect, not a rewrite: Vercel serves public/index.html for "/" before it looks at rewrites.
+  assert.ok(!(vercel.rewrites || []).some((x) => x.destination === "/mainnet.html"), "a rewrite never fires for /");
+  const r = (vercel.redirects || []).find((x) => x.destination === "/mainnet.html");
+  assert.ok(r, "a redirect to the mainnet page");
   assert.equal(r.source, "/");
+  assert.equal(r.permanent, false);
   assert.deepEqual(r.has, [{ type: "host", value: "judge-protocol-api-mainnet.vercel.app" }]);
   assert.match(read("../public/index.html"), /ARC TESTNET · CHAIN 5042002/);
 });

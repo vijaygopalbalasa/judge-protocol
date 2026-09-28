@@ -13,7 +13,7 @@
     }
   ],
   "outputDirectory": "public",
-  "rewrites": [
+  "redirects": [
     {
       "source": "/",
       "has": [
@@ -22,7 +22,8 @@
           "value": "judge-protocol-api-mainnet.vercel.app"
         }
       ],
-      "destination": "/mainnet.html"
+      "destination": "/mainnet.html",
+      "permanent": false
     }
   ]
 }
