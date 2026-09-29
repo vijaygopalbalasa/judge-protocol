@@ -263,7 +263,7 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
   cases, 74 gate cases and 5 byte-contract known answers, with both real rulings re-derived and
   their recorded verdicts matched; `python3 mutants.py` confirms 112 deliberate mistakes each fail
   it in the case written to catch them.
-- ✅ **Live check** (`cd judge-service && npm run live-check`): 17 checks against the hosted judge,
+- ✅ **Live check** (`cd judge-service && npm run live-check`): 18 checks against the hosted judge,
   no keys and no money, including exact parity with a verdict on chain (job 186740).
 - ✅ **Hosted judge** at https://judge-protocol-api.vercel.app: an on-demand API
   (`POST /api/judge`) plus a daily safety sweep. Best effort, no uptime guarantee; if it does not

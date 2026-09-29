@@ -86,6 +86,20 @@ await check("a JSON deliverable that is not an object fails schema cleanly", asy
   assert.equal(r.body.pass, false);
 });
 
+await check("json: a list of records passes its shape, and a duplicate domain or a lowercase enum fails", async () => {
+  const shape = { type: "array", minItems: 2, maxItems: 2, uniqueBy: { field: "website", key: "domain" },
+    items: { type: "object", required: ["website", "network"], properties: { website: { type: "string", format: "url" }, network: { enum: ["Arc", "Base"] } } } };
+  const c = { checks: [{ kind: "json", params: { shape } }] };
+  const good = [{ website: "https://a.xyz", network: "Arc" }, { website: "https://b.xyz", network: "Base" }];
+  assert.equal((await ev({ criteria: c, deliverable: JSON.stringify(good) })).body.pass, true);
+  const dup = [good[0], { website: "https://WWW.A.xyz/x", network: "Base" }];
+  const d = await ev({ criteria: c, deliverable: JSON.stringify(dup) });
+  assert.equal(d.body.pass, false);
+  assert.match(d.body.results[0].detail, /same domain as \$\[0\]/);
+  assert.equal((await ev({ criteria: c, deliverable: JSON.stringify([good[0], { ...good[1], network: "base" }]) })).body.pass, false);
+  assert.equal((await ev({ criteria: { checks: [{ kind: "json", params: { shape: { minItems: 1 } } }] }, deliverable: "[]" })).status, 422);
+});
+
 await check("the hosted dry run never probes a URL (including metadata addresses)", async () => {
   for (const url of ["https://example.com", "http://169.254.169.254/latest/meta-data/"]) {
     const r = await ev({ criteria: { checks: [{ kind: "http-endpoint", params: { url } }] }, deliverable: "x", allowLiveProbes: true });
