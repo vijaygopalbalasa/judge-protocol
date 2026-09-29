@@ -8,6 +8,7 @@
 
 import { keccak_256 } from './vendor/noble/sha3.js';
 import { WORD_RANGES } from './word-characters.js';
+import { shapeProblem, shapeViolations } from './json-shape.js';
 
 // The deployments the page can read. The default is Arc testnet, read through this site's /api/rpc
 // relay; ?network=arc-mainnet reads the Arc mainnet judge straight from Arc's public RPC, which allows
@@ -294,7 +295,7 @@ export function extractDeliverableURI(text) {
 }
 const isUri = (s) => /^(data:|ipfs:\/\/|https?:\/\/)/.test(s);
 
-export const KNOWN_KINDS = ['checksum', 'schema', 'contains', 'length', 'http-endpoint'];
+export const KNOWN_KINDS = ['checksum', 'schema', 'contains', 'length', 'http-endpoint', 'json'];
 
 /** Bounds the judge enforces (judge-service/src/checkers/index.js LIMITS; a parity test holds them equal). */
 export const LIMITS = { checks: 64, probes: 4, depth: 12, terms: 256, termChars: 1024, urlChars: 2048, probeTimeoutMs: 10_000, weight: 1000 };
@@ -320,7 +321,7 @@ function nestsDeeperThan(value, limit) {
 /** What is wrong with one check's params, or null (the judge's own rules). */
 const CHECK_FIELDS = ['kind', 'params', 'weight'];
 const PARAM_NAMES = { length: ['min', 'max', 'unit'], contains: ['all', 'wholeWords'], schema: ['required', 'types'],
-  checksum: ['sha256'], 'http-endpoint': ['url', 'expectStatus', 'bodyIncludes', 'timeoutMs'] };
+  checksum: ['sha256'], 'http-endpoint': ['url', 'expectStatus', 'bodyIncludes', 'timeoutMs'], json: ['shape'] };
 function paramsProblem(kind, p) {
   for (const k of Object.keys(p)) {
     if (!(PARAM_NAMES[kind] || []).includes(k)) return `unknown param "${k}" (known: ${(PARAM_NAMES[kind] || []).join(', ')})`;
@@ -353,6 +354,8 @@ function paramsProblem(kind, p) {
       if (has(p.bodyIncludes) && !isStringList(p.bodyIncludes)) return `bodyIncludes must be a list of at most ${LIMITS.terms} strings of at most ${LIMITS.termChars} characters`;
       if (has(p.timeoutMs) && !isNumberIn(p.timeoutMs, 1, LIMITS.probeTimeoutMs)) return `timeoutMs must be a number from 1 to ${LIMITS.probeTimeoutMs}`;
       return null;
+    case 'json':
+      return has(p.shape) ? shapeProblem(p.shape) : null;
     default:
       return null;
   }
@@ -478,6 +481,12 @@ const CHECKERS = {
     return { pass: n >= min && n <= max, detail: `${p.unit === 'chars' ? 'chars' : 'words'}=${n} (need ${min} to ${max === Infinity ? 'any' : max})` };
   },
   'http-endpoint': () => ({ pass: false, unsupported: true, detail: 'live network probe, recorded once by the judge' }),
+  json: (p, d) => {
+    let value;
+    try { value = JSON.parse(d.text); } catch { return { pass: false, detail: 'deliverable is not valid JSON' }; }
+    const { count, shown } = shapeViolations(value, p.shape);
+    return { pass: count === 0, detail: count === 0 ? 'json ok' : `${count} problem${count === 1 ? '' : 's'}: ${shown.join('; ')}` };
+  },
 };
 
 /** The weighted score 0-100 and the decision, exactly as the service's

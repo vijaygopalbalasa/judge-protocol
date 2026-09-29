@@ -80,6 +80,53 @@ the object's own keys: inherited names such as `constructor` do not count.
 | `required` | list of up to 256 field names, each up to 1024 characters | Keys that must exist on the parsed object. |
 | `types` | object `{ key: type }`, up to 256 fields | For keys that exist, `typeof value` must equal `type`, one of `"string"`, `"number"`, `"boolean"`, `"object"`. |
 
+### `json`
+The deliverable must parse as JSON and, when `shape` is given, match it. Use it for lists and
+nested records, which `schema` cannot describe. A shape is a small subset of JSON Schema, pinned so
+that the judge, the in-browser verifier and any other implementation give the same answer: nothing
+depends on a platform's regular expressions or URL parser.
+
+| Param | Type | Default | Meaning |
+|---|---|---|---|
+| `shape` | a shape (below) | none: any valid JSON passes | What the parsed JSON must look like. |
+
+A shape is an object made of these keywords. Apart from `type`, `enum` and `anyOf`, each keyword
+belongs to one type, and a shape that uses it must declare that type: `{"minItems": 3}` on its own
+is refused.
+
+| Keyword | Type | Meaning |
+|---|---|---|
+| `type` | any | `"object"`, `"array"`, `"string"`, `"number"` (finite: a literal too large for a double, such as `1e400`, is not a number), `"integer"` (a whole number; `1.0` counts), `"boolean"` or `"null"`. |
+| `enum` | any | 1 to 256 strings, numbers, booleans or nulls. The value must equal one exactly: `"1"` is not `1`, and `"arc"` is not `"Arc"`. |
+| `anyOf` | none | 2 to 4 shapes, of which the value must match at least one. It stands alone (no other keyword beside it) and may not directly hold another `anyOf`. |
+| `required` | object | Field names that must be present (the object's own fields). |
+| `properties` | object | `{ field: shape }`. Each of these fields that is present must match its shape. |
+| `additionalProperties` | object | `false` refuses any field not named in `properties`. |
+| `items` | array | A shape that every item must match. |
+| `minItems`, `maxItems` | array | Whole numbers: inclusive bounds on the number of items. |
+| `uniqueBy` | array | `{ "field": name, "key": "value" or "domain" }`. No two items may share that field's value (strings, numbers and booleans, compared exactly) or, with `"domain"`, the domain of its URL. Items where the field is missing, or not a value of that kind, are not compared. |
+| `minLength`, `maxLength` | string | Whole numbers: inclusive bounds on the length in Unicode code points. |
+| `format` | string | `"url"` or `"email"`, as defined below. |
+| `minimum`, `maximum` | number or integer | Inclusive bounds. |
+
+The formats are defined here, not by any library:
+
+- **url**: `http://` or `https://` (any letter case), a host, an optional `:port` of 1 to 5 digits,
+  then optionally a path, query or fragment of printable ASCII with no spaces; at most 2048
+  characters. A host is two or more dot-separated labels of ASCII letters, digits and inner hyphens
+  (1 to 63 characters each, 253 in all), and its last label is not all digits. So a user name, an IP
+  address, `localhost` and a non-ASCII host (write its `xn--` form) are not URLs.
+- **email**: exactly one `@`. Before it, up to 64 characters made of dot-separated runs of letters,
+  digits and `` !#$%&'*+/=?^_`{|}~- `` (no leading, trailing or double dot); after it, a host as for
+  URLs; at most 254 characters in all. A `mailto:` link is not an email address.
+- **domain** (for `uniqueBy`): the URL's host, lowercased, with one leading `www.` removed.
+  `blog.example.com` and `example.com` are different domains: there is no public-suffix list,
+  because that list changes over time.
+
+One `json` check may hold at most 128 shapes (every nested shape counts), and the criteria's
+12-level nesting limit applies. The check's detail counts every problem and names the first five
+by path, for example `$[3].network: "arc" is not one of "Arc", "Base"`.
+
 ### `checksum`
 The SHA-256 of the exact deliverable bytes must match. Useful for files.
 
@@ -114,6 +161,8 @@ cannot re-run the probe as the judge saw it. Prefer the other kinds when you can
   `wholeWords`), and an unknown field on a check (anything but `kind`, `params` and `weight`,
   for example `param`): a misspelled field would otherwise drop the check's params, and a
   check without params passes almost anything
+- a `json` shape that breaks the rules above: an unknown keyword, a keyword without its `type`,
+  a bound of the wrong kind, a minimum above its maximum, or more than 128 shapes
 - too many checks: the judge takes at most 64 checks, and at most 4 `http-endpoint` checks
 - criteria nested deeper than 12 levels
 - an object anywhere in the criteria with a member named `__proto__` (JavaScript would drop it
@@ -151,6 +200,13 @@ An exact file:
 
 ```json
 {"version":1,"checks":[{"kind":"checksum","params":{"sha256":"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"}}]}
+```
+
+A list of records: exactly three teams, each with a name, a website on a domain no other entry
+uses, and a contact that is an email address or a URL, with no other fields:
+
+```json
+{"version":1,"checks":[{"kind":"json","params":{"shape":{"type":"array","minItems":3,"maxItems":3,"uniqueBy":{"field":"website","key":"domain"},"items":{"type":"object","additionalProperties":false,"required":["name","website","contact"],"properties":{"name":{"type":"string","minLength":1},"website":{"type":"string","format":"url"},"contact":{"anyOf":[{"type":"string","format":"email"},{"type":"string","format":"url"}]}}}}}}]}
 ```
 
 ## Writing good criteria

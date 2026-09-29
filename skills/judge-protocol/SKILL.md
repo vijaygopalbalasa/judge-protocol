@@ -27,7 +27,8 @@ recorded it.
 ## Workflow
 
 1. **Turn the brief into criteria.** Map each requirement to a check kind
-   (`length`, `contains`, `schema`, `checksum`, `http-endpoint`). List anything
+   (`length`, `contains`, `schema`, `json` for lists and nested records, `checksum`,
+   `http-endpoint`). List anything
    that cannot be checked mechanically and tell the user it is not covered.
    Validate before use with `validateCriteria(criteria)`. For required terms, set
    `wholeWords: true` so a short term like "Arc" is not satisfied by "Architecture".

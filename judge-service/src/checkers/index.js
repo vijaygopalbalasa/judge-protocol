@@ -6,6 +6,7 @@
 import crypto from "node:crypto";
 import { safeFetch, FetchError } from "../safe-fetch.js";
 import { WORD_RANGES } from "./word-characters.js";
+import { shapeProblem, shapeViolations } from "./json-shape.js";
 
 const sha256 = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
 
@@ -84,6 +85,18 @@ export function hasWholeWord(text, term) {
   return false;
 }
 
+/** json: the deliverable is JSON of the shape the criteria pin (json-shape.js; docs/CRITERIA.md, "json"). */
+function checkJson(spec, deliverable) {
+  let value;
+  try {
+    value = JSON.parse(deliverable.content.toString("utf8"));
+  } catch {
+    return { pass: false, detail: "deliverable is not valid JSON" };
+  }
+  const { count, shown } = shapeViolations(value, spec.shape);
+  return { pass: count === 0, detail: count === 0 ? "json ok" : `${count} problem${count === 1 ? "" : "s"}: ${shown.join("; ")}` };
+}
+
 /** Required terms, literal and case-sensitive; with wholeWords, each must stand on its own. */
 function checkContains(spec, deliverable) {
   const text = deliverable.content.toString("utf8");
@@ -152,6 +165,7 @@ const CHECKERS = {
   contains: checkContains,
   length: checkLength,
   "http-endpoint": checkHttpEndpoint,
+  json: checkJson,
 };
 
 export const KNOWN_KINDS = Object.keys(CHECKERS);
@@ -180,7 +194,7 @@ export function nestsDeeperThan(value, limit) {
 /** What is wrong with one check's params, or null. Wrong types either crashed a checker or silently steered escrow. */
 const CHECK_FIELDS = ["kind", "params", "weight"];
 const PARAM_NAMES = { length: ["min", "max", "unit"], contains: ["all", "wholeWords"], schema: ["required", "types"],
-  checksum: ["sha256"], "http-endpoint": ["url", "expectStatus", "bodyIncludes", "timeoutMs"] };
+  checksum: ["sha256"], "http-endpoint": ["url", "expectStatus", "bodyIncludes", "timeoutMs"], json: ["shape"] };
 function paramsProblem(kind, p) {
   for (const k of Object.keys(p)) {
     if (!(PARAM_NAMES[kind] || []).includes(k)) return `unknown param "${k}" (known: ${(PARAM_NAMES[kind] || []).join(", ")})`;
@@ -213,6 +227,8 @@ function paramsProblem(kind, p) {
       if (has(p.bodyIncludes) && !isStringList(p.bodyIncludes)) return `bodyIncludes must be a list of at most ${LIMITS.terms} strings of at most ${LIMITS.termChars} characters`;
       if (has(p.timeoutMs) && !isNumberIn(p.timeoutMs, 1, LIMITS.probeTimeoutMs)) return `timeoutMs must be a number from 1 to ${LIMITS.probeTimeoutMs}`;
       return null;
+    case "json":
+      return has(p.shape) ? shapeProblem(p.shape) : null;
     default:
       return null;
   }

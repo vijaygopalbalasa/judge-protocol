@@ -19,8 +19,8 @@ Be the neutral judgment layer between agent Clients and Providers: given a job's
 │  submit optParams) → assert keccak256(content)==commitment →  │
 │  run checkers → structured verdict → store evidence →         │
 │  EIP-712 sign → call JudgeEvaluator.submitVerdict            │
-│  Checkers (implemented): schema · checksum · contains ·       │
-│            length · http-endpoint                            │
+│  Checkers (implemented): schema · json · checksum ·          │
+│            contains · length · http-endpoint                 │
 │  Safety: validateCriteria() gate · SSRF denylist on all      │
 │          outbound fetches · min-budget spam guard            │
 └──────────────┬──────────────────────────────────────────────┘

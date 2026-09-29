@@ -47,7 +47,7 @@ const ERC20_ABI = [
 
 /* ------------------------------- criteria ---------------------------------- */
 
-export const KNOWN_KINDS = ["checksum", "schema", "contains", "length", "http-endpoint"];
+export const KNOWN_KINDS = ["checksum", "schema", "contains", "length", "http-endpoint", "json"];
 
 /** Bounds the judge enforces (judge-service/src/checkers/index.js LIMITS; a test keeps them equal). */
 export const LIMITS = { checks: 64, probes: 4, depth: 12, terms: 256, termChars: 1024, urlChars: 2048, probeTimeoutMs: 10_000, weight: 1000 };
@@ -70,10 +70,111 @@ function nestsDeeperThan(value, limit) {
   return false;
 }
 
+/* The json check's shape rules, copied from judge-service/src/checkers/json-shape.js (validation only: the kit
+ * never judges a deliverable). The shared criteria cases hold the kit, the verifier and the judge to the same answers. */
+const SHAPE_LIMITS = { nodes: 128, anyOf: 4, shown: 5, shownChars: 40, terms: 256, termChars: 1024, urlChars: 2048, emailChars: 254 };
+
+const TYPES = ["object", "array", "string", "number", "integer", "boolean", "null"];
+// Each keyword applies to one type, and a shape that uses it must declare that type.
+const NEEDS = { required: "object", properties: "object", additionalProperties: "object", items: "array", minItems: "array",
+  maxItems: "array", uniqueBy: "array", minLength: "string", maxLength: "string", format: "string", minimum: "number", maximum: "number" };
+const FORMATS = ["url", "email"];
+
+const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const isCount = (v) => Number.isInteger(v) && v >= 0;
+const isScalar = (v) => v === null || typeof v === "string" || typeof v === "boolean" || (typeof v === "number" && Number.isFinite(v));
+
+/** A value for a message: JSON, cut to a few characters (whole code points), since it may come from the deliverable. */
+function show(v) {
+  const s = [...JSON.stringify(v)];
+  return s.length > SHAPE_LIMITS.shownChars ? s.slice(0, SHAPE_LIMITS.shownChars).join("") + "..." : s.join("");
+}
+const step = (k) => (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k) ? `.${k}` : `[${show(k)}]`);
+
+/** What is wrong with a shape, or null. The criteria gate calls this before any deliverable is read. */
+function shapeProblem(shape) {
+  if (!isObject(shape)) return "shape must be an object";
+  let nodes = 0;
+  const visit = (node, at, inAnyOf) => {
+    if (++nodes > SHAPE_LIMITS.nodes) return `shape: at most ${SHAPE_LIMITS.nodes} shapes in all`;
+    if (!isObject(node)) return `${at} must be an object`;
+    for (const k of Object.keys(node)) {
+      if (k !== "type" && k !== "enum" && k !== "anyOf" && !Object.hasOwn(NEEDS, k)) return `${at}: unknown keyword ${show(k)}`;
+    }
+    if (Object.hasOwn(node, "anyOf")) {
+      if (Object.keys(node).length !== 1) return `${at}: anyOf stands alone (no other keyword beside it)`;
+      if (inAnyOf) return `${at}: anyOf directly inside anyOf`;
+      const alts = node.anyOf;
+      if (!Array.isArray(alts) || alts.length < 2 || alts.length > SHAPE_LIMITS.anyOf) return `${at}: anyOf needs 2 to ${SHAPE_LIMITS.anyOf} shapes`;
+      for (let i = 0; i < alts.length; i++) {
+        const p = visit(alts[i], `${at}.anyOf[${i}]`, true);
+        if (p) return p;
+      }
+      return null;
+    }
+    const type = node.type;
+    if (Object.hasOwn(node, "type") && !TYPES.includes(type)) return `${at}: type must be one of ${TYPES.join(", ")}`;
+    if (Object.hasOwn(node, "enum")) {
+      const e = node.enum;
+      if (!Array.isArray(e) || e.length < 1 || e.length > SHAPE_LIMITS.terms
+        || !e.every((x) => isScalar(x) && (typeof x !== "string" || x.length <= SHAPE_LIMITS.termChars))) {
+        return `${at}: enum must be a list of 1 to ${SHAPE_LIMITS.terms} strings, numbers, booleans or nulls (strings up to ${SHAPE_LIMITS.termChars} characters)`;
+      }
+    }
+    for (const [k, want] of Object.entries(NEEDS)) {
+      if (!Object.hasOwn(node, k)) continue;
+      if (want === "number" ? type !== "number" && type !== "integer" : type !== want) {
+        return `${at}: ${k} needs "type": "${want}"${want === "number" ? ' or "integer"' : ""}`;
+      }
+    }
+    for (const k of ["minItems", "maxItems", "minLength", "maxLength"]) {
+      if (Object.hasOwn(node, k) && !isCount(node[k])) return `${at}: ${k} must be a whole number >= 0`;
+    }
+    for (const k of ["minimum", "maximum"]) {
+      if (Object.hasOwn(node, k) && !(typeof node[k] === "number" && Number.isFinite(node[k]))) return `${at}: ${k} must be a number`;
+    }
+    for (const [lo, hi] of [["minItems", "maxItems"], ["minLength", "maxLength"], ["minimum", "maximum"]]) {
+      if (Object.hasOwn(node, lo) && Object.hasOwn(node, hi) && node[lo] > node[hi]) return `${at}: ${lo} must not be above ${hi}`;
+    }
+    if (Object.hasOwn(node, "format") && !FORMATS.includes(node.format)) return `${at}: format must be "url" or "email"`;
+    if (Object.hasOwn(node, "additionalProperties") && typeof node.additionalProperties !== "boolean") {
+      return `${at}: additionalProperties must be true or false`;
+    }
+    if (Object.hasOwn(node, "required")) {
+      const r = node.required;
+      if (!Array.isArray(r) || r.length > SHAPE_LIMITS.terms || !r.every((f) => typeof f === "string" && f.length <= SHAPE_LIMITS.termChars)) {
+        return `${at}: required must be a list of up to ${SHAPE_LIMITS.terms} field names, each up to ${SHAPE_LIMITS.termChars} characters`;
+      }
+    }
+    if (Object.hasOwn(node, "uniqueBy")) {
+      const u = node.uniqueBy;
+      if (!isObject(u) || Object.keys(u).length !== 2 || typeof u.field !== "string" || u.field.length < 1
+        || u.field.length > SHAPE_LIMITS.termChars || (u.key !== "value" && u.key !== "domain")) {
+        return `${at}: uniqueBy must be { field, key } with a field name and key "value" or "domain"`;
+      }
+    }
+    if (Object.hasOwn(node, "properties")) {
+      const props = node.properties;
+      if (!isObject(props)) return `${at}: properties must be an object of field: shape`;
+      const names = Object.keys(props);
+      if (names.length > SHAPE_LIMITS.terms || names.some((f) => f.length > SHAPE_LIMITS.termChars)) {
+        return `${at}: properties may name up to ${SHAPE_LIMITS.terms} fields, each up to ${SHAPE_LIMITS.termChars} characters`;
+      }
+      for (const f of names) {
+        const p = visit(props[f], `${at}.properties${step(f)}`, false);
+        if (p) return p;
+      }
+    }
+    if (Object.hasOwn(node, "items")) return visit(node.items, `${at}.items`, false);
+    return null;
+  };
+  return visit(shape, "shape", false);
+}
+
 /** What is wrong with one check's params, or null (the judge's own rules). */
 const CHECK_FIELDS = ["kind", "params", "weight"];
 const PARAM_NAMES = { length: ["min", "max", "unit"], contains: ["all", "wholeWords"], schema: ["required", "types"],
-  checksum: ["sha256"], "http-endpoint": ["url", "expectStatus", "bodyIncludes", "timeoutMs"] };
+  checksum: ["sha256"], "http-endpoint": ["url", "expectStatus", "bodyIncludes", "timeoutMs"], json: ["shape"] };
 function paramsProblem(kind, p) {
   for (const k of Object.keys(p)) {
     if (!(PARAM_NAMES[kind] || []).includes(k)) return `unknown param "${k}" (known: ${(PARAM_NAMES[kind] || []).join(", ")})`;
@@ -106,6 +207,8 @@ function paramsProblem(kind, p) {
       if (has(p.bodyIncludes) && !isStringList(p.bodyIncludes)) return `bodyIncludes must be a list of at most ${LIMITS.terms} strings of at most ${LIMITS.termChars} characters`;
       if (has(p.timeoutMs) && !isNumberIn(p.timeoutMs, 1, LIMITS.probeTimeoutMs)) return `timeoutMs must be a number from 1 to ${LIMITS.probeTimeoutMs}`;
       return null;
+    case "json":
+      return has(p.shape) ? shapeProblem(p.shape) : null;
     default:
       return null;
   }

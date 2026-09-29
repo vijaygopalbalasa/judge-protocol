@@ -143,10 +143,10 @@ authors invited a Judge profile for each.
 |---|---|---|
 | [ERC-8183](https://eips.ethereum.org/EIPS/eip-8183) Agentic Commerce | The evaluator a job names: checks the deliverable against criteria frozen in the job, then releases or refunds the escrow | Live on Circle's ERC-8183 contract on Arc testnet |
 | [ERC-8412](https://github.com/ethereum/ERCs/pull/2002) Preregistered Acceptance Criteria | Criteria preregistered before the work; the live judge writes itemized attestations on chain | Profile built at the author's invitation; records pass the ERC's reference verifier ([docs](docs/ERC-8412.md)) |
-| [ERC-8404](https://github.com/ethereum/ERCs/pull/1980) Recomputable Verification Receipts | A receipt anyone can recompute from a frozen chain snapshot and the deliverable | Profile built on the author's suggestion, posted for his review ([docs](docs/ERC-8404.md)) |
+| [ERC-8404](https://github.com/ethereum/ERCs/pull/1980) Recomputable Verification Receipts | A receipt anyone can recompute from a frozen chain snapshot and the deliverable | Profile built on the author's suggestion; the author reviewed it and merged it into the ERC's reference repository on 2026-09-28 ([docs](docs/ERC-8404.md)) |
 | [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) Trustless Agents | Registered as agent #870004 in Arc testnet's Identity Registry | Registered |
 
-All four are drafts, and everything here runs on testnet.
+All four are drafts. The ERC-8412 attestations and the ERC-8004 registration are on Arc testnet; the judge itself runs on Arc testnet and, since 2026-09-28, on Arc mainnet.
 
 ## License, attribution and name
 
@@ -168,7 +168,7 @@ Judge service detects JobSubmitted
   1. read the PROVIDER's deliverable from submit calldata
   2. assert keccak256(content) == the on-chain commitment  (never grade substituted content)
   3. validate the acceptance-criteria block  (reject malformed criteria, never score them)
-  4. run DETERMINISTIC checkers:  checksum · schema · contains · length · http-endpoint
+  4. run DETERMINISTIC checkers:  checksum · schema · json · contains · length · http-endpoint
   5. build the recomputable evidence core, hash it (evidenceHash)
   6. EIP-712-sign the verdict
    │ signed verdict
@@ -179,7 +179,7 @@ JudgeEvaluator.sol (on-chain)
                                            · fail → acp.reject()   (refund → client)
 ```
 
-**Key property: recomputable determinism.** For the `checksum`, `schema`, `contains` and `length`
+**Key property: recomputable determinism.** For the `checksum`, `schema`, `json`, `contains` and `length`
 checkers, the same deliverable + criteria always yield the same verdict, and `evidenceHash` is a
 pure function of the reproducible inputs (it excludes wall-clock timestamps and live-probe output).
 An `http-endpoint` check is a live network probe recorded once at judging time: its pass bit is
@@ -200,7 +200,7 @@ contracts/        Foundry project (Solidity 0.8.28, cancun)
   script/Deploy.s.sol           Arc testnet deploy
   broadcast/                    deploy receipts (public audit trail)
 judge-service/    Node/viem off-chain engine
-  src/checkers/                 5 deterministic checkers + validateCriteria() gate
+  src/checkers/                 6 deterministic checkers + validateCriteria() gate
   src/criteria.js               criteria parse + canonical hash
   src/evidence.js               deliverable resolve + recomputable evidence
   src/safe-fetch.js             SSRF-hardened fetch (denylist + timeout + size cap)
@@ -213,7 +213,7 @@ judge-service/    Node/viem off-chain engine
   src/rvr-snapshot.mjs          freezes one ruling's chain evidence for the ERC-8404 profile
   api/                          hosted judge (Vercel): /api/judge, /api/x402/judge, /api/evaluate,
                                 /api/health, /api/cron/sweep
-  test/                         237 unit tests (checker gate, SSRF, evidence determinism, hosted judge, x402, ERC-8412, ERC-8404)
+  test/                         262 unit tests (checker gate, json shapes, SSRF, evidence determinism, hosted judge, x402, ERC-8412, ERC-8404, ArcBounty)
   evidence/                     recomputable verdict evidence (public audit trail)
 rvr/              ERC-8404 profile, in the layout of the RVR reference repository
   profiles/judge-protocol-rvr-v0/   SPEC.md, standard-library Python adapter, vectors, gate
@@ -236,13 +236,13 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
   touched, and an untrusted signature or mismatched criteria is refused. `script/DeployArcMainnet.s.sol`
   refuses any other chain, any escrow with another Job layout and any owner but the declared one. Gas
   on mainnet: the deployment cost 0.037 USDC, a full judged job about 0.017.
-- ✅ **237/237 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
+- ✅ **262/262 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
   criteria defects, SSRF denylist with DNS pinning, evidence-hash determinism, and the hosted judge
   (on-demand rulings, races, reverted transactions, the daily sweep, deliverables that can never
   load abstaining instead of retrying forever), and paid rulings over x402 (payments signed by
   Circle's own client; a payment settles only once a verdict is ready and the contract would
   accept it).
-- ✅ **120/120 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
+- ✅ **122/122 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
   `judge-service` first): the page's CSP, the read-only relay, the public numbers, parity with the
   service's own checkers, the CLI, and the in-browser verifier run against a fake chain built from
   recorded Arc testnet data, including tampered inputs that must never verify.
@@ -278,7 +278,7 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
 cd contracts && git submodule update --init --recursive && forge test   # 42/42, plus 8 Arc mainnet fork tests (skipped without ARC_MAINNET_RPC)
 
 # service
-cd ../judge-service && npm install && npm test                          # 237/237
+cd ../judge-service && npm install && npm test                          # 262/262
 
 # run the judge against Arc testnet (needs a funded .env, see .env.example)
 node --env-file=.env src/index.js

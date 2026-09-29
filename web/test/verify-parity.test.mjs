@@ -203,6 +203,45 @@ test('browser checkers and validation agree with the judge-service on a battery 
   }
 });
 
+test('json: the verifier runs the very file the judge runs, byte for byte', async () => {
+  const { readFileSync } = await import('node:fs');
+  const web = readFileSync(new URL('../json-shape.js', import.meta.url));
+  const judge = readFileSync(new URL('../../judge-service/src/checkers/json-shape.js', import.meta.url));
+  assert.ok(web.equals(judge), 'copy judge-service/src/checkers/json-shape.js to web/json-shape.js');
+});
+
+test('json: the verifier scores and refuses json checks exactly like the judge', async () => {
+  const lead = { type: 'object', additionalProperties: false, required: ['name', 'website', 'network', 'contact'],
+    properties: { name: { type: 'string', minLength: 1 }, website: { type: 'string', format: 'url' }, network: { enum: ['Arc', 'Base'] },
+      contact: { anyOf: [{ type: 'string', format: 'email' }, { type: 'string', format: 'url' }] } } };
+  const leads = (n) => Array.from({ length: n }, (_, i) => ({ name: `T${i}`, website: `https://t${i}.xyz`, network: 'Arc', contact: `a@t${i}.xyz` }));
+  const criteriaList = [
+    { checks: [{ kind: 'json', params: { shape: { type: 'array', minItems: 3, maxItems: 3, items: lead, uniqueBy: { field: 'website', key: 'domain' } } } }] },
+    { passThreshold: 50, checks: [{ kind: 'json' }, { kind: 'json', params: { shape: { type: 'object', required: ['a'] } }, weight: 3 }] },
+    { checks: [{ kind: 'json', params: { shape: { type: 'string', minLength: 2, maxLength: 3 } } }] },
+  ];
+  const dup = leads(3); dup[2].website = 'https://WWW.t0.xyz/x';
+  const bad = leads(3); bad[1].network = 'arc'; bad[2].contact = 'mailto:a@t2.xyz';
+  const contents = [JSON.stringify(leads(3)), JSON.stringify(leads(2)), JSON.stringify(dup), JSON.stringify(bad), '{"a":1}', '[]',
+    '"ab"', '"\u{1F600}\u{1F600}"', 'not json', '', 'null', Buffer.from([0xef, 0xbb, 0xbf, 0x5b, 0x5d]).toString('latin1')];
+  for (const criteria of criteriaList) {
+    for (const c of contents) {
+      const bytes = Buffer.from(c, c.startsWith('ï') ? 'latin1' : 'utf8');
+      const want = await service.checkers.runAllChecks(criteria, { content: bytes });
+      const got = await app.runChecks(criteria, new Uint8Array(bytes));
+      assert.deepEqual(
+        { score: got.score, pass: got.pass, flags: got.results.map((r) => r.pass), details: got.results.map((r) => r.detail) },
+        { score: want.score, pass: want.pass, flags: want.results.map((r) => r.pass), details: want.results.map((r) => r.detail) },
+        `${JSON.stringify(criteria)} on ${JSON.stringify(c)}`,
+      );
+    }
+  }
+  for (const shape of [{ type: 'array', minItem: 1 }, { minItems: 1 }, { anyOf: [{}] }, { enum: [] }, { type: 'string', format: 'phone' }, []]) {
+    const c = { checks: [{ kind: 'json', params: { shape } }] };
+    assert.deepEqual(app.validateCriteria(c), service.checkers.validateCriteria(c), JSON.stringify(shape));
+  }
+});
+
 test('the verifier refuses exactly what the judge refuses, on every shared criteria case', async () => {
   const { CRITERIA_CASES } = await import('../../judge-service/test/helpers/criteria-cases.js');
   for (const [label, c, valid] of CRITERIA_CASES) {

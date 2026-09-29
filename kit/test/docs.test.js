@@ -17,6 +17,7 @@ const PARAMS = {
   schema: ["required", "types"],
   checksum: ["sha256"],
   "http-endpoint": ["url", "expectStatus", "bodyIncludes", "timeoutMs"],
+  json: ["shape"],
 };
 
 test("CRITERIA.md documents every check kind and every parameter the judge reads", () => {

@@ -32,7 +32,7 @@
     <li>Create the job on Circle's ERC-8183 contract (<code>0x0747EEf0706327138c69792bF28Cd525089e4583</code>)
       with the evaluator set to JudgeEvaluator <code>0x6EFF7d4BB514d341AbEd90bF4c667d0A980173AD</code>.</li>
     <li>Put the acceptance criteria in the job description as a fenced <code>judge-criteria</code> JSON block
-      (checks: <code>length</code>, <code>contains</code>, <code>schema</code>, <code>checksum</code>, <code>http-endpoint</code>).</li>
+      (checks: <code>length</code>, <code>contains</code>, <code>schema</code>, <code>json</code>, <code>checksum</code>, <code>http-endpoint</code>).</li>
     <li>The provider submits with <code>optParams</code> set to <code>deliverableURI: data:…</code>, or an https URI (at most 1 MB, no redirects) or an ipfs URI (best effort).</li>
     <li>Ask for the ruling: <code>POST /api/judge</code> with the job id and the submit transaction hash.
       The judge settles the escrow on chain: pass releases it to the provider, fail refunds the client.</li>
