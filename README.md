@@ -36,12 +36,14 @@ same edits as above.)*
 | Contract | Address |
 |---|---|
 | **JudgeEvaluator** ([Sourcify exact match](https://repo.sourcify.dev/5042/0xC9de51A6b440D834D05e22d0D500F41Df1B56321)) | `0xC9de51A6b440D834D05e22d0D500F41Df1B56321` |
-| ERC-8183 escrow it serves (ArcBounty's deployment of the reference implementation) | `0x64cA39Fc57315D0D488acCaC07c37C6E841CD058` |
+| ERC-8183 escrow it serves (ArcBounty's own deployment of the code Circle runs on Arc testnet) | `0x64cA39Fc57315D0D488acCaC07c37C6E841CD058` |
 | Owner and guardian (two-step ownership, pause) | `0x427C62eDCae20DDc8c5e875De39D4E4845491458` |
 | Verdict signer | `0xA41f87020b3ED50Ac497244C2824f977428917Ff` |
 
-Circle has no ERC-8183 escrow on Arc mainnet, so the judge serves the reference escrow ArcBounty
-deployed there, which any client can use; the judge contract needed no change for it. Deployed on
+Circle has no ERC-8183 escrow on Arc mainnet, so the judge serves the one ArcBounty deployed there,
+which any client can use. It is a pinned copy of the reference implementation's first version, byte for
+byte the code Circle runs on Arc testnet (ArcBounty's source notes it is not the current reference), so
+the judge contract needed no change for it. Deployed on
 2026-09-28 (block 23,234,577, tx `0x10def086...ec10a`) from commit `f6148e2`, after 42 unit tests,
 8 fork tests against that live escrow, a full rehearsal on a fork of the chain, and a pre-deployment
 security review whose findings were all fixed first (see ARCHITECTURE.md).

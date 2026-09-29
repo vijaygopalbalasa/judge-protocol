@@ -26,7 +26,8 @@ set($('#measure'), MEASURED.map(([a, b, c]) => el('tr', {}, [
 ])));
 
 const MAINNET_LIMITS = 'On Arc mainnet since 2026-09-28. Circle has no ERC-8183 contract on Arc mainnet, so the judge '
-  + 'serves the ERC-8183 reference escrow ArcBounty deployed there. Its only rulings so far are two zero-budget '
+  + 'serves the escrow ArcBounty deployed there, the same code Circle runs on Arc testnet. Its only rulings so far '
+  + 'are two zero-budget '
   + 'test jobs of our own (jobs 16 and 17), and the hosted judge still rules on Arc testnet only, so nobody can '
   + 'ask it for a mainnet ruling from this page yet. Deterministic checks cover objective, structured '
   + 'deliverables; subjective quality is deliberately out of scope for the trust path.';

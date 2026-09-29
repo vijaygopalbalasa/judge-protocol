@@ -7,8 +7,9 @@ import "../src/interfaces/IACP.sol";
 import "../src/mocks/MockUSDC.sol";
 
 /// @notice JudgeEvaluator against a live ERC-8183 escrow on Arc mainnet, on a fork of the chain.
-///         The escrow is the one ArcBounty deployed (0x64cA39Fc...): the ERC-8183 reference
-///         implementation, open to any client, with Circle's Job layout and both fees at 0.
+///         The escrow is the one ArcBounty deployed (0x64cA39Fc...): a pinned copy of the ERC-8183
+///         reference implementation's first version, byte for byte the code Circle runs on Arc testnet,
+///         open to any client, with Circle's Job layout and both fees at 0.
 ///         Runs only when ARC_MAINNET_RPC is set, and skips otherwise:
 ///           ARC_MAINNET_RPC=https://rpc.mainnet.arc.io forge test --match-contract ArcMainnetFork -vv
 ///         Zero-budget jobs run on the chain's contracts unchanged. Arc's USDC moves native balances in a

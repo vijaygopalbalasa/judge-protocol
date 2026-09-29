@@ -13,7 +13,8 @@ import { shapeProblem, shapeViolations } from './json-shape.js';
 // The deployments the page can read. The default is Arc testnet, read through this site's /api/rpc
 // relay; ?network=arc-mainnet reads the Arc mainnet judge straight from Arc's public RPC, which allows
 // this site's origin (the relay only forwards testnet calls). Circle has no ERC-8183 contract on Arc
-// mainnet, so the mainnet judge serves the reference escrow ArcBounty deployed there.
+// mainnet, so the mainnet judge serves the escrow ArcBounty deployed there: a pinned copy of the code
+// Circle runs on Arc testnet, not the current ERC-8183 reference.
 export const NETWORKS = {
   'arc-testnet': {
     label: 'Arc testnet', chainId: 5042002, directRpc: 'https://rpc.testnet.arc.io', relay: true,
