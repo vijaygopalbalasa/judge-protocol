@@ -14,3 +14,9 @@ evm_version = "cancun"
 optimizer = true
 optimizer_runs = 200
 via_ir = false
+
+# ArcBounty's BountyAdapter (vendored under test/vendor/arcbounty for the JudgeArbitrator tests only) needs
+# via-IR, as it does in their own repo. Only those files, and test files that import them, compile with it;
+# everything under src keeps the settings above.
+additional_compiler_profiles = [ { name = "via-ir", via_ir = true } ]
+compilation_restrictions = [ { paths = "test/vendor/arcbounty/**", via_ir = true } ]
