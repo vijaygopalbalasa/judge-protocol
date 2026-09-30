@@ -1,0 +1,26 @@
+{
+  "kind": "judge-protocol/arcbounty-arbitration@1",
+  "network": "arc-testnet",
+  "chainId": 5042002,
+  "adapter": "0xF6b89bD7FCd9a277f08c2b5Cbe388a721A16fe14",
+  "arbitrator": "0x7C967E9A8f3Ed9450e667f5314F6d5f7b9d24F16",
+  "jobId": "186820",
+  "pass": true,
+  "score": 100,
+  "rulingHash": "0x2e0c094ce72af5adda6e41affd449ff3386cf7c5fddaf3bac2668b7822fd1eb0",
+  "rulingCid": "ipfs://QmbfDfL4ujx8taVgwEouph1V1asRLN8J7kS7VN3wmsazGr",
+  "ruling": {
+    "jobId": "186820",
+    "submissionHash": "0x36d081ec749cee95e08b04bf1ecef861f08ca0f346be079526dbe4271d4450e5",
+    "descriptionHash": "0x9e3136b4d4d6ee433ae56f97c5c92422dadf4c4c7101da533ccd9fbe45989bf7",
+    "payProvider": true,
+    "rulingCid": "ipfs://QmbfDfL4ujx8taVgwEouph1V1asRLN8J7kS7VN3wmsazGr",
+    "reputationPenalty": 0,
+    "issuedAt": "1790778744"
+  },
+  "digest": "0x65e6a635cd791c5371f4e6655302013bfdb121f21e6538872cd334e6f115f072",
+  "signer": "0xaaa287033E603ec6a6056F1882086B93F9ee0FB0",
+  "signature": "0x91731809a36136912c226b0e421d2489ed8f34cd6b740400c2e0a78b202e184b1399f1463129093394339e45ae8cd4ba00d11721ebb027a1077003259a04791e1c",
+  "relayed": true,
+  "txHash": "0x5a4cbc6b5288a2bf96f253c9cc4c3159b0b8c9d6aa8364d282ae6733b7782024"
+}

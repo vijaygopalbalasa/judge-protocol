@@ -93,6 +93,19 @@ It holds no role until ArcBounty hands it over: `transferArbitrator(0x7C96...4F1
 Deployed with `contracts/script/DeployArbitrator.s.sol`, which refuses to deploy unless the principal is the
 adapter's arbitrator and the adapter's CID bound is 96, and reads every role back.
 
+## The testnet trial (2026-09-30)
+
+ArcBounty handed the arbitrator role on the trial adapter to JudgeArbitrator (`transferArbitrator`
+`0x3025d7ed...`, `acceptRole` `0xf377ba42...`). Two clearly labelled test bounties, 1 test USDC each, posted, taken
+and disputed by two test wallets of ours:
+
+- **Job 186820**, with a Judge criteria block (one sentence of 5 to 80 words naming ERC-8183 and escrow). Judge ruled
+  PASS, 100/100. The ruling record was pinned as `ipfs://QmbfDfL4ujx8taVgwEouph1V1asRLN8J7kS7VN3wmsazGr` and sent to
+  ArcBounty before signing; the signed ruling was relayed in `0x5a4cbc6b5288a2bf96f253c9cc4c3159b0b8c9d6aa8364d282ae6733b7782024`
+  (block 64791236). The adapter marked the bounty resolved with that CID as its ruling, and the worker received
+  0.99 test USDC (the reward less ArcBounty's 1% fee). Records: `judge-service/evidence/arcbounty-arc-testnet/`.
+- **Job 186821**, without criteria. Judge abstains, so ArcBounty settles it with `resolveAsPrincipal`.
+
 ## Taking the role back
 
 The principal calls `handBack(next)`. Rulings through JudgeArbitrator stop at once, the adapter records `next`

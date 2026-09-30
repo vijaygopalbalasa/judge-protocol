@@ -1,0 +1,71 @@
+{
+  "status": "ruled",
+  "jobId": "186820",
+  "network": "arc-testnet",
+  "ruling": {
+    "kind": "judge-protocol/arcbounty-ruling@1",
+    "network": "arc-testnet",
+    "chainId": 5042002,
+    "adapter": "0xF6b89bD7FCd9a277f08c2b5Cbe388a721A16fe14",
+    "escrow": "0x0747EEf0706327138c69792bF28Cd525089e4583",
+    "jobId": "186820",
+    "submittedBlock": "64790871",
+    "description": {
+      "link": "ipfs://Qme3VdDuraH2toE9uRV2M7TtsE4jtsDPZN8sWp7Uohtva7",
+      "cid": "Qme3VdDuraH2toE9uRV2M7TtsE4jtsDPZN8sWp7Uohtva7",
+      "bytes": 891
+    },
+    "submission": {
+      "link": "ipfs://Qmcrd5D5xBzY88QbtrxwQVAzg7nEzigfrQUT3QAqXs3zT5",
+      "cid": "Qmcrd5D5xBzY88QbtrxwQVAzg7nEzigfrQUT3QAqXs3zT5",
+      "bytes": 82,
+      "escrowCommitment": "0x36d081ec749cee95e08b04bf1ecef861f08ca0f346be079526dbe4271d4450e5",
+      "contentKeccak": "0xf93c3b513add8fe1cf92133b966d3fe7ff0c65f430f1d0e51f392893f0a788fa"
+    },
+    "criteria": {
+      "version": 1,
+      "passThreshold": 100,
+      "checks": [
+        {
+          "kind": "length",
+          "params": {
+            "min": 5,
+            "max": 80,
+            "unit": "words"
+          }
+        },
+        {
+          "kind": "contains",
+          "params": {
+            "all": [
+              "ERC-8183",
+              "escrow"
+            ]
+          }
+        }
+      ]
+    },
+    "criteriaHash": "0x142915718cd931515890ac34e1d3f8df70e7bb18e23bd063c570ee016e5de76e",
+    "results": [
+      {
+        "pass": true,
+        "detail": "words=13 (need 5–80)",
+        "kind": "length",
+        "weight": 1
+      },
+      {
+        "pass": true,
+        "detail": "all 2 terms present",
+        "kind": "contains",
+        "weight": 1
+      }
+    ],
+    "score": 100,
+    "threshold": 100,
+    "pass": true,
+    "evidenceHash": "0x790d936f1da4d4246d8d0d222413dbae589617686e890c729c857a8aaa3a5f28",
+    "reviewerDecision": "in-dispute",
+    "recompute": "node judge-service/src/arcbounty.js 186820 --network arc-testnet",
+    "rulingHash": "0x2e0c094ce72af5adda6e41affd449ff3386cf7c5fddaf3bac2668b7822fd1eb0"
+  }
+}
