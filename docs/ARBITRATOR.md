@@ -66,6 +66,31 @@ bounds as a signed ruling (a CID of 1 to 96 characters, a penalty of at most 100
 while the contract is paused or the role is on its way back. It gives the principal nothing it did not already have
 through `handBack`; it only saves moving the role twice.
 
+## Signing and relaying a ruling
+
+`node judge-service/src/arbitrate.js <jobId> --network arc-testnet --arbitrator <address> --cid <Qm...> [--relay]`
+signs a `Ruling` with `ARBITRATOR_SIGNER_KEY` (and, with `--relay`, sends `resolve` from `ARBITRATOR_RELAYER_KEY`).
+It signs only when all of this holds, read fresh from the chain: Judge rules on the bounty now (an abstention means no
+signature), the bounty is in dispute and unresolved, the pinned record at the CID is exactly this ruling (same
+`rulingHash`, bytes checked against the CID), JudgeArbitrator serves this adapter, holds its arbitrator role, is
+neither paused nor handing the role back, and trusts the signer, and the deployed contract's `rulingDigest` equals
+the digest computed locally. The penalty is always 0 and `issuedAt` is the chain head's timestamp. Keys are read from
+the environment and never printed.
+
+## Deployed on Arc testnet (2026-09-30)
+
+| | Address |
+|---|---|
+| JudgeArbitrator ([Sourcify exact match](https://repo.sourcify.dev/5042002/0xb810FEFDDE482f908e01F84c5c3645A7036816F2)) | `0xb810FEFDDE482f908e01F84c5c3645A7036816F2` |
+| ArcBounty BountyAdapter V4.7 (the testnet adapter ArcBounty named) | `0xeDf2c738915b042da97788b2b5499D4655FB1f20` |
+| Principal (the adapter's arbitrator: ArcBounty's testnet key) | `0xde427f3967cc7a0BF7A9F891195760cCffC82edA` |
+| Judge signer | `0xaaa287033E603ec6a6056F1882086B93F9ee0FB0` |
+| Owner | `0xf629006403580E2A7d94B666daA8374353a1d368` |
+
+It holds no role until ArcBounty hands it over: `transferArbitrator(0xb810...)` on the adapter, then `acceptRole()`.
+Deployed with `contracts/script/DeployArbitrator.s.sol`, which refuses to deploy unless the principal is the
+adapter's arbitrator and the adapter's CID bound is 96, and reads every role back.
+
 ## Taking the role back
 
 The principal calls `handBack(next)`. Rulings through JudgeArbitrator stop at once, the adapter records `next`
@@ -91,8 +116,8 @@ neither hand the role back nor undo a hand-back.
   compromise.
 - Judge rules on objective, checkable criteria written into the bounty. A subjective dispute, or one on a bounty
   without criteria, belongs with a human: ArcBounty settles it with `resolveAsPrincipal`, or takes the role back.
-- `node judge-service/src/arcbounty.js` computes the ruling but does not sign a `Ruling` or publish the record
-  yet; that tooling is the next step.
+- Publishing the ruling record is manual: pin the JSON that `arcbounty.js` prints (CIDv0), send ArcBounty the CID
+  and a gateway link, then sign. `arbitrate.js` checks the pinned record against the fresh ruling before signing.
 
 ## Tests
 
