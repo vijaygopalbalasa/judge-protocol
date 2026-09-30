@@ -214,7 +214,9 @@ export function createJudgeServer({ fetchImpl = (...a) => fetch(...a) } = {}) {
       judgeIsEvaluator: job.evaluator.toLowerCase() === v.CFG.judge.toLowerCase(),
       budgetUsdc: usdc(job.budget),
       expiresAt: iso(job.expiredAt),
-      expiresAtSeconds: String(job.expiredAt),
+      // The verifier reads expiredAt as a JavaScript number, exact only up to 2^53: print it only when exact.
+      expiresAtSeconds: Number.isSafeInteger(job.expiredAt) ? String(job.expiredAt) : null,
+      ...(iso(job.expiredAt) === null && job.expiredAt > 0 && { expiry: "beyond any calendar date" }),
       ...checklistState(job.description),
       verdict: verdictOut(verdict),
       verifier: `${VERIFIER}/?network=${net}`,
@@ -239,13 +241,32 @@ export function createJudgeServer({ fetchImpl = (...a) => fetch(...a) } = {}) {
     const id = idOf(raw);
     if (id === null) return refuse("jobId must be a positive whole number.");
     if (deliverable !== undefined && deliverableBase64 !== undefined) return refuse("Give at most one of deliverable or deliverableBase64.");
-    const pasted = deliverable !== undefined ? new TextEncoder().encode(deliverable) : deliverableBase64 !== undefined ? fromBase64(deliverableBase64) : undefined;
+    // Text goes in as a string, so the verifier can restore CRLF line endings the way the page does; bytes go in as bytes.
+    const pasted = deliverable !== undefined ? deliverable : deliverableBase64 !== undefined ? fromBase64(deliverableBase64) : undefined;
     if (pasted === null) return refuse("deliverableBase64 is not valid base64.");
     const v = await verifierFor(net);
     const base = { network: net, jobId: String(id), judge: v.CFG.judge };
-    let r;
+    const needsBytes = (x) => x.needsDeliverable === true;
+    let r, pasteNote = null;
     try {
-      r = await v.verifyJob(id, pasted);
+      // First without the caller's bytes: they are used only when the chain does not carry the delivery, and bytes
+      // that are not the delivery are the caller's mistake, never reported as the judge's mismatch.
+      r = await v.verifyJob(id);
+      if (pasted !== undefined) {
+        if (!needsBytes(r)) {
+          pasteNote = r.deliverableSource
+            ? "The chain already carries this delivery, so the bytes you passed were not used."
+            : "The bytes you passed were not used: without the provider's on-chain commitment they cannot be checked.";
+        } else {
+          const withBytes = await v.verifyJob(id, pasted);
+          if ((withBytes.checks || []).some((c) => c.id === "deliverable" && !c.ok)) {
+            pasteNote = "The bytes you passed do not hash to the provider's on-chain commitment, so they are not the delivery.";
+          } else {
+            r = withBytes;
+            if (withBytes.pasteNormalized === "crlf") pasteNote = "Line endings were restored to CRLF, as the provider committed them.";
+          }
+        }
+      }
     } catch (e) {
       return json({ ...base, outcome: "error", error: `could not read ${NETWORKS[net].label}: ${e.message}` });
     }
@@ -258,7 +279,8 @@ export function createJudgeServer({ fetchImpl = (...a) => fetch(...a) } = {}) {
       deliverableSource: r.deliverableSource ?? null,
       incomplete: r.incomplete ?? null,
       unsupported: r.unsupported ?? [],
-      ...((r.needsDeliverable || ["remote-uri", "no-uri"].includes(r.incomplete?.reason)) && {
+      ...(pasteNote && { pasteNote }),
+      ...(needsBytes(r) && {
         hint: "Pass the delivered bytes as deliverable or deliverableBase64; they count only if they hash to the provider's on-chain commitment.",
       }),
       verifier: `${VERIFIER}/?network=${net}`,

@@ -296,7 +296,7 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
   hashing and deliverable decoding, inline or hosted; nothing reaches the chain on bad input; the
   docs state every check, parameter, limit and API result with the code's own numbers, and every
   example in them is valid; the checklist builder writes the kit's block byte for byte.
-- ✅ **17/17 MCP server tests** (`cd mcp && npm ci && npm test`, after `npm ci` in `judge-service`): every
+- ✅ **20/20 MCP server tests** (`cd mcp && npm ci && npm test`, after `npm ci` in `judge-service`): every
   tool through an MCP client, every refusal with its message (unknown networks and fields, non-ids, criteria
   the judge refuses, mainnet ruling requests), real Arc testnet rulings verified against a fake chain built
   from recorded data, and overlapping calls on two networks, each proven to read only its own RPC and

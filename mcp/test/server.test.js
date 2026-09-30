@@ -210,7 +210,37 @@ test("verify: a delivery hosted elsewhere says why it is incomplete, and the exa
     const done = body(await call(client, "judge_verify_ruling", { network: "arc-testnet", jobId: "930001", deliverableBase64: content.toString("base64") }));
     assert.equal(done.outcome, "verified");
     const wrong = body(await call(client, "judge_verify_ruling", { network: "arc-testnet", jobId: "930001", deliverable: "not the delivered bytes" }));
-    assert.equal(wrong.outcome, "mismatch");
+    assert.equal(wrong.outcome, "incomplete", "bytes that are not the delivery are the caller's mistake, never the judge's");
+    assert.match(wrong.pasteNote, /do not hash to the provider's on-chain commitment/);
+  })();
+});
+
+test("verify: pasted bytes are ignored when the chain already carries the delivery", withChain({}, async () => {
+  const client = await connect();
+  const r = body(await call(client, "judge_verify_ruling", { network: "arc-testnet", jobId: "171925", deliverable: "x" }));
+  assert.equal(r.outcome, "verified");
+  assert.match(r.pasteNote, /already carries/);
+}));
+
+test("verify: pasted text gets the verifier's line-ending repair, as on the page", async () => {
+  const content = Buffer.from("line one\r\nline two\r\n");
+  const jobs = await synthJob({ id: 930002, criteria: { version: 1, checks: [{ kind: "length", params: { min: 2 } }] }, content, providerURI: "ipfs://bafycrlf" });
+  await withChain({ extraJobs: jobs }, async () => {
+    const client = await connect();
+    const r = body(await call(client, "judge_verify_ruling", { network: "arc-testnet", jobId: "930002", deliverable: "line one\nline two\n" }));
+    assert.equal(r.outcome, "verified");
+    assert.match(r.pasteNote, /CRLF/);
+  })();
+});
+
+test("verify: a ruling with a live web check is reported unsupported, naming the check", async () => {
+  const criteria = { version: 1, checks: [{ kind: "length", params: { min: 1 } }, { kind: "http-endpoint", params: { url: "https://status.example.com" } }] };
+  const jobs = await synthJob({ id: 930003, criteria, content: "delivered", assumePass: [true, true] });
+  await withChain({ extraJobs: jobs }, async () => {
+    const client = await connect();
+    const r = body(await call(client, "judge_verify_ruling", { network: "arc-testnet", jobId: "930003" }));
+    assert.equal(r.outcome, "unsupported");
+    assert.deepEqual(r.unsupported, ["http-endpoint"]);
   })();
 });
 
@@ -235,6 +265,7 @@ test("status: budget, expiry and evaluator are read exactly, even an expiry no c
     const s = body(await call(client, "judge_job_status", { network: "arc-testnet", jobId: "171925" }));
     assert.equal(s.budgetUsdc, "1.234567");
     assert.equal(s.expiresAt, new Date(1_790_000_000 * 1000).toISOString());
+    assert.equal(s.expiresAtSeconds, "1790000000");
     assert.equal(s.evaluator.toLowerCase(), other);
     assert.equal(s.judgeIsEvaluator, false);
   })();
@@ -243,7 +274,8 @@ test("status: budget, expiry and evaluator are read exactly, even an expiry no c
     const s = body(await call(client, "judge_job_status", { network: "arc-testnet", jobId: "171925" }));
     assert.equal(s.budgetUsdc, "2");
     assert.equal(s.expiresAt, null);
-    assert.match(s.expiresAtSeconds, /e\+77$/);
+    assert.equal(s.expiresAtSeconds, null, "a value the reader could not hold exactly is not printed as if it were exact");
+    assert.match(s.expiry, /beyond any calendar date/);
   })();
 });
 

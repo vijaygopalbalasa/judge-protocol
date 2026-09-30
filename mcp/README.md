@@ -11,7 +11,7 @@ judge to rule on Arc testnet. An agent that pays for work can check that work be
 | `judge_build_checklist` | Writes the acceptance checklist from plain answers (templates: `text`, `records`, `record`, `file`, `endpoint`), the same way as the [checklist builder](https://judge-protocol-verifier.vercel.app/build). Returns the job description to paste, the criteria, their hash, and what they check in plain words. | nothing |
 | `judge_check_delivery` | Dry run: scores a delivery against a checklist with a copy of the judge's checks, which tests hold equal to the judge's own. Never signs or settles. A live web check is not run, so such a result is marked not final. | nothing |
 | `judge_job_status` | Reads a job and its verdict from Arc testnet or mainnet: status, parties, budget, expiry, whether Judge Protocol is its evaluator. | reads the chain |
-| `judge_verify_ruling` | Recomputes a ruling from public chain data with the in-browser verifier's code and compares it with the signed verdict: `verified`, `mismatch`, `unsupported`, `incomplete`, `awaiting` or `error`. A delivery hosted on https or IPFS is not fetched: pass its exact bytes, which count only if they hash to the provider's on-chain commitment. | reads the chain |
+| `judge_verify_ruling` | Recomputes a ruling from public chain data with the in-browser verifier's code and compares it with the signed verdict: `verified`, `mismatch`, `unsupported`, `incomplete`, `awaiting` or `error`. A delivery hosted on https or IPFS is not fetched: pass its exact bytes, which are used only when the chain does not carry the delivery and count only if they hash to the provider's on-chain commitment (if not, the result says the bytes are wrong, not the ruling). | reads the chain |
 | `judge_request_ruling` | Asks the hosted judge to rule now on a job on **Arc testnet** that names Judge Protocol. If the job is submitted and its checklist is valid, the judge **signs a verdict and settles the escrow**: PASS pays the provider, REJECT refunds the client. The same public endpoint as the verifier's Ask the judge button. | settles escrow on Arc testnet |
 
 A resource, `judge://docs/criteria`, carries the full criteria reference
@@ -54,6 +54,8 @@ claude mcp add judge-protocol -- node /absolute/path/to/judge-protocol/mcp/serve
   address. Quality and taste are out of scope, and the tools say so rather than guess.
 - The judge reads deliveries of at most 1,000,000 bytes (262,144 on ArcBounty, where a delivery is one
   IPFS block).
+- A dry run does the judge's own work: a large delivery against hundreds of whole-word terms can take
+  seconds, as it would for the judge.
 - Not published to npm or any MCP registry yet: run it from a checkout.
 
 ## Tests
