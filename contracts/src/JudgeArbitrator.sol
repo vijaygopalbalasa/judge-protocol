@@ -13,8 +13,9 @@ import "./interfaces/IBountyAdapter.sol";
 ///         id, the submission and description the adapter holds right now, the payout direction, the ruling file
 ///         and the reputation penalty. The contract never judges; it only makes the payout match a signed ruling.
 ///
-///         ArcBounty keeps control. `principal` (their arbitrator Safe) can take the role back at any time with
-///         handBack(), which also stops rulings through this contract at once. A signer the owner adds becomes
+///         ArcBounty keeps control. `principal` (their arbitrator Safe) settles any dispute Judge does not rule on
+///         directly with resolveAsPrincipal(), and can take the role back at any time with handBack(), which also
+///         stops rulings through this contract at once. A signer the owner adds becomes
 ///         usable only after SIGNER_DELAY, so the principal sees it coming and can take the role back first;
 ///         removing a signer is immediate. The owner cannot move the role and cannot settle anything without a
 ///         signer key. The adapter's own liveness paths (claimDefaultRuling, claimArbitratorTimeout) never depend
@@ -88,6 +89,7 @@ contract JudgeArbitrator is ReentrancyGuard, Ownable2Step, EIP712 {
     event PausedSet(bool paused);
     event RoleAccepted();
     event RoleHandedBack(address indexed next);
+    event PrincipalRulingApplied(uint256 indexed jobId, bool payProvider, string rulingCid, uint8 reputationPenalty);
 
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
@@ -161,6 +163,26 @@ contract JudgeArbitrator is ReentrancyGuard, Ownable2Step, EIP712 {
 
         adapter.resolveDispute(r.jobId, r.payProvider, r.rulingCid, r.reputationPenalty);
         emit RulingApplied(r.jobId, r.payProvider, r.rulingCid, r.reputationPenalty, signer);
+    }
+
+    /// @notice ArcBounty settles a dispute itself, through this contract and with no Judge signature: the route for any
+    ///         bounty Judge does not rule on (no criteria block, or a subjective question). It is the power the
+    ///         principal already holds through handBack, without moving the role twice. Works while paused and while
+    ///         the role is on its way back. Same bounds as a signed ruling.
+    function resolveAsPrincipal(uint256 jobId, bool payProvider, string calldata rulingCid, uint8 reputationPenalty)
+        external
+        nonReentrant
+    {
+        if (msg.sender != principal) revert NotPrincipal();
+        uint256 cidLen = bytes(rulingCid).length;
+        if (cidLen == 0 || cidLen > MAX_CID_LEN) revert BadRulingCid();
+        if (reputationPenalty > MAX_PENALTY) revert PenaltyTooHigh();
+        IBountyAdapter.BountyMeta memory b = adapter.bounties(jobId);
+        if (b.poster == address(0)) revert UnknownBounty();
+        if (!b.inDispute || b.resolved) revert NotInDispute();
+
+        adapter.resolveDispute(jobId, payProvider, rulingCid, reputationPenalty);
+        emit PrincipalRulingApplied(jobId, payProvider, rulingCid, reputationPenalty);
     }
 
     /// @notice The EIP-712 digest a signer signs for `r`, for off-chain tooling.

@@ -44,9 +44,9 @@ only once in BountyAdapter V4.7 (every exit from a dispute also sets `resolved`)
 1. A poster or worker raises a dispute on the adapter (`disputeBounty`, or `challengeRejection` after a
    rejection).
 2. Judge rules from chain data plus the two IPFS files, recomputing every link:
-   `node judge-service/src/arcbounty.js <jobId> --network arc-mainnet`. A pass becomes `payProvider = true`, a
-   reject `payProvider = false`. The CLI covers Arc mainnet today; an Arc testnet entry goes into
-   `ARCBOUNTY_NETWORKS` once ArcBounty names the testnet adapter to use.
+   `node judge-service/src/arcbounty.js <jobId> --network arc-mainnet` (or `--network arc-testnet` for the testnet
+   adapter ArcBounty named for the first run, `0xeDf2c738915b042da97788b2b5499D4655FB1f20`). A pass becomes
+   `payProvider = true`, a reject `payProvider = false`.
 3. The ruling record is published and its IPFS link becomes `rulingCid`; the adapter stores it as the bounty's
    `disputeRulingHash`.
 4. A Judge signer signs the `Ruling`. Set `issuedAt` from the latest block's timestamp rather than the wall
@@ -56,6 +56,15 @@ only once in BountyAdapter V4.7 (every exit from a dispute also sets `resolved`)
 
 The adapter's liveness paths never depend on this contract: `claimDefaultRuling` (no response within 48 hours)
 and `claimArbitratorTimeout` (30 days) stay open whether JudgeArbitrator is paused, handing back, or silent.
+
+## Disputes Judge does not rule on
+
+Judge rules only on bounties whose description carries a Judge criteria block. Any other dispute (no criteria, or a
+subjective question) is settled by ArcBounty itself through the contract: the principal calls
+`resolveAsPrincipal(jobId, payProvider, rulingCid, reputationPenalty)`. It needs no Judge signature, has the same
+bounds as a signed ruling (a CID of 1 to 96 characters, a penalty of at most 100, a bounty in dispute), and works
+while the contract is paused or the role is on its way back. It gives the principal nothing it did not already have
+through `handBack`; it only saves moving the role twice.
 
 ## Taking the role back
 
@@ -73,15 +82,15 @@ neither hand the role back nor undo a hand-back.
 
 ## Honest limits
 
-- Testnet first. Not deployed, and no third-party audit: 35 unit tests run against a copy of ArcBounty's real
+- Testnet first. Not deployed, and no third-party audit: 41 unit tests run against a copy of ArcBounty's real
   adapter, two fork tests read their live Arc testnet adapter, and deliberate mutations of the guards were each
   caught by a test.
 - Trust sits in the signer set. The payout follows whatever an active Judge signer signs, and Judge's owner
   controls that set, with the 2-day delay on additions as ArcBounty's warning. A leaked signer key can settle any
   open dispute until the owner removes the key or pauses, or ArcBounty takes the role back; treat a leak as a full
   compromise.
-- Judge rules on objective, checkable criteria written into the bounty. A subjective dispute belongs with a
-  human arbitrator; ArcBounty can keep or take back the role for that.
+- Judge rules on objective, checkable criteria written into the bounty. A subjective dispute, or one on a bounty
+  without criteria, belongs with a human: ArcBounty settles it with `resolveAsPrincipal`, or takes the role back.
 - `node judge-service/src/arcbounty.js` computes the ruling but does not sign a `Ruling` or publish the record
   yet; that tooling is the next step.
 

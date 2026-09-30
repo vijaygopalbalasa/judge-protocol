@@ -327,6 +327,22 @@ test("the CLI refuses a chain that is not the network asked for, and unknown fla
   await assert.rejects(runCli(["7", "--netwrok", "arc-mainnet"], { makeClient: () => chain }), /unknown option --netwrok/);
 });
 
+test("the CLI rules on ArcBounty's Arc testnet adapter, the one named for the arbitrator run", async () => {
+  const t = ARCBOUNTY_NETWORKS["arc-testnet"];
+  assert.equal(t.chainId, 5042002);
+  assert.equal(t.adapter, "0xeDf2c738915b042da97788b2b5499D4655FB1f20");
+  assert.equal(t.escrow, "0x0747EEf0706327138c69792bF28Cd525089e4583");
+  const chain = fakeChain({ chainId: 5042002, desc: link(description), sub: link(good), escrow: t.escrow });
+  const r = await runCli(["7", "--network", "arc-testnet"], { makeClient: () => chain,
+    fetchImpl: serve({ [cidV0(description)]: description, [cidV0(good)]: good }), now: () => 2000n });
+  assert.equal(r.result.status, "ruled", r.result.reason);
+  assert.equal(r.result.ruling.network, "arc-testnet");
+  assert.equal(r.result.ruling.adapter, t.adapter);
+  assert.match(r.result.ruling.recompute, /arcbounty\.js 7 --network arc-testnet/);
+  await assert.rejects(runCli(["7", "--network", "arc-testnet"], { makeClient: () => fakeChain({ desc: link(description), sub: link(good) }), fetchImpl: serve({}) }),
+    /chain 5042, not arc-testnet \(5042002\)/);
+});
+
 test("the CLI reports a file nobody serves as an abstention with the job and network, not a crash", async () => {
   const chain = fakeChain({ desc: link(description), sub: link(good) });
   const r = await runCli(["7"], { makeClient: () => chain, fetchImpl: serve({ [cidV0(description)]: description }), now: () => 2000n });

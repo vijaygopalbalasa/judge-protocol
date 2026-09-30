@@ -217,7 +217,7 @@ contracts/        Foundry project (Solidity 0.8.28, cancun)
   src/JudgeAttestor.sol         ERC-8412 verifier: records attestations a trusted judge key signed
   src/interfaces/               IACP, IACPHook, IERC8004, IBountyAdapter, IReputationRegistry (draft)
   src/mocks/                    MockACP (faithful to Circle's reference), MockUSDC
-  test/                         119 Foundry tests (evaluator, hooks, attestor, arbitrator, attack paths)
+  test/                         125 Foundry tests (evaluator, hooks, attestor, arbitrator, attack paths)
   vendor/erc8183-escrow/        ArcBounty's ERC-8183 escrow (MIT), for chains that have none
   script/Deploy.s.sol           Arc testnet deploy
   broadcast/                    deploy receipts (public audit trail)
@@ -235,7 +235,7 @@ judge-service/    Node/viem off-chain engine
   src/rvr-snapshot.mjs          freezes one ruling's chain evidence for the ERC-8404 profile
   api/                          hosted judge (Vercel): /api/judge, /api/x402/judge, /api/evaluate,
                                 /api/health, /api/cron/sweep
-  test/                         262 unit tests (checker gate, json shapes, SSRF, evidence determinism, hosted judge, x402, ERC-8412, ERC-8404, ArcBounty)
+  test/                         263 unit tests (checker gate, json shapes, SSRF, evidence determinism, hosted judge, x402, ERC-8412, ERC-8404, ArcBounty)
   evidence/                     recomputable verdict evidence (public audit trail)
 rvr/              ERC-8404 profile, in the layout of the RVR reference repository
   profiles/judge-protocol-rvr-v0/   SPEC.md, standard-library Python adapter, vectors, gate
@@ -245,8 +245,8 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
 
 ## Status
 
-- ✅ **119/119 contract tests** (`cd contracts && forge test`): 42 for the evaluator, the first hook
-  and the attestor, 35 for the arbitrator, 42 for the ERC-8004 hook. Evaluator: full lifecycle, both settlement
+- ✅ **125/125 contract tests** (`cd contracts && forge test`): 42 for the evaluator, the first hook
+  and the attestor, 41 for the arbitrator, 42 for the ERC-8004 hook. Evaluator: full lifecycle, both settlement
   paths, and attack paths: bad signer, double-resolution, pause, criteria mismatch, stale
   verdict, threshold enforcement, criteria-registration gating, withdraw auth, and the full
   hook feedback flow (7 hook tests; the hook decode bug that these now cover was previously
@@ -259,7 +259,7 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
   touched, and an untrusted signature or mismatched criteria is refused. `script/DeployArcMainnet.s.sol`
   refuses any other chain, any escrow with another Job layout and any owner but the declared one. Gas
   on mainnet: the deployment cost 0.037 USDC, a full judged job about 0.017.
-- ✅ **262/262 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
+- ✅ **263/263 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
   criteria defects, SSRF denylist with DNS pinning, evidence-hash determinism, and the hosted judge
   (on-demand rulings, races, reverted transactions, the daily sweep, deliverables that can never
   load abstaining instead of retrying forever), and paid rulings over x402 (payments signed by
@@ -298,10 +298,10 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
 
 ```bash
 # contracts
-cd contracts && git submodule update --init --recursive && forge test   # 119/119, plus 10 fork tests (skipped without their RPC variables)
+cd contracts && git submodule update --init --recursive && forge test   # 125/125, plus 10 fork tests (skipped without their RPC variables)
 
 # service
-cd ../judge-service && npm install && npm test                          # 262/262
+cd ../judge-service && npm install && npm test                          # 263/263
 
 # run the judge against Arc testnet (needs a funded .env, see .env.example)
 node --env-file=.env src/index.js

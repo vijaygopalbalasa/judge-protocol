@@ -27,9 +27,16 @@ contract StubReputation {
     uint256 public lastAgent;
     int128 public lastValue;
 
-    function giveFeedback(uint256 agentId, int128 value, uint8, string calldata, string calldata, string calldata, string calldata, bytes32)
-        external
-    {
+    function giveFeedback(
+        uint256 agentId,
+        int128 value,
+        uint8,
+        string calldata,
+        string calldata,
+        string calldata,
+        string calldata,
+        bytes32
+    ) external {
         calls++;
         lastAgent = agentId;
         lastValue = value;
@@ -480,7 +487,9 @@ contract JudgeArbitratorTest is Test {
 
     function _repeat(bytes1 c, uint256 n) internal pure returns (bytes memory out) {
         out = new bytes(n);
-        for (uint256 i = 0; i < n; i++) out[i] = c;
+        for (uint256 i = 0; i < n; i++) {
+            out[i] = c;
+        }
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -545,6 +554,80 @@ contract JudgeArbitratorTest is Test {
             arb.handBack(others[i]);
         }
         assertEq(adapter.pendingArbitrator(), address(0));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+          DISPUTES JUDGE DOES NOT RULE: ARCBOUNTY SETTLES THEM DIRECTLY
+    //////////////////////////////////////////////////////////////*/
+
+    function test_principalRulesDirectly_payProvider() public {
+        uint256 jobId = _disputedBounty(adapter);
+        vm.expectEmit(true, false, false, true, address(arb));
+        emit JudgeArbitrator.PrincipalRulingApplied(jobId, true, RULING, 0);
+        vm.prank(safe);
+        arb.resolveAsPrincipal(jobId, true, RULING, 0);
+        IBountyAdapter.BountyMeta memory m = _meta(jobId);
+        assertTrue(m.resolved);
+        assertFalse(m.inDispute);
+        assertEq(m.disputeRulingHash, RULING);
+        assertEq(usdc.balanceOf(worker), REWARD - REWARD / 100, "worker net of ArcBounty's 1% fee");
+        assertEq(usdc.balanceOf(poster), 0);
+    }
+
+    function test_principalRulesDirectly_refund() public {
+        uint256 jobId = _disputedBounty(adapter);
+        vm.prank(safe);
+        arb.resolveAsPrincipal(jobId, false, RULING, 0);
+        assertTrue(_meta(jobId).resolved);
+        assertEq(usdc.balanceOf(poster), REWARD, "no fee on a refund");
+        assertEq(usdc.balanceOf(worker), 0);
+    }
+
+    function test_principalRule_worksWhilePaused() public {
+        uint256 jobId = _disputedBounty(adapter);
+        vm.prank(judgeOwner);
+        arb.setPaused(true);
+        vm.prank(safe);
+        arb.resolveAsPrincipal(jobId, true, RULING, 0);
+        assertTrue(_meta(jobId).resolved);
+    }
+
+    function test_principalRule_worksWhileTheRoleIsOnItsWayBack() public {
+        uint256 jobId = _disputedBounty(adapter);
+        vm.prank(safe);
+        arb.handBack(safe);
+        vm.prank(safe);
+        arb.resolveAsPrincipal(jobId, false, RULING, 0);
+        assertTrue(_meta(jobId).resolved);
+    }
+
+    function test_revert_principalRuleByAnyoneElse() public {
+        uint256 jobId = _disputedBounty(adapter);
+        address[4] memory others = [judgeOwner, signer, relayer, worker];
+        for (uint256 i = 0; i < others.length; i++) {
+            vm.prank(others[i]);
+            vm.expectRevert(JudgeArbitrator.NotPrincipal.selector);
+            arb.resolveAsPrincipal(jobId, true, RULING, 0);
+        }
+        assertFalse(_meta(jobId).resolved);
+    }
+
+    function test_revert_principalRule_sameBoundsAsASignedRuling() public {
+        uint256 jobId = _disputedBounty(adapter);
+        uint256 open_ = _submittedBounty(adapter, DESC, RESULT, 0); // submitted, not disputed
+        vm.startPrank(safe);
+        vm.expectRevert(JudgeArbitrator.PenaltyTooHigh.selector);
+        arb.resolveAsPrincipal(jobId, true, RULING, 101);
+        vm.expectRevert(JudgeArbitrator.BadRulingCid.selector);
+        arb.resolveAsPrincipal(jobId, true, "", 0);
+        vm.expectRevert(JudgeArbitrator.NotInDispute.selector);
+        arb.resolveAsPrincipal(open_, true, RULING, 0);
+        vm.expectRevert(JudgeArbitrator.UnknownBounty.selector);
+        arb.resolveAsPrincipal(987654, true, RULING, 0);
+        arb.resolveAsPrincipal(jobId, true, RULING, 0);
+        vm.expectRevert(JudgeArbitrator.NotInDispute.selector);
+        arb.resolveAsPrincipal(jobId, false, RULING, 0); // no second ruling
+        vm.stopPrank();
     }
 
     function test_ownerCannotMoveTheRoleOrRuleWithoutASignerKey() public {

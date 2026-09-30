@@ -17,14 +17,17 @@ interface IBountyAdapterViews {
 ///           ARC_TESTNET_RPC=https://rpc.testnet.arc.network forge test --match-contract ArcBountyTestnetFork -vv
 contract ArcBountyTestnetForkTest is Test {
     uint256 constant ARC_TESTNET = 5042002;
-    /// @dev The adapter DeployArcMainnet.s.sol put on Arc testnet as a rehearsal (ArcBounty's contracts/DEPLOYMENTS.md).
-    address constant ADAPTER = 0xD74984D965F2aBf532605Fe57F735C82a7A5c13E;
+    /// @dev The testnet adapter ArcBounty named for the arbitrator run on 2026-09-30 (V4.7, the mainnet code; arbitrator
+    ///      and owner are their testnet deployer). ARCBOUNTY_ADAPTER overrides it, for example with their earlier
+    ///      rehearsal adapter 0xD74984D965F2aBf532605Fe57F735C82a7A5c13E.
+    address ADAPTER = 0xeDf2c738915b042da97788b2b5499D4655FB1f20;
 
     bool forked;
 
     function setUp() public {
         string memory rpc = vm.envOr("ARC_TESTNET_RPC", string(""));
         if (bytes(rpc).length == 0) return;
+        ADAPTER = vm.envOr("ARCBOUNTY_ADAPTER", ADAPTER);
         vm.createSelectFork(rpc);
         assertEq(block.chainid, ARC_TESTNET, "ARC_TESTNET_RPC must serve Arc testnet");
         forked = true;
