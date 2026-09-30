@@ -256,7 +256,7 @@ judge-service/    Node/viem off-chain engine
   src/rvr-snapshot.mjs          freezes one ruling's chain evidence for the ERC-8404 profile
   api/                          hosted judge (Vercel): /api/judge, /api/x402/judge, /api/evaluate,
                                 /api/health, /api/cron/sweep
-  test/                         277 unit tests (checker gate, json shapes, SSRF, evidence determinism, hosted judge, x402, ERC-8412, ERC-8404, ArcBounty)
+  test/                         280 unit tests (checker gate, json shapes, SSRF, evidence determinism, hosted judge, x402, ERC-8412, ERC-8404, ArcBounty)
   evidence/                     recomputable verdict evidence (public audit trail)
 mcp/              MCP server: the checklist builder, a dry run, job reads, verification and ruling requests as tools
 rvr/              ERC-8404 profile, in the layout of the RVR reference repository
@@ -279,19 +279,19 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
   touched, and an untrusted signature or mismatched criteria is refused. `script/DeployArcMainnet.s.sol`
   refuses any other chain, any escrow with another Job layout and any owner but the declared one. Gas
   on mainnet: the deployment cost 0.037 USDC, a full judged job about 0.017.
-- ✅ **277/277 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
+- ✅ **280/280 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
   criteria defects, SSRF denylist with DNS pinning, evidence-hash determinism, and the hosted judge
   (on-demand rulings, races, reverted transactions, the daily sweep, deliverables that can never
   load abstaining instead of retrying forever), and paid rulings over x402 (payments signed by
   Circle's own client; a payment settles only once a verdict is ready and the contract would
   accept it).
-- ✅ **144/144 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
+- ✅ **146/146 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
   `judge-service` first): the page's CSP, the read-only relay, the public numbers, parity with the
   service's own checkers, the CLI, and the in-browser verifier run against a fake chain built from
   recorded Arc testnet data, including tampered inputs that must never verify. The checklist builder:
   every template makes criteria the judge accepts, answers the judge would refuse are refused in plain
   words, its dry run equals the judge's checkers, and job 18's checklist comes out with its on-chain hash.
-- ✅ **43/43 kit and docs tests** (`cd kit && npm ci && npm test`, after `npm ci` in
+- ✅ **45/45 kit and docs tests** (`cd kit && npm ci && npm test`, after `npm ci` in
   `judge-service`): the kit agrees with the judge on validation (down to the refusal reason),
   hashing and deliverable decoding, inline or hosted; nothing reaches the chain on bad input; the
   docs state every check, parameter, limit and API result with the code's own numbers, and every
@@ -328,7 +328,7 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
 cd contracts && git submodule update --init --recursive && forge test   # 118/118, plus 10 fork tests (skipped without their RPC variables)
 
 # service
-cd ../judge-service && npm install && npm test                          # 277/277
+cd ../judge-service && npm install && npm test                          # 280/280
 
 # run the judge against Arc testnet (needs a funded .env, see .env.example)
 node --env-file=.env src/index.js

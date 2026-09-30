@@ -266,10 +266,21 @@ export const canonicalize = (o) => JSON.stringify(sortKeys(o));
 /** keccak256 of the canonical (sorted-key) JSON: what the judge commits to in its verdict. */
 export const criteriaHash = (criteria) => keccak256(toHex(canonicalize(criteria)));
 
+/** The first judge-criteria block's text, found as the judge finds it (judge-service/src/criteria.js): exactly what
+ *  /```judge-criteria\s*([\s\S]*?)```/ captures, in linear time instead of that expression's backtracking. */
+function criteriaBlockText(description) {
+  const open = description.indexOf("```judge-criteria");
+  if (open === -1) return null;
+  let start = open + "```judge-criteria".length;
+  while (start < description.length && /\s/.test(description[start])) start++;
+  const close = description.indexOf("```", start);
+  return close === -1 ? null : description.slice(start, close);
+}
+
 export function extractCriteria(description) {
-  const m = (description || "").match(/```judge-criteria\s*([\s\S]*?)```/);
-  if (!m) return null;
-  try { return JSON.parse(m[1]); } catch { return null; }
+  const text = criteriaBlockText(String(description || ""));
+  if (text === null) return null;
+  try { return JSON.parse(text); } catch { return null; }
 }
 
 /** Build the job description: a title plus the fenced judge-criteria block. Throws on criteria the judge would refuse. */
