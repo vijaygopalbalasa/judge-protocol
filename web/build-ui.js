@@ -1,12 +1,14 @@
-// The checklist builder page. Every rule lives in builder.js, which is tested against the judge;
-// this file only reads the form, shows the checklist and runs the dry run. Nothing leaves the
-// browser (the page's CSP has connect-src 'none'), and text reaches the page through textContent only.
+// The checklist builder page. Every rule lives in builder.js, which is tested against the judge
+// (including fromForm, the path from this form's state to the answers); this file only draws the
+// form, shows the checklist and runs the dry run. Nothing leaves the browser (the page's CSP has
+// connect-src 'none'), and text reaches the page through textContent only.
 
-import { buildCriteria, jobDescription, describe, describeCheck, dryRun, BuilderError, FIELD_TYPES } from './builder.js';
+import { buildCriteria, jobDescription, describe, describeCheck, dryRun, fromForm, BuilderError, FIELD_TYPES, MAX_DELIVERABLE_BYTES } from './builder.js';
 import { criteriaHash } from './app.js';
 import { el, set } from './ui.js';
 
 const $ = (id) => document.getElementById(id);
+const JOB18_HASH = '0xd761b8357e12d75984f1502b113ccd4c3b0fa12302b2d0d89fe5d7b21f3a120b';
 
 const KINDS = [
   { id: 'text', title: 'Written answer', desc: 'An article, a reply, a report' },
@@ -17,68 +19,43 @@ const KINDS = [
 ];
 const TYPE_LABELS = {
   text: 'Text', url: 'Web address', email: 'Email', 'email-or-url': 'Email or web address',
-  number: 'Number', integer: 'Whole number', 'yes-no': 'Yes or no', 'one-of': 'One of a list',
+  number: 'Number', integer: 'Whole number', 'yes-no': 'True or false', 'one-of': 'One of a list',
 };
 
-const row = (over = {}) => ({ name: '', type: 'text', options: '', required: true, ...over });
-const JOB18 = () => ({
-  min: '10', max: '10', uniqueField: 'website', uniqueKey: 'domain', noExtra: false,
-  fields: [
+let nextRow = 1;
+const row = (over = {}) => ({ id: nextRow++, name: '', type: 'text', options: '', required: true, ...over });
+function job18() {
+  const fields = [
     row({ name: 'name' }), row({ name: 'website', type: 'url' }), row({ name: 'network', type: 'one-of', options: 'Arc, Base' }),
     row({ name: 'paid_work_evidence', type: 'url' }), row({ name: 'contact', type: 'email-or-url' }),
-  ],
-});
+  ];
+  return { min: '10', max: '10', uniqueRow: fields[1].id, uniqueKey: 'domain', noExtra: false, fields };
+}
 const EXAMPLES = {
   text: () => ({ minWords: '400', maxWords: '600', terms: 'USDC\nescrow\nArc', wholeWords: true }),
-  records: JOB18,
+  records: job18,
   record: () => ({ noExtra: true, fields: [row({ name: 'price', type: 'number' }), row({ name: 'currency', type: 'one-of', options: 'USD, EUR' }), row({ name: 'note', required: false })] }),
-  file: () => ({ sha256: '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824', note: 'the example is the fingerprint of a file containing just: hello' }),
+  file: () => ({ sha256: '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824', size: undefined, note: '' }),
   endpoint: () => ({ url: 'https://example.com', status: '200', body: 'Example Domain' }),
 };
 const EXAMPLE_NOTES = {
   text: 'Example: a 400 to 600 word explainer that names USDC, escrow and Arc.',
-  records: 'Example: the checklist of ArcBounty job 18, a live 2 USDC bounty on Arc mainnet, rebuilt here to the same criteria hash.',
   record: 'Example: a price quote with a number, a currency from a list, and an optional note.',
-  file: 'Example: the exact file whose content is "hello".',
+  file: 'Example: the exact file whose content is "hello" (5 bytes).',
   endpoint: 'Example: a public page that must answer and show a phrase.',
 };
 const EMPTY = {
   text: () => ({ minWords: '', maxWords: '', terms: '', wholeWords: false }),
-  records: () => ({ min: '', max: '', uniqueField: '', uniqueKey: 'value', noExtra: false, fields: [row()] }),
+  records: () => ({ min: '1', max: '', uniqueRow: null, uniqueKey: 'domain', noExtra: false, fields: [row()] }),
   record: () => ({ noExtra: false, fields: [row()] }),
-  file: () => ({ sha256: '', note: '' }),
+  file: () => ({ sha256: '', size: undefined, note: '' }),
   endpoint: () => ({ url: '', status: '200', body: '' }),
 };
 
 const state = { template: 'records', loaded: 'records' };
 for (const k of Object.keys(EMPTY)) state[k] = EMPTY[k]();
-state.records = JOB18();
-let current = null; // { criteria, text } when the form makes a valid checklist
-
-/* ------------------------------ form values ------------------------------ */
-const num = (v) => {
-  const t = String(v ?? '').trim();
-  if (!t) return undefined;
-  return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : t; // anything else reaches the builder as text and is refused there
-};
-const lines = (v) => String(v ?? '').split('\n');
-const commaList = (v) => String(v ?? '').split(',').filter((o) => o.trim() !== '');
-const fieldsOf = (rows) => rows.map((r) => ({ name: r.name, type: r.type, required: r.required, ...(r.type === 'one-of' && { options: commaList(r.options) }) }));
-
-function answers() {
-  const s = state[state.template];
-  const common = { passThreshold: num($('passMark').value) };
-  switch (state.template) {
-    case 'text': return { ...common, minWords: num(s.minWords), maxWords: num(s.maxWords), terms: lines(s.terms), wholeWords: s.wholeWords };
-    case 'records': return {
-      ...common, count: { min: num(s.min), max: num(s.max) }, fields: fieldsOf(s.fields), noExtraFields: s.noExtra,
-      ...(s.uniqueField && { uniqueBy: { field: s.uniqueField, key: s.uniqueKey } }),
-    };
-    case 'record': return { ...common, fields: fieldsOf(s.fields), noExtraFields: s.noExtra };
-    case 'file': return { ...common, sha256: s.sha256 };
-    default: return { ...common, url: s.url, expectStatus: num(s.status), bodyIncludes: lines(s.body) };
-  }
-}
+state.records = job18();
+let current = null; // { criteria, text, hash } when the form makes a valid checklist
 
 /* ------------------------------- controls -------------------------------- */
 let uid = 0;
@@ -113,13 +90,15 @@ function select(options, value, onChange) {
 function fieldsEditor(s, withUnique) {
   const box = el('div', { class: 'fields' });
   const uniqueBox = el('div');
+  // The rule is kept by row id, so renaming its field keeps it, and removing the row removes it.
   const drawUnique = () => {
     if (!withUnique) return;
-    const names = s.fields.map((f) => f.name.trim()).filter(Boolean);
-    if (s.uniqueField && !names.includes(s.uniqueField)) s.uniqueField = '';
+    const named = s.fields.filter((f) => f.name.trim());
     set(uniqueBox, el('div', { class: 'grid2' }, [
-      labelled('No two entries may share', select([['', 'no rule'], ...names.map((n) => [n, n])], s.uniqueField, (v) => { s.uniqueField = v; refresh(); })),
-      labelled('Compared by', select([['domain', 'the domain of the web address'], ['value', 'the exact value']], s.uniqueKey, (v) => { s.uniqueKey = v; refresh(); })),
+      labelled('No two entries may share', select([['', 'no rule'], ...named.map((f) => [String(f.id), f.name.trim()])], s.uniqueRow == null ? '' : String(s.uniqueRow),
+        (v) => { s.uniqueRow = v ? Number(v) : null; refresh(); })),
+      labelled('Compared by', select([['domain', 'the host name of the web address'], ['value', 'the exact value']], s.uniqueKey, (v) => { s.uniqueKey = v; refresh(); }),
+        'Host names: a leading "www." is ignored, and subdomains count as different.'),
     ]));
   };
   const draw = () => {
@@ -141,14 +120,18 @@ function fieldsEditor(s, withUnique) {
       req.addEventListener('change', () => { f.required = req.checked; refresh(); });
       const remove = el('button', { class: 'x', type: 'button', text: 'Remove' });
       remove.setAttribute('aria-label', `Remove field ${i + 1}`);
-      remove.addEventListener('click', () => { s.fields.splice(i, 1); draw(); drawUnique(); refresh(); });
+      remove.addEventListener('click', () => {
+        s.fields.splice(i, 1);
+        if (s.uniqueRow === f.id) s.uniqueRow = null;
+        draw(); drawUnique(); refresh();
+      });
       return el('div', { class: 'field' }, [name, type, opts, el('label', { class: 'req' }, [req, 'required']), remove]);
     });
     const add = el('button', { class: 'ghost', type: 'button', text: 'Add a field' });
-    add.addEventListener('click', () => { s.fields.push(row()); draw(); refresh(); });
+    add.addEventListener('click', () => { s.fields.push(row()); draw(); drawUnique(); refresh(); });
     const head = el('div', { class: 'field head' }, [el('span', { text: 'Field name' }), el('span', { text: 'Type' }), el('span', { text: 'Options (for "One of a list")' })]);
     head.setAttribute('aria-hidden', 'true');
-    set(box, [head, ...rows, el('div', { class: 'row' }, [add, el('span', { class: 'note', text: 'Options match exactly, letter case included: "arc" is not "Arc".' })])]);
+    set(box, [head, ...rows, el('div', { class: 'row' }, [add, el('span', { class: 'note', text: 'Options match exactly, letter case included: "arc" is not "Arc", and "1" is text, not the number 1.' })])]);
   };
   draw();
   drawUnique();
@@ -178,25 +161,34 @@ const FORMS = {
     checkbox('Refuse fields not listed here', s, 'noExtra'),
   ],
   file: (s) => {
-    const hash = el('input', { placeholder: '64 hex characters' });
-    bindValue(hash, s, 'sha256');
     const picked = el('div', { class: 'note', text: s.note || '' });
+    const hash = el('input', { placeholder: '64 hex characters' });
+    // A pasted fingerprint replaces a picked file, so the file's note and size no longer apply.
+    bindValue(hash, s, 'sha256', () => { s.note = ''; s.size = undefined; picked.textContent = ''; });
     const file = el('input', { type: 'file' });
     file.addEventListener('change', async () => {
       const f = file.files[0];
       if (!f) return;
       s.sha256 = await sha256Hex(await f.arrayBuffer());
-      s.note = `the fingerprint of ${f.name} (${f.size} bytes), computed in your browser`;
+      s.size = f.size;
+      s.note = `The fingerprint of ${f.name} (${f.size} bytes), computed in your browser.`;
       hash.value = s.sha256;
       picked.textContent = s.note;
       refresh();
     });
-    return [labelled('Pick the exact file you expect (it stays in your browser)', file), labelled('Or paste its SHA-256 fingerprint', hash), picked];
+    return [
+      labelled('Pick the exact file you expect (it stays in your browser)', file, `The judge reads deliveries of at most ${MAX_DELIVERABLE_BYTES.toLocaleString('en-US')} bytes.`),
+      labelled('Or paste its SHA-256 fingerprint', hash),
+      picked,
+    ];
   },
   endpoint: (s) => [
     textInput('Web address that must answer', s, 'url', 'https://example.com/health'),
-    el('div', { class: 'grid2' }, [numberInput('Expected status', s, 'status', '200'), textArea('Text the page must include, one per line', s, 'body', 3, '"ok":true')]),
-    el('div', { class: 'banner', text: 'This is the one kind of check nobody can re-run later: the judge probes the address once, when it rules, and records what it saw. Prefer the other kinds when you can.' }),
+    el('div', { class: 'grid2' }, [
+      numberInput('Expected status', s, 'status', '200'),
+      textArea('Text the page must include, one per line', s, 'body', 3, '"ok":true'),
+    ]),
+    el('div', { class: 'banner', text: 'This is the one kind of check nobody can re-run later: the judge probes the address once, when it rules, and records what it saw. It does not follow redirects. Prefer the other kinds when you can.' }),
   ],
 };
 
@@ -205,9 +197,21 @@ function drawTemplates() {
   set($('templates'), KINDS.map((k) => {
     const b = el('button', { class: 'choice', type: 'button' }, [el('span', { class: 't', text: k.title }), el('span', { class: 'd', text: k.desc })]);
     b.setAttribute('aria-pressed', String(state.template === k.id));
-    b.addEventListener('click', () => { state.template = k.id; drawAll(); });
+    b.addEventListener('click', () => {
+      state.template = k.id;
+      $('sampleFile').value = '';
+      drawAll();
+    });
     return b;
   }));
+}
+
+function exampleNote() {
+  const t = state.template;
+  if (t !== 'records') return EXAMPLE_NOTES[t];
+  return current?.hash === JOB18_HASH
+    ? 'Example: the checklist of ArcBounty job 18, a real 2 USDC bounty on Arc mainnet (paid on Sep 30), rebuilt here to the same criteria hash.'
+    : 'Started from the checklist of ArcBounty job 18 and changed: it no longer matches the one on chain.';
 }
 
 function drawExample() {
@@ -215,7 +219,7 @@ function drawExample() {
   if (state.loaded === t) {
     const clear = el('button', { class: 'ghost', type: 'button', text: 'Start empty' });
     clear.addEventListener('click', () => { state[t] = EMPTY[t](); state.loaded = null; drawAll(); });
-    set($('example'), [el('span', { text: `${EXAMPLE_NOTES[t]} ` }), clear]);
+    set($('example'), [el('span', { text: `${exampleNote()} ` }), clear]);
   } else {
     const load = el('button', { class: 'ghost', type: 'button', text: 'Load an example' });
     load.addEventListener('click', () => { state[t] = EXAMPLES[t](); state.loaded = t; drawAll(); });
@@ -225,7 +229,6 @@ function drawExample() {
 
 function drawAll() {
   drawTemplates();
-  drawExample();
   set($('form'), FORMS[state.template](state[state.template]));
   set($('result'), []);
   refresh();
@@ -234,8 +237,8 @@ function drawAll() {
 function refresh() {
   $('formError').textContent = '';
   try {
-    const criteria = buildCriteria(state.template, answers());
-    current = { criteria, text: jobDescription($('summary').value, criteria) };
+    const criteria = buildCriteria(state.template, fromForm(state.template, state[state.template], $('passMark').value));
+    current = { criteria, text: jobDescription($('summary').value, criteria), hash: criteriaHash(criteria) };
   } catch (e) {
     current = null;
     $('formError').textContent = e instanceof BuilderError ? e.message : `Something went wrong: ${e.message}`;
@@ -243,38 +246,52 @@ function refresh() {
     $('out').value = '';
     $('hash').textContent = '';
     $('copy').disabled = true;
+    drawExample();
     return;
   }
   set($('plain'), describe(current.criteria).map((l) => el('li', { text: l })));
   $('out').value = current.text;
-  $('hash').textContent = `criteria hash ${criteriaHash(current.criteria)}: a ruling commits to this, and anyone can recompute it from the text above`;
+  $('hash').textContent = `criteria hash ${current.hash}: a ruling commits to this, and anyone can recompute it from the text above`;
   $('copy').disabled = false;
   $('copied').textContent = '';
+  drawExample();
 }
 
 async function runTest() {
-  if (!current) { set($('result'), el('p', { class: 'error', text: 'Fix the checklist first.' })); return; }
+  const snap = current; // the checklist as it was when the button was pressed
+  if (!snap) { set($('result'), el('p', { class: 'error', text: 'Fix the checklist first.' })); return; }
   const file = $('sampleFile').files[0];
-  const bytes = file ? new Uint8Array(await file.arrayBuffer()) : new TextEncoder().encode($('sample').value);
-  const r = await dryRun(current.criteria, bytes);
-  const rows = r.results.map((x, i) => el('tr', {}, [
-    el('td', { class: `mark ${x.notRun ? 'na' : x.pass ? 'ok' : 'no'}`, text: x.notRun ? '-' : x.pass ? '✓' : '✗' }),
-    el('td', { text: describeCheck(current.criteria.checks[i]) }),
-    el('td', { class: 'detail', text: x.notRun ? 'only the judge runs this, when it rules' : x.detail }),
-  ]));
-  const verdict = r.final
-    ? el('div', { class: `verdict ${r.pass ? 'ok' : 'no'}`, text: `Score ${r.score} of 100: the judge would rule ${r.pass ? 'PASS' : 'REJECT'} (pass mark ${r.threshold}).` })
-    : el('div', { class: 'verdict na', text: 'Not final: this checklist has a live web check, which only the judge runs when it rules.' });
-  set($('result'), [
-    el('p', { class: 'note', text: `Tested ${file ? `the file ${file.name}` : 'the pasted text'} (${bytes.length} bytes).` }),
-    el('div', { class: 'scroll' }, el('table', {}, [el('thead', {}, el('tr', {}, [el('th', { text: '' }), el('th', { text: 'Check' }), el('th', { text: 'What the judge saw' })])), el('tbody', {}, rows)])),
-    verdict,
-  ]);
+  try {
+    const bytes = file ? new Uint8Array(await file.arrayBuffer()) : new TextEncoder().encode($('sample').value);
+    const r = await dryRun(snap.criteria, bytes);
+    const tested = el('p', { class: 'note', text: `Tested ${file ? `the file ${file.name}` : 'the pasted text'} (${bytes.length} bytes).` });
+    if (r.tooLarge) {
+      set($('result'), [tested, el('div', { class: 'verdict no', text: `The judge would not rule: it reads deliveries of at most ${MAX_DELIVERABLE_BYTES.toLocaleString('en-US')} bytes.` })]);
+      return;
+    }
+    const rows = r.results.map((x, i) => el('tr', {}, [
+      el('td', { class: `mark ${x.notRun ? 'na' : x.pass ? 'ok' : 'no'}`, text: x.notRun ? '-' : x.pass ? '✓' : '✗' }),
+      el('td', { text: describeCheck(snap.criteria.checks[i]) }),
+      el('td', { class: 'detail', text: x.notRun ? 'only the judge runs this, when it rules' : x.detail }),
+    ]));
+    const verdict = r.final
+      ? el('div', { class: `verdict ${r.pass ? 'ok' : 'no'}`, text: `Score ${r.score} of 100: the judge would rule ${r.pass ? 'PASS' : 'REJECT'} (pass mark ${r.threshold}).` })
+      : el('div', { class: 'verdict na', text: 'Not final: this checklist has a live web check, which only the judge runs when it rules.' });
+    set($('result'), [
+      tested,
+      el('div', { class: 'scroll' }, el('table', {}, [el('thead', {}, el('tr', {}, [el('th', { text: '' }), el('th', { text: 'Check' }), el('th', { text: 'What the check saw' })])), el('tbody', {}, rows)])),
+      verdict,
+    ]);
+  } catch (e) {
+    set($('result'), el('p', { class: 'error', text: `The test could not run: ${e.message}` }));
+  }
 }
 
 $('passMark').addEventListener('input', refresh);
 $('summary').addEventListener('input', refresh);
 $('test').addEventListener('click', runTest);
+// The latest thing the visitor gave is what gets tested: typing clears a picked file.
+$('sample').addEventListener('input', () => { $('sampleFile').value = ''; });
 $('copy').addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText($('out').value);

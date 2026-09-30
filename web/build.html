@@ -86,7 +86,8 @@
     <p class="lede">
       Say what the delivery must be, in a few plain answers. You get the text to paste into a bounty or an
       <strong>ERC-8183</strong> job description, and you can test a sample delivery against it right here.
-      This page runs the same checks the judge runs, <strong>in your browser</strong>, and sends nothing anywhere.
+      This page runs a copy of the judge's checks <strong>in your browser</strong> (tests hold it equal to the
+      judge's own), and sends nothing anywhere.
     </p>
     <div class="note"><a href="./">Verify a ruling</a> · <a href="https://github.com/vijaygopalbalasa/judge-protocol/blob/master/docs/CRITERIA.md" target="_blank" rel="noopener noreferrer">Criteria reference</a> · <a href="https://github.com/vijaygopalbalasa/judge-protocol/blob/master/web/builder.js" target="_blank" rel="noopener noreferrer">Source</a></div>
   </header>
@@ -104,7 +105,8 @@
         <div>
           <label for="passMark">Pass mark (0 to 100)</label>
           <input id="passMark" inputmode="numeric" value="100">
-          <div class="note" style="margin-top:4px">100 means every check must pass.</div>
+          <div class="note" style="margin-top:4px">100 means every check must pass. A check passes whole or not
+            at all; the checklist below says how many must pass.</div>
         </div>
         <div>
           <label for="summary">Summary for people (goes above the checklist)</label>
@@ -119,7 +121,7 @@
   <ul class="plain" id="plain"></ul>
   <div class="banner">
     <strong>The judge checks only what is written here.</strong> On ArcBounty
-    <a href="https://arcbounty.app/bounty/18" target="_blank" rel="noopener noreferrer">job 18</a>, a live bounty on Arc
+    <a href="https://arcbounty.app/bounty/18" target="_blank" rel="noopener noreferrer">job 18</a>, a real bounty on Arc
     mainnet, the delivery met every rule, and the reviewers also wanted things the checklist never asked for: teams on
     Arc, and contact links that open a contact page. If something matters to you, make it a rule, for example
     <code>network</code> as one of "Arc" only. Quality and taste stay with your own review; no computer check covers them.
@@ -133,8 +135,9 @@
   <div class="hashes" id="hash"></div>
 
   <h2><span class="n">4</span>Test a delivery</h2>
-  <p class="note">Paste a sample delivery or pick a file. The page runs the checklist on it with the judge's own
-    checks and shows the score the judge would give. Nothing is uploaded.</p>
+  <p class="note">Paste a sample delivery or pick a file. The page runs the checklist on it with its copy of the
+    judge's checks and shows the score the judge would give, except for a live web check, which only the judge
+    makes. Nothing is uploaded. Pasted text is tested with plain line breaks; to test exact bytes, pick the file.</p>
   <div class="stack">
     <textarea id="sample" rows="6" placeholder="Paste a sample delivery"></textarea>
     <div class="row">
