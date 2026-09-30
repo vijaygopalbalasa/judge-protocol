@@ -14,8 +14,16 @@ export const TEMPLATES = ['text', 'records', 'record', 'file', 'endpoint'];
 export const FIELD_TYPES = ['text', 'url', 'email', 'email-or-url', 'number', 'integer', 'yes-no', 'one-of'];
 /** The kit's default title (kit/judge-kit.js criteriaBlock), so both write the same block. */
 export const DEFAULT_TITLE = 'Deliverable judged by Judge Protocol (deterministic, recomputable).';
-/** The judge abstains on any deliverable larger than this (judge-service/src/safe-fetch.js MAX_BYTES; a test holds them equal). */
+/** The judge abstains on any deliverable larger than this (judge-service/src/safe-fetch.js MAX_BYTES, a test holds them equal;
+ *  the hosted judges on testnet and mainnet set no MAX_DELIVERABLE_BYTES override, checked Oct 1, 2026). */
 export const MAX_DELIVERABLE_BYTES = 1_000_000;
+/** ArcBounty deliveries are read as one IPFS block (judge-service/src/arcbounty.js MAX_SINGLE_BLOCK). */
+export const ARCBOUNTY_MAX_BYTES = 262_144;
+/** Ports the judge's fetch (undici, following the fetch standard) refuses to connect to; a test holds this list equal to undici's. */
+export const BAD_PORTS = [1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102, 103, 104, 109, 110,
+  111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532, 540, 548, 554, 556,
+  563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669,
+  6679, 6697, 10080];
 const withCommas = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
 const given = (v) => v !== undefined && v !== null && v !== '';
@@ -96,7 +104,7 @@ function uniqueBy(rule, byName) {
   const field = String(rule.field ?? '').trim();
   if (!field) fail('Name the field that no two entries may share.');
   if (!byName.has(field)) fail(`"${field}" is not one of the fields.`);
-  if (key === 'domain' && byName.get(field).type !== 'url') fail(`To compare domains, "${field}" must be a web address field.`);
+  if (key === 'domain' && byName.get(field).type !== 'url') fail(`To compare host names, "${field}" must be a web address field.`);
   return { field, key };
 }
 
@@ -142,6 +150,7 @@ const BUILD = {
     const authority = url.replace(/^https?:\/\//i, '').split(/[/?#]/)[0];
     const port = authority.includes(':') ? Number(authority.slice(authority.indexOf(':') + 1)) : undefined;
     if (port !== undefined && (port < 1 || port > 65535)) fail('The web address has a port the judge cannot use: ports go from 1 to 65535.');
+    if (port !== undefined && BAD_PORTS.includes(port)) fail(`The judge will not connect to port ${port} (a port web fetches refuse), so this check could never pass.`);
     const params = { url };
     if (given(a.expectStatus)) {
       const st = a.expectStatus;
@@ -154,6 +163,9 @@ const BUILD = {
       params.expectStatus = st;
     }
     const body = texts(a.bodyIncludes, 'texts the page must include');
+    if (body.length && (params.expectStatus === 204 || params.expectStatus === 205)) {
+      fail(`A ${params.expectStatus} reply has no body, so it can never include text: remove the text, or expect another status.`);
+    }
     if (body.length) params.bodyIncludes = body;
     return [{ kind: 'http-endpoint', params }];
   },
@@ -289,11 +301,11 @@ function passWords(criteria) {
   const t = criteria.passThreshold ?? 100;
   const checks = criteria.checks || [];
   const n = checks.length;
-  if (t === 0) return 'Passes whatever the delivery is (pass mark 0).';
+  if (t === 0) return 'Any delivery the judge can read passes (pass mark 0).';
   if (!checks.every((c) => (c.weight ?? 1) === 1)) return `Passes at a score of ${t} or more out of 100 (the checks are weighted).`;
   let k = 0;
   while (k < n && !scoreOf(checks.map((_, i) => ({ pass: i < k, weight: 1 })), t).pass) k++;
-  if (k === 0) return `Passes whatever the delivery is (pass mark ${t}).`;
+  if (k === 0) return `Any delivery the judge can read passes (pass mark ${t}).`;
   if (k === n) return t === 100 ? 'Every check must pass.' : `Every check must pass (pass mark ${t}).`;
   return `At least ${k} of the ${n} checks must pass (pass mark ${t}).`;
 }
@@ -349,3 +361,35 @@ export function fromForm(template, f, passMark) {
     default: return common;
   }
 }
+
+/* -------------------------------- examples ------------------------------- */
+// The examples the page offers, as form state, so the tests run exactly what the page loads.
+// Row ids are local to each example; the page renumbers them when it loads one.
+const exRow = (id, name, type = 'text', over = {}) => ({ id, name, type, options: '', required: true, ...over });
+export const EXAMPLES = {
+  text: {
+    note: 'Example: a 400 to 600 word explainer that names USDC, escrow and Arc.',
+    form: () => ({ minWords: '400', maxWords: '600', terms: 'USDC\nescrow\nArc', wholeWords: true }),
+  },
+  records: {
+    note: 'Example: the checklist of ArcBounty job 18, a real 2 USDC bounty on Arc mainnet (paid on Sep 30), rebuilt here to the same criteria hash.',
+    changed: 'Started from the checklist of ArcBounty job 18 and changed: it no longer matches the one on chain.',
+    form: () => ({
+      min: '10', max: '10', uniqueRow: 2, uniqueKey: 'domain', noExtra: false,
+      fields: [exRow(1, 'name'), exRow(2, 'website', 'url'), exRow(3, 'network', 'one-of', { options: 'Arc, Base' }),
+        exRow(4, 'paid_work_evidence', 'url'), exRow(5, 'contact', 'email-or-url')],
+    }),
+  },
+  record: {
+    note: 'Example: a price quote with a number, a currency from a list, and an optional note.',
+    form: () => ({ noExtra: true, fields: [exRow(1, 'price', 'number'), exRow(2, 'currency', 'one-of', { options: 'USD, EUR' }), exRow(3, 'note', 'text', { required: false })] }),
+  },
+  file: {
+    note: 'Example: the exact file whose content is "hello" (5 bytes).',
+    form: () => ({ sha256: '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824', size: undefined, note: '' }),
+  },
+  endpoint: {
+    note: 'Example: a public page that must answer and show a phrase.',
+    form: () => ({ url: 'https://example.com', status: '200', body: 'Example Domain' }),
+  },
+};

@@ -3,12 +3,11 @@
 // form, shows the checklist and runs the dry run. Nothing leaves the browser (the page's CSP has
 // connect-src 'none'), and text reaches the page through textContent only.
 
-import { buildCriteria, jobDescription, describe, describeCheck, dryRun, fromForm, BuilderError, FIELD_TYPES, MAX_DELIVERABLE_BYTES } from './builder.js';
+import { buildCriteria, jobDescription, describe, describeCheck, dryRun, fromForm, BuilderError, FIELD_TYPES, EXAMPLES, MAX_DELIVERABLE_BYTES, ARCBOUNTY_MAX_BYTES } from './builder.js';
 import { criteriaHash } from './app.js';
 import { el, set } from './ui.js';
 
 const $ = (id) => document.getElementById(id);
-const JOB18_HASH = '0xd761b8357e12d75984f1502b113ccd4c3b0fa12302b2d0d89fe5d7b21f3a120b';
 
 const KINDS = [
   { id: 'text', title: 'Written answer', desc: 'An article, a reply, a report' },
@@ -24,37 +23,27 @@ const TYPE_LABELS = {
 
 let nextRow = 1;
 const row = (over = {}) => ({ id: nextRow++, name: '', type: 'text', options: '', required: true, ...over });
-function job18() {
-  const fields = [
-    row({ name: 'name' }), row({ name: 'website', type: 'url' }), row({ name: 'network', type: 'one-of', options: 'Arc, Base' }),
-    row({ name: 'paid_work_evidence', type: 'url' }), row({ name: 'contact', type: 'email-or-url' }),
-  ];
-  return { min: '10', max: '10', uniqueRow: fields[1].id, uniqueKey: 'domain', noExtra: false, fields };
+/** An example's form state (builder.js EXAMPLES, which the tests run), with its rows renumbered for this page. */
+function loadExample(t) {
+  const f = EXAMPLES[t].form();
+  if (!f.fields) return f;
+  const ids = new Map();
+  const fields = f.fields.map(({ id, ...rest }) => { const r = row(rest); ids.set(id, r.id); return r; });
+  return { ...f, fields, ...('uniqueRow' in f && { uniqueRow: ids.get(f.uniqueRow) ?? null }) };
 }
-const EXAMPLES = {
-  text: () => ({ minWords: '400', maxWords: '600', terms: 'USDC\nescrow\nArc', wholeWords: true }),
-  records: job18,
-  record: () => ({ noExtra: true, fields: [row({ name: 'price', type: 'number' }), row({ name: 'currency', type: 'one-of', options: 'USD, EUR' }), row({ name: 'note', required: false })] }),
-  file: () => ({ sha256: '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824', size: undefined, note: '' }),
-  endpoint: () => ({ url: 'https://example.com', status: '200', body: 'Example Domain' }),
-};
-const EXAMPLE_NOTES = {
-  text: 'Example: a 400 to 600 word explainer that names USDC, escrow and Arc.',
-  record: 'Example: a price quote with a number, a currency from a list, and an optional note.',
-  file: 'Example: the exact file whose content is "hello" (5 bytes).',
-  endpoint: 'Example: a public page that must answer and show a phrase.',
-};
 const EMPTY = {
   text: () => ({ minWords: '', maxWords: '', terms: '', wholeWords: false }),
-  records: () => ({ min: '1', max: '', uniqueRow: null, uniqueKey: 'domain', noExtra: false, fields: [row()] }),
+  records: () => ({ min: '1', max: '', uniqueRow: null, uniqueKey: 'value', noExtra: false, fields: [row()] }),
   record: () => ({ noExtra: false, fields: [row()] }),
   file: () => ({ sha256: '', size: undefined, note: '' }),
   endpoint: () => ({ url: '', status: '200', body: '' }),
 };
 
-const state = { template: 'records', loaded: 'records' };
+// loaded: the template whose example is in the form; exampleHash: that example's criteria hash, so the page
+// names the example only while the checklist still is that example.
+const state = { template: 'records', loaded: 'records', exampleHash: null };
 for (const k of Object.keys(EMPTY)) state[k] = EMPTY[k]();
-state.records = job18();
+state.records = loadExample('records');
 let current = null; // { criteria, text, hash } when the form makes a valid checklist
 
 /* ------------------------------- controls -------------------------------- */
@@ -96,7 +85,13 @@ function fieldsEditor(s, withUnique) {
     const named = s.fields.filter((f) => f.name.trim());
     set(uniqueBox, el('div', { class: 'grid2' }, [
       labelled('No two entries may share', select([['', 'no rule'], ...named.map((f) => [String(f.id), f.name.trim()])], s.uniqueRow == null ? '' : String(s.uniqueRow),
-        (v) => { s.uniqueRow = v ? Number(v) : null; refresh(); })),
+        (v) => {
+          s.uniqueRow = v ? Number(v) : null;
+          // Host names only mean something for a web address field; anything else is compared by exact value.
+          s.uniqueKey = s.fields.find((f) => f.id === s.uniqueRow)?.type === 'url' ? 'domain' : 'value';
+          drawUnique();
+          refresh();
+        })),
       labelled('Compared by', select([['domain', 'the host name of the web address'], ['value', 'the exact value']], s.uniqueKey, (v) => { s.uniqueKey = v; refresh(); }),
         'Host names: a leading "www." is ignored, and subdomains count as different.'),
     ]));
@@ -177,7 +172,8 @@ const FORMS = {
       refresh();
     });
     return [
-      labelled('Pick the exact file you expect (it stays in your browser)', file, `The judge reads deliveries of at most ${MAX_DELIVERABLE_BYTES.toLocaleString('en-US')} bytes.`),
+      labelled('Pick the exact file you expect (it stays in your browser)', file,
+        `The judge reads deliveries of at most ${MAX_DELIVERABLE_BYTES.toLocaleString('en-US')} bytes; on ArcBounty, where a delivery is read as one IPFS block, at most ${ARCBOUNTY_MAX_BYTES.toLocaleString('en-US')} bytes.`),
       labelled('Or paste its SHA-256 fingerprint', hash),
       picked,
     ];
@@ -207,22 +203,26 @@ function drawTemplates() {
 }
 
 function exampleNote() {
-  const t = state.template;
-  if (t !== 'records') return EXAMPLE_NOTES[t];
-  return current?.hash === JOB18_HASH
-    ? 'Example: the checklist of ArcBounty job 18, a real 2 USDC bounty on Arc mainnet (paid on Sep 30), rebuilt here to the same criteria hash.'
-    : 'Started from the checklist of ArcBounty job 18 and changed: it no longer matches the one on chain.';
+  const ex = EXAMPLES[state.template];
+  if (current && current.hash === state.exampleHash) return ex.note;
+  return ex.changed ?? 'Started from the example and changed.';
 }
 
 function drawExample() {
   const t = state.template;
   if (state.loaded === t) {
     const clear = el('button', { class: 'ghost', type: 'button', text: 'Start empty' });
-    clear.addEventListener('click', () => { state[t] = EMPTY[t](); state.loaded = null; drawAll(); });
+    clear.addEventListener('click', () => { state[t] = EMPTY[t](); state.loaded = null; state.exampleHash = null; drawAll(); });
     set($('example'), [el('span', { text: `${exampleNote()} ` }), clear]);
   } else {
     const load = el('button', { class: 'ghost', type: 'button', text: 'Load an example' });
-    load.addEventListener('click', () => { state[t] = EXAMPLES[t](); state.loaded = t; drawAll(); });
+    load.addEventListener('click', () => {
+      state[t] = loadExample(t);
+      state.loaded = t;
+      drawAll();
+      state.exampleHash = current?.hash ?? null;
+      drawExample();
+    });
     set($('example'), load);
   }
 }
@@ -303,3 +303,5 @@ $('copy').addEventListener('click', async () => {
   }
 });
 drawAll();
+state.exampleHash = current?.hash ?? null;
+drawExample();
