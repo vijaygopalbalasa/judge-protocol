@@ -16,13 +16,15 @@
 // and fund, for escrows that let a zero-budget job be submitted while Open (ArcBounty's and Virtuals').
 // --judge-now rules in this process right after submission (the hosted judge's judgeNow), so no
 // watcher or hosted API is needed. E2E_REGISTRAR_KEY registers the criteria (default JUDGE_SIGNER_KEY; the
-// judge's owner may also register).
+// judge's owner may also register). E2E_TOKEN is the escrow's payment token (default Arc's USDC) and E2E_HOOK
+// the hook the job names (default none), for escrows deployed with contracts/script/DeployKit.s.sol.
 import { createPublicClient, createWalletClient, http, keccak256, toHex, stringToHex, parseUnits } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { config } from "./config.js";
 import { criteriaHash, extractCriteria } from "./criteria.js";
 
-const USDC = "0x3600000000000000000000000000000000000000";
+const USDC = process.env.E2E_TOKEN || "0x3600000000000000000000000000000000000000";
+const HOOK = process.env.E2E_HOOK || "0x0000000000000000000000000000000000000000";
 const erc20Abi = [
   { name: "approve", type: "function", stateMutability: "nonpayable", inputs: [{ name: "s", type: "address" }, { name: "a", type: "uint256" }], outputs: [{ type: "bool" }] },
   { name: "balanceOf", type: "function", stateMutability: "view", inputs: [{ name: "a", type: "address" }], outputs: [{ type: "uint256" }] },
@@ -76,7 +78,7 @@ async function main() {
   console.log(`\n=== E2E (${rejectMode ? "REJECT" : "PASS"} path): provider-authored deliverable ===`);
   console.log("1) client createJob (criteria only, evaluator = JudgeEvaluator)");
   const createHash = await client.writeContract({ address: config.acpAddress, abi: ACP, functionName: "createJob",
-    args: [providerAddr, config.judgeAddress, BigInt(Math.floor(Date.now() / 1000) + 3600), description, "0x0000000000000000000000000000000000000000"] });
+    args: [providerAddr, config.judgeAddress, BigInt(Math.floor(Date.now() / 1000) + 3600), description, HOOK] });
   const rcpt = await pub.waitForTransactionReceipt({ hash: createHash });
   let jobId;
   const { decodeEventLog } = await import("viem");

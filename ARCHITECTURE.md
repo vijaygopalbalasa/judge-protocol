@@ -35,11 +35,19 @@ Be the neutral judgment layer between agent Clients and Providers: given a job's
 │    · complete()/reject() into ACP (reason = evidenceHash)    │
 │    · immutable verdict log · guardian pause · withdraw()      │
 │      (ERC-20 rescue; NOT the fee mechanism - ACP has none)   │
-│  JudgeReputationHook.sol - IACPHook (ERC-8004 feedback)      │
-│    · beforeAction(fund): provider reputation gate            │
-│    · afterAction(complete/reject): giveFeedback to registry  │
+│  JudgeReputationHookV2.sol - IACPHook (ERC-8004 feedback)    │
+│    · afterAction(fund): attributes the job to the provider's │
+│      linked agent (judge-graded, client != provider)         │
+│    · afterAction(complete/reject): the judge's own verdict   │
+│      on an attributed job, counted in the hook's tally and   │
+│      written to the ReputationRegistry as deployed (v2.0.0): │
+│      PASS 100, REJECT 0, feedbackHash = evidenceHash         │
+│    · a registry failure never reverses a payout; too little  │
+│      gas for the record reverts the relay instead            │
+│    · no owner; supersedes JudgeReputationHook (an earlier    │
+│      ERC-8004 draft ABI it can no longer write to)           │
 │      NOTE: hooks are not yet whitelisted on the canonical    │
-│      ACP, so this path is not attachable today (see below)   │
+│      ACP, so this path is not attachable there today         │
 │  Circle ACP (canonical): 0x0747EEf0...089e4583  (testnet)    │
 └─────────────────────────────────────────────────────────────┘
 ```

@@ -12,7 +12,8 @@ expect.
 
 ## Scope
 
-- The contracts in `contracts/` (JudgeEvaluator, JudgeReputationHook)
+- The contracts in `contracts/src` (JudgeEvaluator, JudgeArbitrator, JudgeAttestor, JudgeReputationHookV2, and the
+  superseded JudgeReputationHook)
 - The hosted judge and its API (`judge-service/`), including the x402 paid path
 - The verifier (`web/`) and the kit (`kit/`)
 - The paymaster agent (`agent/`)

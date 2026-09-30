@@ -7,6 +7,9 @@ libs = ["lib"]
 
 remappings = [
   "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+  "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+  # ArcBounty's escrow (vendor/erc8183-escrow) imports the upgradeable contracts under this prefix.
+  "@ozup/=lib/openzeppelin-contracts-upgradeable/contracts/",
   "forge-std/=lib/forge-std/src/"
 ]
 solc_version = "0.8.28"
@@ -15,8 +18,12 @@ optimizer = true
 optimizer_runs = 200
 via_ir = false
 
-# ArcBounty's BountyAdapter (vendored under test/vendor/arcbounty for the JudgeArbitrator tests only) needs
-# via-IR, as it does in their own repo. Only those files, and test files that import them, compile with it;
-# everything under src keeps the settings above.
+# ArcBounty's BountyAdapter (vendored under test/vendor/arcbounty for the JudgeArbitrator tests only) and the
+# ERC-8004 registries (test/vendor/erc8004) need via-IR, as they do in their own repos. Only those files, and test
+# files that import them, compile with it; everything under src keeps the settings above.
 additional_compiler_profiles = [ { name = "via-ir", via_ir = true } ]
-compilation_restrictions = [ { paths = "test/vendor/arcbounty/**", via_ir = true } ]
+compilation_restrictions = [
+  { paths = "test/vendor/arcbounty/**", via_ir = true },
+  # The ERC-8004 registries (vendored for JudgeReputationHookV2's tests) are built with via-IR upstream too.
+  { paths = "test/vendor/erc8004/**", via_ir = true },
+]
