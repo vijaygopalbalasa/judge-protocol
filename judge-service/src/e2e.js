@@ -49,7 +49,6 @@ async function main() {
   const pub = createPublicClient({ chain: config.chain, transport: http(config.rpcUrl) });
   const client = wc(process.env.CLIENT_KEY);
   const provider = wc(process.env.PROVIDER_KEY);
-  const registrar = wc(process.env.E2E_REGISTRAR_KEY || process.env.JUDGE_SIGNER_KEY); // a signer or the judge's owner
   const providerAddr = provider.account.address;
 
   // CLIENT authors ONLY the acceptance criteria, never the deliverable.
@@ -93,7 +92,10 @@ async function main() {
     console.log(`2) (third-party flow) no criteria registration; criteriaHash ${cHash} is bound by the description`);
   } else {
     console.log("2) a signer (or the judge's owner) registers the criteria hash on-chain (while Open, before submission)");
-    const rc = await registrar.writeContract({ address: config.judgeAddress, abi: JUDGE, functionName: "registerCriteria", args: [jobId, cHash] });
+    // A signer or the judge's owner; only this path needs one, so a third party (JUDGE_API_URL) needs no judge key.
+    const registrarKey = process.env.E2E_REGISTRAR_KEY || process.env.JUDGE_SIGNER_KEY;
+    if (!registrarKey) throw new Error("registering criteria needs E2E_REGISTRAR_KEY or JUDGE_SIGNER_KEY (or set JUDGE_API_URL)");
+    const rc = await wc(registrarKey).writeContract({ address: config.judgeAddress, abi: JUDGE, functionName: "registerCriteria", args: [jobId, cHash] });
     await pub.waitForTransactionReceipt({ hash: rc });
     console.log(`   criteriaHash ${cHash} committed`);
   }
