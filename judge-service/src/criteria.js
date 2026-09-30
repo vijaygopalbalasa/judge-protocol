@@ -13,12 +13,28 @@
 
 import { keccak256, toHex } from "viem";
 
+/**
+ * The text of the first judge-criteria block: exactly what /```judge-criteria\s*([\s\S]*?)```/ captures,
+ * found in linear time. That expression backtracks quadratically on an opening fence with no closing one,
+ * and a job description on chain is as long as its author likes. The first marker decides the answer: any
+ * later marker starts with a fence that would already close the first block. Copies in kit/judge-kit.js and
+ * web/app.js; test/criteria-block.test.js holds all three to the expression over a fixed corpus.
+ */
+export function criteriaBlockText(description) {
+  const open = description.indexOf("```judge-criteria");
+  if (open === -1) return null;
+  let start = open + "```judge-criteria".length;
+  while (start < description.length && /\s/.test(description[start])) start++;
+  const close = description.indexOf("```", start);
+  return close === -1 ? null : description.slice(start, close);
+}
+
 export function extractCriteria(description) {
   if (!description) return null;
-  const m = description.match(/```judge-criteria\s*([\s\S]*?)```/);
-  if (!m) return null;
+  const text = criteriaBlockText(String(description));
+  if (text === null) return null;
   try {
-    const criteria = JSON.parse(m[1]);
+    const criteria = JSON.parse(text);
     return criteria;
   } catch {
     return null;
