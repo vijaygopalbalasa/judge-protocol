@@ -1,0 +1,104 @@
+{
+  "status": "ruled",
+  "jobId": "18",
+  "network": "arc-mainnet",
+  "ruling": {
+    "kind": "judge-protocol/arcbounty-ruling@1",
+    "network": "arc-mainnet",
+    "chainId": 5042,
+    "adapter": "0x73c617e808ED5c7Ca41413DFC6EE940dDcBb0b8D",
+    "escrow": "0x64cA39Fc57315D0D488acCaC07c37C6E841CD058",
+    "jobId": "18",
+    "submittedBlock": "23466663",
+    "description": {
+      "link": "ipfs://QmZydksZeiGMVzSFtifF7riVeChSyz6zT1JWwMTqTHCFAs",
+      "cid": "QmZydksZeiGMVzSFtifF7riVeChSyz6zT1JWwMTqTHCFAs",
+      "bytes": 1949
+    },
+    "submission": {
+      "link": "ipfs://QmNthvVxpzc8pxhyQjNLGqBdYbCVvT6EjADct8eScdYfxv",
+      "cid": "QmNthvVxpzc8pxhyQjNLGqBdYbCVvT6EjADct8eScdYfxv",
+      "bytes": 2062,
+      "escrowCommitment": "0x75eae45cfe396796b3fdd08ac0180e7441feebacb669d5f6e23819f47337197c",
+      "contentKeccak": "0x7b897d54953d779d2082cbf2e423e792a77242d3b5c4e89f9e12dc5e285ae5df"
+    },
+    "criteria": {
+      "version": 1,
+      "passThreshold": 100,
+      "checks": [
+        {
+          "kind": "json",
+          "params": {
+            "shape": {
+              "type": "array",
+              "minItems": 10,
+              "maxItems": 10,
+              "uniqueBy": {
+                "field": "website",
+                "key": "domain"
+              },
+              "items": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "website",
+                  "network",
+                  "paid_work_evidence",
+                  "contact"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "website": {
+                    "type": "string",
+                    "format": "url"
+                  },
+                  "network": {
+                    "enum": [
+                      "Arc",
+                      "Base"
+                    ]
+                  },
+                  "paid_work_evidence": {
+                    "type": "string",
+                    "format": "url"
+                  },
+                  "contact": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "email"
+                      },
+                      {
+                        "type": "string",
+                        "format": "url"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "criteriaHash": "0xd761b8357e12d75984f1502b113ccd4c3b0fa12302b2d0d89fe5d7b21f3a120b",
+    "results": [
+      {
+        "pass": true,
+        "detail": "json ok",
+        "kind": "json",
+        "weight": 1
+      }
+    ],
+    "score": 100,
+    "threshold": 100,
+    "pass": true,
+    "evidenceHash": "0xcf457afbd44363b199091ece1171df054cc391c2b7263efc6c2964f6351e8877",
+    "reviewerDecision": "awaiting-review",
+    "recompute": "node judge-service/src/arcbounty.js 18 --network arc-mainnet",
+    "rulingHash": "0x52ff8735f2a004bea938e5dcf8c7040c717b8cae95ecf1e46bd57d48c1a049fc"
+  }
+}

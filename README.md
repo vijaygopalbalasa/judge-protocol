@@ -59,7 +59,16 @@ node judge-service/src/verify.js 16 --network arc-mainnet   # VERIFIED: recomput
 or in the browser, with no install: https://judge-protocol-verifier.vercel.app/?network=arc-mainnet (it reads
 Arc mainnet directly from the page).
 
-No third party has used the judge on mainnet yet. A hosted mainnet judge runs at
+First outside trial: ArcBounty's job 18 on mainnet, a 2 USDC bounty whose acceptance rules are a Judge criteria block.
+Its first submission came in on 2026-09-30; Judge ruled PASS (100/100, every written rule met) before ArcBounty's
+reviewers decided. They approved and paid it the same day with a quality score of 60: the list met every rule but was
+weak on things the criteria did not ask for (no Arc teams, two contact links that are not contact pages). So the two
+agree on paying, and the gap is what the criteria left out. This ruling was advisory: ArcBounty's adapter is the job's
+evaluator, so no third party has named the judge on chain yet. Ruling record:
+`judge-service/evidence/arcbounty-arc-mainnet/job-18-52ff8735.json`; recompute it with
+`node judge-service/src/arcbounty.js 18 --network arc-mainnet`.
+
+A hosted mainnet judge runs at
 https://judge-protocol-api-mainnet.vercel.app (`POST /api/judge` on mainnet; paid x402 rulings stay on testnet)
 and rules once its relayer has gas: `GET /api/health` shows whether it does.
 
