@@ -116,8 +116,13 @@ neither hand the role back nor undo a hand-back.
   compromise.
 - Judge rules on objective, checkable criteria written into the bounty. A subjective dispute, or one on a bounty
   without criteria, belongs with a human: ArcBounty settles it with `resolveAsPrincipal`, or takes the role back.
-- Publishing the ruling record is manual: pin the JSON that `arcbounty.js` prints (CIDv0), send ArcBounty the CID
-  and a gateway link, then sign. `arbitrate.js` checks the pinned record against the fresh ruling before signing.
+- The ruling record is published before signing: `arcbounty.js --out record.json`, then
+  `node judge-service/src/pin.js record.json` pins it to IPFS through Pinata as CIDv0 (`PINATA_JWT_KEY`), refuses a
+  CID that is not the file's own, and returns only once a public gateway serves the exact bytes. The CID and gateway
+  link go to ArcBounty; `arbitrate.js` then checks the pinned record against the fresh ruling before signing.
+- A full rehearsal cannot run on a local fork of Arc: Arc's native USDC calls chain precompiles (a blocklist check at
+  `0x1800...0001`, given a few units of gas) that anvil does not have, so every USDC transfer reverts there. The role
+  handover does work on a fork; bounties, disputes and payouts run on Arc testnet itself.
 
 ## Tests
 

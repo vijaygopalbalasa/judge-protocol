@@ -243,10 +243,11 @@ judge-service/    Node/viem off-chain engine
   src/erc8412-live.mjs          one job end to end on Arc under ERC-8412 (preregister to attest)
   src/arcbounty.js              rules on an ArcBounty bounty from chain data and its IPFS files
   src/arbitrate.js              signs (and relays) a JudgeArbitrator ruling for a disputed bounty
+  src/pin.js                    pins a ruling record to IPFS (Pinata, CIDv0) and checks a gateway serves it
   src/rvr-snapshot.mjs          freezes one ruling's chain evidence for the ERC-8404 profile
   api/                          hosted judge (Vercel): /api/judge, /api/x402/judge, /api/evaluate,
                                 /api/health, /api/cron/sweep
-  test/                         272 unit tests (checker gate, json shapes, SSRF, evidence determinism, hosted judge, x402, ERC-8412, ERC-8404, ArcBounty)
+  test/                         277 unit tests (checker gate, json shapes, SSRF, evidence determinism, hosted judge, x402, ERC-8412, ERC-8404, ArcBounty)
   evidence/                     recomputable verdict evidence (public audit trail)
 rvr/              ERC-8404 profile, in the layout of the RVR reference repository
   profiles/judge-protocol-rvr-v0/   SPEC.md, standard-library Python adapter, vectors, gate
@@ -270,7 +271,7 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
   touched, and an untrusted signature or mismatched criteria is refused. `script/DeployArcMainnet.s.sol`
   refuses any other chain, any escrow with another Job layout and any owner but the declared one. Gas
   on mainnet: the deployment cost 0.037 USDC, a full judged job about 0.017.
-- ✅ **272/272 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
+- ✅ **277/277 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
   criteria defects, SSRF denylist with DNS pinning, evidence-hash determinism, and the hosted judge
   (on-demand rulings, races, reverted transactions, the daily sweep, deliverables that can never
   load abstaining instead of retrying forever), and paid rulings over x402 (payments signed by
@@ -312,7 +313,7 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
 cd contracts && git submodule update --init --recursive && forge test   # 125/125, plus 10 fork tests (skipped without their RPC variables)
 
 # service
-cd ../judge-service && npm install && npm test                          # 272/272
+cd ../judge-service && npm install && npm test                          # 277/277
 
 # run the judge against Arc testnet (needs a funded .env, see .env.example)
 node --env-file=.env src/index.js
