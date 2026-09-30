@@ -88,8 +88,9 @@ and rules once its relayer has gas: `GET /api/health` shows whether it does.
 - Jobs **171507** and **171925** (and the first test job, **170855**): PASS → escrow released
 - Jobs **186740** (PASS) and **186741** (REJECT): ruled by the hosted API on Sep 27, 2026, through
   the same path any third party uses (no criteria registration by us, one `POST /api/judge`)
+- Job **186819** (PASS): the same third-party path again on Sep 30, 2026, as an end-to-end check of the hosted judge
 
-All seven settled verdicts re-verify end to end in the browser verifier under `web/`.
+All eight settled verdicts re-verify end to end in the browser verifier under `web/`.
 
 **Verdicts as ERC-8004 reputation (Arc testnet, 2026-09-30).** Circle's contract whitelists no hooks, so this is a
 second deployment on Arc testnet, made with `contracts/script/DeployKit.s.sol`: its own ERC-8183 escrow (ArcBounty's

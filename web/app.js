@@ -24,7 +24,7 @@ export const NETWORKS = {
     explorer: 'https://testnet.arcscan.app',
     judgeApi: 'https://judge-protocol-api.vercel.app',
     // Every job this evaluator has settled, newest first. Verified on-chain.
-    knownJobs: [186741, 186740, 171925, 171507, 170857, 170856, 170855],
+    knownJobs: [186819, 186741, 186740, 171925, 171507, 170857, 170856, 170855],
   },
   'arc-mainnet': {
     label: 'Arc mainnet', chainId: 5042, directRpc: 'https://rpc.mainnet.arc.io', relay: false,
