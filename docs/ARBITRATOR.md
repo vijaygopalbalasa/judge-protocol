@@ -104,7 +104,15 @@ and disputed by two test wallets of ours:
   ArcBounty before signing; the signed ruling was relayed in `0x5a4cbc6b5288a2bf96f253c9cc4c3159b0b8c9d6aa8364d282ae6733b7782024`
   (block 64791236). The adapter marked the bounty resolved with that CID as its ruling, and the worker received
   0.99 test USDC (the reward less ArcBounty's 1% fee). Records: `judge-service/evidence/arcbounty-arc-testnet/`.
-- **Job 186821**, without criteria. Judge abstains, so ArcBounty settles it with `resolveAsPrincipal`.
+- **Job 186821**, without criteria. Judge abstained, and ArcBounty settled it itself through the contract:
+  `resolveAsPrincipal` tx `0x7443274fab626dde116a8a199c4d7b63ab85522fe82b94fa8d2f69eae480e46b` (block 64796879),
+  worker paid, ruling `ipfs://QmTpqY2qtZUK7aMNmYSD9QW43HsuGU7Vtq9xtNfmezf9ko`.
+
+ArcBounty then took the role back in two transactions: `handBack` `0xb1ff601f3e570086658ffe2066143b4065407662d8aea8687b35ffe56905cf81`
+(block 64797009, after which JudgeArbitrator refuses rulings) and `acceptArbitrator`
+`0xa1c9ac3a5723e958ab9fa3ef8a1c844ac0139a9461242721be15444c2d3c60c3` (block 64797018). Their summary on
+Sofiia7/ARC#4: "The signed path (186820) and the fallback (186821) both worked end to end, and the hand-back took two
+transactions." Mainnet is a separate decision.
 
 ## Taking the role back
 
