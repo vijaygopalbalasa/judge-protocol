@@ -88,6 +88,21 @@ jobs:
         working-directory: agent
         run: npm test
 
+  mcp:
+    name: MCP server (node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: install deps (the server reuses web/builder.js and web/app.js, which need none)
+        working-directory: mcp
+        run: npm ci
+      - name: test
+        working-directory: mcp
+        run: npm test
+
   rvr:
     name: ERC-8404 profile (python)
     runs-on: ubuntu-latest

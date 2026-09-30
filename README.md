@@ -24,6 +24,10 @@ web address) into the criteria block to paste into a job or a bounty, then tests
 it with the judge's own checks, in your browser. Nothing leaves the page. It rebuilds the checklist of
 ArcBounty's job 18 to the same criteria hash as on chain.
 
+**For AI agents:** [`mcp/`](mcp/README.md) is an MCP server with Judge Protocol as tools: write a checklist,
+test a delivery (a dry run), read a job, verify a ruling from chain data, and ask the judge to rule on Arc
+testnet. An agent that pays for work can check that work before any money moves.
+
 ## See it work
 
 A real job posted on Circle's canonical contract, judged, escrow settled, then the verdict
@@ -254,6 +258,7 @@ judge-service/    Node/viem off-chain engine
                                 /api/health, /api/cron/sweep
   test/                         277 unit tests (checker gate, json shapes, SSRF, evidence determinism, hosted judge, x402, ERC-8412, ERC-8404, ArcBounty)
   evidence/                     recomputable verdict evidence (public audit trail)
+mcp/              MCP server: the checklist builder, a dry run, job reads, verification and ruling requests as tools
 rvr/              ERC-8404 profile, in the layout of the RVR reference repository
   profiles/judge-protocol-rvr-v0/   SPEC.md, standard-library Python adapter, vectors, gate
   mutants.py                    112 adapter mutations the gate must catch
@@ -291,6 +296,10 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
   hashing and deliverable decoding, inline or hosted; nothing reaches the chain on bad input; the
   docs state every check, parameter, limit and API result with the code's own numbers, and every
   example in them is valid; the checklist builder writes the kit's block byte for byte.
+- ✅ **12/12 MCP server tests** (`cd mcp && npm ci && npm test`): every tool through an MCP client, every
+  refusal (unknown networks and fields, non-ids, mainnet ruling requests), real Arc testnet rulings verified
+  against a fake chain built from recorded data, and overlapping calls on two networks that must never share
+  settings; `node live-check.js` runs it over stdio against Arc itself.
 - ✅ **75/75 paymaster agent tests** (`cd agent && npm ci && npm test`, after `npm ci` in
   `judge-service` and `kit`): the wallet guard refuses everything but creating, funding and reclaiming
   judged escrow; hard spend caps and the approval band; the drafter refuses to guess; records

@@ -32,7 +32,8 @@ recorded it.
    that cannot be checked mechanically and tell the user it is not covered.
    Validate before use with `validateCriteria(criteria)`. For required terms, set
    `wholeWords: true` so a short term like "Arc" is not satisfied by "Architecture".
-   Example:
+   A person can write the same criteria without JSON at
+   https://judge-protocol-verifier.vercel.app/build. Example:
 
    ```json
    {"version":1,"passThreshold":100,"checks":[{"kind":"length","params":{"min":50,"max":300}},{"kind":"contains","params":{"all":["invoice","USDC"],"wholeWords":true}}]}
@@ -61,6 +62,14 @@ recorded it.
 and reclaim judged escrow (it cannot pay anyone directly), spend limits are
 enforced in code with a human-approval band, and every decision goes into a
 hash-chained log anchored on chain.
+
+## As MCP tools
+
+`mcp/` in the repo is an MCP server with these steps as tools: `judge_build_checklist`,
+`judge_check_delivery` (a dry run, never signs), `judge_job_status`, `judge_verify_ruling`
+(recomputes a ruling from chain data) and `judge_request_ruling` (Arc testnet only; if the
+job is valid, the judge signs and settles its escrow). Run it from a checkout:
+`cd mcp && npm ci && node server.js`.
 
 ## Rules
 
