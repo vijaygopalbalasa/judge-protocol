@@ -7,6 +7,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { service } from './helpers/synth.mjs';
 
 const b = await import('../builder.js');
@@ -65,6 +68,8 @@ test('the page\'s own form state for job 18 reaches the builder unchanged and re
     ],
   };
   assert.equal(app.criteriaHash(b.buildCriteria('records', b.fromForm('records', form, '100'))), JOB18_HASH);
+  // The example the page actually loads is this same checklist.
+  assert.equal(app.criteriaHash(b.buildCriteria('records', b.fromForm('records', b.EXAMPLES.records.form(), '100'))), JOB18_HASH);
   // The uniqueness rule follows its row, so renaming the field keeps the rule on the renamed field.
   const renamed = structuredClone(form);
   renamed.fields[1].name = 'site';
@@ -195,6 +200,11 @@ test('answers the judge would refuse, or that could never pass, are refused in p
     ['endpoint expecting a 1xx', 'endpoint', { url: 'https://example.com', expectStatus: 101 }, /200 to 299 or 400 to 599/],
     ['endpoint expecting a redirect', 'endpoint', { url: 'https://example.com', expectStatus: 302 }, /redirects/],
     ['endpoint status as text', 'endpoint', { url: 'https://example.com', expectStatus: '200' }, /200 to 299 or 400 to 599/],
+    ['endpoint on a port fetch refuses (6666)', 'endpoint', { url: 'https://example.com:6666/health' }, /port 6666/],
+    ['endpoint on a port fetch refuses (10080)', 'endpoint', { url: 'http://example.com:10080' }, /port 10080/],
+    ['endpoint expecting text in a 204 reply', 'endpoint', { url: 'https://example.com', expectStatus: 204, bodyIncludes: ['ok'] }, /no body/],
+    ['endpoint expecting text in a 205 reply', 'endpoint', { url: 'https://example.com', expectStatus: 205, bodyIncludes: ['ok'] }, /no body/],
+    ['records unique host of an email field', 'records', { fields: [{ name: 'email', type: 'email' }], uniqueBy: { field: 'email', key: 'domain' } }, /host names/],
     ['an unknown template', 'essay', {}, /template/],
   ];
   for (const [label, t, answers, message] of REFUSALS) {
@@ -202,6 +212,7 @@ test('answers the judge would refuse, or that could never pass, are refused in p
   }
   // Ports and statuses the judge can use still build.
   assert.equal(b.buildCriteria('endpoint', { url: 'https://example.com:8443/health', expectStatus: 404 }).checks[0].params.expectStatus, 404);
+  assert.equal(b.buildCriteria('endpoint', { url: 'https://example.com', expectStatus: 204 }).checks[0].params.expectStatus, 204);
   assert.equal(b.buildCriteria('file', { sha256: sha256('x'), size: 1_000_000 }).checks[0].params.sha256, sha256('x'));
 });
 
@@ -218,7 +229,7 @@ test('describe says in plain words what each checklist checks, and claims nothin
     'Every check must pass.',
   ]);
   assert.deepEqual(say('text', { minWords: 5 }), ['At least 5 words.', 'Every check must pass.']);
-  assert.deepEqual(say('text', { maxWords: 5, passThreshold: 0 }), ['At most 5 words.', 'Passes whatever the delivery is (pass mark 0).']);
+  assert.deepEqual(say('text', { maxWords: 5, passThreshold: 0 }), ['At most 5 words.', 'Any delivery the judge can read passes (pass mark 0).']);
   assert.deepEqual(say('records', JOB18), [
     'A JSON list of exactly 10 entries.',
     'Each entry has: "name" (text of at least 1 character), "website" (web address), "network" (one of these exact texts: "Arc", "Base"), "paid_work_evidence" (web address), "contact" (email or web address).',
@@ -262,7 +273,7 @@ test('the plain-words pass rule agrees with the judge\'s own scoring for every p
     const noneOfTwo = await service.checkers.runAllChecks(c, { content: Buffer.from('nothing') });
     if (/^Every check must pass/.test(line)) assert.equal(oneOfTwo.pass, false, `${t}: ${line}`);
     if (/^At least 1 of the 2/.test(line)) assert.deepEqual([oneOfTwo.pass, noneOfTwo.pass], [true, false], `${t}: ${line}`);
-    if (/^Passes whatever/.test(line)) assert.equal(noneOfTwo.pass, true, `${t}: ${line}`);
+    if (/^Any delivery the judge can read passes/.test(line)) assert.equal(noneOfTwo.pass, true, `${t}: ${line}`);
   }
 });
 
@@ -320,4 +331,27 @@ test('dry run with a live web check says the score is not final, because only th
   assert.equal(r.final, false);
   assert.equal(r.results[0].notRun, true);
   assert.equal(r.results[0].pass, false);
+});
+
+test('the ports the builder refuses are exactly the ones the judge\'s fetch (undici) refuses', () => {
+  const req = createRequire(new URL('../../judge-service/package.json', import.meta.url));
+  const src = readFileSync(join(dirname(req.resolve('undici/package.json')), 'lib/web/fetch/constants.js'), 'utf8');
+  const list = src.match(/const badPorts = [^[]*\[([\s\S]*?)\]/);
+  assert.ok(list, 'undici still defines badPorts');
+  assert.deepEqual(b.BAD_PORTS, [...list[1].matchAll(/'(\d+)'/g)].map((m) => Number(m[1])));
+});
+
+test('the size limits the builder states are the judge\'s own', async () => {
+  const { MAX_SINGLE_BLOCK } = await import('../../judge-service/src/arcbounty.js');
+  assert.equal(b.ARCBOUNTY_MAX_BYTES, MAX_SINGLE_BLOCK);
+});
+
+test('every example the page offers builds, and says what it is only while it is unchanged', () => {
+  assert.deepEqual(Object.keys(b.EXAMPLES).sort(), [...b.TEMPLATES].sort());
+  for (const [t, ex] of Object.entries(b.EXAMPLES)) {
+    const c = b.buildCriteria(t, b.fromForm(t, ex.form(), '100'));
+    assert.deepEqual(service.checkers.validateCriteria(c), { valid: true, reason: 'ok' }, t);
+    assert.ok(ex.note.startsWith('Example: '), t);
+  }
+  assert.equal(b.buildCriteria('file', b.fromForm('file', b.EXAMPLES.file.form(), '')).checks[0].params.sha256, sha256('hello'));
 });
