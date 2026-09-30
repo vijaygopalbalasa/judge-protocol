@@ -4,7 +4,7 @@
 // checked by validateCriteria, this page's mirror of the judge's own rules, and the dry run uses the
 // same checkers the verifier recomputes rulings with (web/test/builder.test.mjs holds both to the judge).
 
-import { validateCriteria, runChecks, LIMITS } from './app.js';
+import { validateCriteria, runChecks, scoreOf, LIMITS } from './app.js';
 import { isUrl, SHAPE_LIMITS } from './json-shape.js';
 
 export class BuilderError extends Error {}
@@ -14,6 +14,9 @@ export const TEMPLATES = ['text', 'records', 'record', 'file', 'endpoint'];
 export const FIELD_TYPES = ['text', 'url', 'email', 'email-or-url', 'number', 'integer', 'yes-no', 'one-of'];
 /** The kit's default title (kit/judge-kit.js criteriaBlock), so both write the same block. */
 export const DEFAULT_TITLE = 'Deliverable judged by Judge Protocol (deterministic, recomputable).';
+/** The judge abstains on any deliverable larger than this (judge-service/src/safe-fetch.js MAX_BYTES; a test holds them equal). */
+export const MAX_DELIVERABLE_BYTES = 1_000_000;
+const withCommas = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
 const given = (v) => v !== undefined && v !== null && v !== '';
 
@@ -89,8 +92,9 @@ function fieldSet(list) {
 
 function uniqueBy(rule, byName) {
   const key = rule.key ?? 'value';
-  if (key !== 'domain' && key !== 'value') fail('"No two entries share" compares either the domain of a web address or the exact value.');
+  if (key !== 'domain' && key !== 'value') fail('"No two entries share" compares either the host name of a web address or the exact value.');
   const field = String(rule.field ?? '').trim();
+  if (!field) fail('Name the field that no two entries may share.');
   if (!byName.has(field)) fail(`"${field}" is not one of the fields.`);
   if (key === 'domain' && byName.get(field).type !== 'url') fail(`To compare domains, "${field}" must be a web address field.`);
   return { field, key };
@@ -127,15 +131,27 @@ const BUILD = {
   file(a) {
     const h = String(a.sha256 ?? '').trim();
     if (!/^[0-9a-fA-F]{64}$/.test(h)) fail('The file fingerprint must be a SHA-256: 64 hex characters, without "0x".');
+    if (given(a.size) && a.size > MAX_DELIVERABLE_BYTES) {
+      fail(`This file is ${withCommas(a.size)} bytes, and the judge reads deliveries of at most ${withCommas(MAX_DELIVERABLE_BYTES)} bytes, so it could never rule on it.`);
+    }
     return [{ kind: 'checksum', params: { sha256: h.toLowerCase() } }];
   },
   endpoint(a) {
     const url = String(a.url ?? '').trim();
     if (!isUrl(url)) fail('The web address must start with http:// or https:// and name a real host (not an IP address or localhost).');
+    const authority = url.replace(/^https?:\/\//i, '').split(/[/?#]/)[0];
+    const port = authority.includes(':') ? Number(authority.slice(authority.indexOf(':') + 1)) : undefined;
+    if (port !== undefined && (port < 1 || port > 65535)) fail('The web address has a port the judge cannot use: ports go from 1 to 65535.');
     const params = { url };
     if (given(a.expectStatus)) {
-      if (!Number.isInteger(a.expectStatus) || a.expectStatus < 100 || a.expectStatus > 599) fail('The expected status must be a whole number from 100 to 599.');
-      params.expectStatus = a.expectStatus;
+      const st = a.expectStatus;
+      if (Number.isInteger(st) && st >= 300 && st <= 399) {
+        fail('The judge does not follow redirects, so a 3xx status can never be matched. Expect the status of the final address instead (200 to 299 or 400 to 599).');
+      }
+      if (!Number.isInteger(st) || !((st >= 200 && st <= 299) || (st >= 400 && st <= 599))) {
+        fail('The expected status must be a whole number from 200 to 299 or 400 to 599 (the judge never sees a 1xx status).');
+      }
+      params.expectStatus = st;
     }
     const body = texts(a.bodyIncludes, 'texts the page must include');
     if (body.length) params.bodyIncludes = body;
@@ -184,25 +200,38 @@ export function jobDescription(summary, criteria) {
 const quote = (s) => JSON.stringify(String(s));
 
 function shapeWords(s) {
-  if (Array.isArray(s.enum)) return `one of ${s.enum.map(quote).join(', ')}`;
+  if (Array.isArray(s.enum)) {
+    return s.enum.every((v) => typeof v === 'string') ? `one of these exact texts: ${s.enum.map(quote).join(', ')}` : `one of: ${s.enum.map((v) => JSON.stringify(v)).join(', ')}`;
+  }
   if (Array.isArray(s.anyOf)) {
     const forms = s.anyOf.map(shapeWords);
     return forms.length === 2 && forms[0] === 'email' && forms[1] === 'web address' ? 'email or web address' : forms.join(' or ');
   }
-  if (s.type === 'string') return s.format === 'url' ? 'web address' : s.format === 'email' ? 'email' : 'text';
-  return { number: 'number', integer: 'whole number', boolean: 'yes or no', object: 'object', array: 'list', null: 'null' }[s.type] ?? 'any value';
+  if (s.type === 'string') {
+    if (s.format === 'url') return 'web address';
+    if (s.format === 'email') return 'email';
+    return s.minLength === 1 && s.maxLength === undefined ? 'text of at least 1 character' : 'text';
+  }
+  return { number: 'number', integer: 'whole number, negative allowed', boolean: 'true or false', object: 'object', array: 'list', null: 'null' }[s.type] ?? 'any value';
 }
+
+/** True if any field of the object shape can be a web address (directly or as one alternative). */
+const hasUrlField = (shape) => Object.values(shape.properties || {}).some((s) => s.format === 'url' || (s.anyOf || []).some((a) => a.format === 'url'));
+const URL_RULE = 'Web addresses start with http:// or https:// and use a plain ASCII host name.';
 
 function fieldWords(shape) {
   const req = new Set(shape.required || []);
   return Object.entries(shape.properties || {}).map(([name, s]) => `${quote(name)} (${shapeWords(s)}${req.has(name) ? '' : ', optional'})`).join(', ');
 }
 
-function howMany(lo, hi, noun) {
-  if (lo !== undefined && hi !== undefined) return lo === hi ? `exactly ${lo} ${noun}` : `${lo} to ${hi} ${noun}`;
-  if (lo !== undefined) return `at least ${lo} ${noun}`;
-  if (hi !== undefined) return `at most ${hi} ${noun}`;
-  return `any number of ${noun}`;
+function howMany(lo, hi) {
+  const entries = (k) => `${k} ${k === 1 ? 'entry' : 'entries'}`;
+  const low = lo ?? 0;
+  if (hi !== undefined) {
+    if (low === hi) return `exactly ${entries(hi)}`;
+    return low === 0 ? `at most ${entries(hi)}, including none` : `${low} to ${hi} entries`;
+  }
+  return low === 0 ? 'any number of entries, including none' : `at least ${entries(low)}`;
 }
 
 function checkWords(c) {
@@ -226,14 +255,20 @@ function checkWords(c) {
     case 'json': {
       const s = p.shape;
       if (s?.type === 'array' && s.items?.type === 'object') {
-        const out = [`A JSON list of ${howMany(s.minItems, s.maxItems, 'entries')}.`, `Each entry has: ${fieldWords(s.items)}.`];
-        if (s.uniqueBy) out.push(s.uniqueBy.key === 'domain' ? `No two entries share the domain of ${quote(s.uniqueBy.field)}.` : `No two entries share the same ${quote(s.uniqueBy.field)}.`);
+        const out = [`A JSON list of ${howMany(s.minItems, s.maxItems)}.`, `Each entry has: ${fieldWords(s.items)}.`];
+        if (s.uniqueBy) {
+          out.push(s.uniqueBy.key === 'domain'
+            ? `No two entries share the host name of ${quote(s.uniqueBy.field)} (a leading "www." is ignored; subdomains count as different).`
+            : `No two entries share the same ${quote(s.uniqueBy.field)}.`);
+        }
         if (s.items.additionalProperties === false) out.push('Entries have no fields other than these.');
+        if (hasUrlField(s.items)) out.push(URL_RULE);
         return out;
       }
       if (s?.type === 'object') {
         const out = [`A JSON object with: ${fieldWords(s)}.`];
         if (s.additionalProperties === false) out.push('It has no fields other than these.');
+        if (hasUrlField(s)) out.push(URL_RULE);
         return out;
       }
       return [s ? `JSON matching the shape ${JSON.stringify(s)}.` : 'Valid JSON.'];
@@ -246,12 +281,26 @@ function checkWords(c) {
 /** One check in plain words (a row of the dry-run table). */
 export const describeCheck = (check) => checkWords(check).join(' ');
 
-/** What a checklist checks, in plain sentences, ending with the pass mark. */
-export function describe(criteria) {
-  const lines = (criteria.checks || []).flatMap(checkWords);
+/**
+ * The pass rule in words. A check passes whole or not at all, so with equal weights a pass mark means
+ * "at least K of the N checks", where K comes from the judge's own scoring (scoreOf, mirrored in app.js).
+ */
+function passWords(criteria) {
   const t = criteria.passThreshold ?? 100;
-  lines.push(t === 100 ? 'Every check must pass.' : t === 0 ? 'Passes at any score (pass mark 0).' : `Passes at a score of ${t} or more out of 100.`);
-  return lines;
+  const checks = criteria.checks || [];
+  const n = checks.length;
+  if (t === 0) return 'Passes whatever the delivery is (pass mark 0).';
+  if (!checks.every((c) => (c.weight ?? 1) === 1)) return `Passes at a score of ${t} or more out of 100 (the checks are weighted).`;
+  let k = 0;
+  while (k < n && !scoreOf(checks.map((_, i) => ({ pass: i < k, weight: 1 })), t).pass) k++;
+  if (k === 0) return `Passes whatever the delivery is (pass mark ${t}).`;
+  if (k === n) return t === 100 ? 'Every check must pass.' : `Every check must pass (pass mark ${t}).`;
+  return `At least ${k} of the ${n} checks must pass (pass mark ${t}).`;
+}
+
+/** What a checklist checks, in plain sentences, ending with the pass rule. */
+export function describe(criteria) {
+  return [...(criteria.checks || []).flatMap(checkWords), passWords(criteria)];
 }
 
 /**
@@ -259,7 +308,44 @@ export function describe(criteria) {
  * a probe only the judge makes when it rules, so it is shown as not run and the result is not final.
  */
 export async function dryRun(criteria, bytes) {
+  if (bytes.length > MAX_DELIVERABLE_BYTES) {
+    return { results: [], score: null, pass: null, threshold: criteria.passThreshold ?? 100, final: false, tooLarge: true };
+  }
   const r = await runChecks(criteria, bytes);
   const results = r.results.map((x) => ({ kind: x.kind, pass: x.pass === true && !x.unsupported, notRun: x.unsupported === true, detail: x.detail, weight: x.weight }));
   return { results, score: r.score, pass: r.pass, threshold: r.threshold, final: r.unsupported.length === 0 };
+}
+
+/* ------------------------------ form values ------------------------------ */
+// What the page's form holds (strings, and row ids for the uniqueness rule), turned into the answers
+// buildCriteria takes. Kept here, not in build-ui.js, so the path from the form is tested too.
+
+/** Blank is absent, digits are numbers, and anything else stays text so the builder refuses it in words. */
+export function formNumber(v) {
+  const t = String(v ?? '').trim();
+  if (!t) return undefined;
+  return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : t;
+}
+/** "Arc, Base," as options; the builder trims each one and refuses blanks and repeats. */
+export const formOptions = (v) => String(v ?? '').split(',').filter((o) => o.trim() !== '');
+const formLines = (v) => String(v ?? '').split('\n');
+const formFields = (rows) => (rows || []).map((r) => ({ name: r.name, type: r.type, required: r.required, ...(r.type === 'one-of' && { options: formOptions(r.options) }) }));
+
+/** The answers for one template from the page's form state. The uniqueness rule follows its row (by id). */
+export function fromForm(template, f, passMark) {
+  const common = { passThreshold: formNumber(passMark) };
+  switch (template) {
+    case 'text': return { ...common, minWords: formNumber(f.minWords), maxWords: formNumber(f.maxWords), terms: formLines(f.terms), wholeWords: f.wholeWords === true };
+    case 'records': {
+      const row = (f.fields || []).find((r) => r.id === f.uniqueRow);
+      return {
+        ...common, count: { min: formNumber(f.min), max: formNumber(f.max) }, fields: formFields(f.fields), noExtraFields: f.noExtra === true,
+        ...(row && { uniqueBy: { field: row.name, key: f.uniqueKey } }),
+      };
+    }
+    case 'record': return { ...common, fields: formFields(f.fields), noExtraFields: f.noExtra === true };
+    case 'file': return { ...common, sha256: f.sha256, ...(given(f.size) && { size: f.size }) };
+    case 'endpoint': return { ...common, url: f.url, expectStatus: formNumber(f.status), bodyIncludes: formLines(f.body) };
+    default: return common;
+  }
 }
