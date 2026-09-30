@@ -83,6 +83,23 @@ and rules once its relayer has gas: `GET /api/health` shows whether it does.
 
 All seven settled verdicts re-verify end to end in the browser verifier under `web/`.
 
+**Verdicts as ERC-8004 reputation (Arc testnet, 2026-09-30).** Circle's contract whitelists no hooks, so this is a
+second deployment on Arc testnet, made with `contracts/script/DeployKit.s.sol`: its own ERC-8183 escrow (ArcBounty's
+MIT code), its own JudgeEvaluator and JudgeReputationHookV2, all source-verified on Sourcify (exact match). The hosted
+judge does not serve it.
+
+| Contract | Address |
+|---|---|
+| JudgeEvaluator (serves the escrow below) | [`0xaDeb8B4010cc06ECcBfEeefD7Bd78D4aD3e41255`](https://testnet.arcscan.app/address/0xaDeb8B4010cc06ECcBfEeefD7Bd78D4aD3e41255) |
+| ERC-8183 escrow (proxy; payment token: Arc testnet USDC) | [`0xcBDc5Cde66B76049a16dE4Fc7d9C120B01bA41c1`](https://testnet.arcscan.app/address/0xcBDc5Cde66B76049a16dE4Fc7d9C120B01bA41c1) |
+| JudgeReputationHookV2 | [`0x02011ef04993EbF9686860ade7364ED3dC387b76`](https://testnet.arcscan.app/address/0x02011ef04993EbF9686860ade7364ED3dC387b76) |
+| ERC-8004 ReputationRegistry (Arc testnet, not ours) | [`0x8004B663056A597Dffe9eCcC1965A193B7388713`](https://testnet.arcscan.app/address/0x8004B663056A597Dffe9eCcC1965A193B7388713) |
+
+Jobs **1** (PASS) and **2** (REJECT) on that escrow were delivered by a test provider wallet of ours whose ERC-8004
+agent is **#896909**; the registry now holds both verdicts for it (average 50, the pass rate), with each verdict's
+evidence hash as the feedback hash, and both rulings re-verify with
+`node judge-service/src/verify.js <jobId> --judge 0xaDeb... --acp 0xcBDc... --evidence judge-service/evidence/arc-testnet-kit/job-<id>-<hash>.json`.
+
 Every verdict is independently checkable: `node judge-service/src/verify.js <jobId>` (no keys or
 `.env` needed; it shares its code with the in-browser verifier) binds the verdict to the provider's
 on-chain commitment, recomputes the score, decision and evidence hash from public inputs, and
@@ -146,7 +163,7 @@ authors invited a Judge profile for each.
 | [ERC-8183](https://eips.ethereum.org/EIPS/eip-8183) Agentic Commerce | The evaluator a job names: checks the deliverable against criteria frozen in the job, then releases or refunds the escrow | Live on Circle's ERC-8183 contract on Arc testnet |
 | [ERC-8412](https://github.com/ethereum/ERCs/pull/2002) Preregistered Acceptance Criteria | Criteria preregistered before the work; the live judge writes itemized attestations on chain | Profile built at the author's invitation; records pass the ERC's reference verifier ([docs](docs/ERC-8412.md)) |
 | [ERC-8404](https://github.com/ethereum/ERCs/pull/1980) Recomputable Verification Receipts | A receipt anyone can recompute from a frozen chain snapshot and the deliverable | Profile built on the author's suggestion; the author reviewed it and merged it into the ERC's reference repository on 2026-09-28 ([docs](docs/ERC-8404.md)) |
-| [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) Trustless Agents | Registered as agent #870004 in Arc testnet's Identity Registry; JudgeReputationHookV2 records each verdict as feedback in the ReputationRegistry as deployed (v2.0.0) | Registered; the hook is tested against the registry's source, not yet deployed |
+| [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) Trustless Agents | Registered as agent #870004 in Arc testnet's Identity Registry; JudgeReputationHookV2 records each verdict as feedback in the ReputationRegistry as deployed (v2.0.0) | Registered; the hook is live on Arc testnet (see above), on our own test jobs |
 
 All four are drafts. The ERC-8412 attestations and the ERC-8004 registration are on Arc testnet; the judge itself runs on Arc testnet and, since 2026-09-28, on Arc mainnet.
 
