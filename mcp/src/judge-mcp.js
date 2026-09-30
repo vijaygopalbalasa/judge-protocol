@@ -1,8 +1,9 @@
 // Judge Protocol as MCP tools: write a checklist, test a delivery against it, read a job, verify a
 // ruling, and ask the hosted judge to rule on Arc testnet. Every tool reuses code the rest of the repo
 // tests against the judge: web/builder.js (the checklist builder) and web/app.js (the in-browser
-// verifier). Inputs are closed sets: a known network, a job id, text or base64. No URL, address or file
-// path is ever taken from a caller.
+// verifier). Inputs are closed sets: a known network, a job id, text or base64. The server contacts only
+// the chosen network's Arc RPC and, for ruling requests, the hosted judge; a URL inside a checklist is
+// never fetched here, and no file path or address is ever taken from a caller.
 
 import { readFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -43,11 +44,31 @@ const usdc = (units) => {
   const frac = (u % 1_000_000n).toString().padStart(6, "0").replace(/0+$/, "");
   return `${u / 1_000_000n}${frac ? `.${frac}` : ""}`;
 };
-const iso = (seconds) => (seconds ? new Date(Number(seconds) * 1000).toISOString() : null);
+/** A date for a chain timestamp, or null when there is none or no calendar can show it (an expiry can be uint256 max). */
+const iso = (seconds) => {
+  const ms = Number(seconds) * 1000;
+  return ms > 0 && Number.isFinite(ms) && ms <= 8.64e15 ? new Date(ms).toISOString() : null;
+};
 const verdictOut = (v) => (v && v.timestamp > 0
   ? { pass: v.pass, score: v.score, threshold: v.threshold, criteriaHash: v.criteriaHash, evidenceHash: v.evidenceHash, at: iso(v.timestamp) }
   : null);
 const TOO_LARGE = `The judge reads deliveries of at most ${MAX.toLocaleString("en-US")} bytes and would not rule on this one.`;
+const MAX_DESCRIPTION = 65_536; // bounds the criteria-block search on a caller's job description
+const MAX_TEXT = 4_000_000;
+const MAX_BASE64 = 1_400_000;
+
+/** Base64 to bytes, or null when it is not base64 (whitespace is ignored). */
+function fromBase64(s) {
+  const b64 = s.replace(/\s+/g, "");
+  if (b64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(b64)) return null;
+  return new Uint8Array(Buffer.from(b64, "base64"));
+}
+
+/** Whether a job description carries a criteria block, and whether the judge would accept it. */
+export function checklistState(description) {
+  const c = app.extractCriteria(description);
+  return { hasChecklist: c !== null, checklistValid: c !== null && app.validateCriteria(c).valid };
+}
 
 /* -------------------------------- inputs --------------------------------- */
 const network = z.enum(NETWORK_IDS).default("arc-testnet").describe(`Which deployment: ${NETWORK_IDS.join(" or ")}.`);
@@ -127,27 +148,26 @@ export function createJudgeServer({ fetchImpl = (...a) => fetch(...a) } = {}) {
       + "settled. A live web check is not run (only the judge makes it, when it rules), so such a result is marked not final, and a "
       + "delivery over 1,000,000 bytes is refused, as the judge refuses it.",
     inputSchema: z.strictObject({
-      criteria: z.record(z.string(), z.unknown()).optional().describe("The criteria object (the JSON inside a judge-criteria block)."),
-      jobDescription: z.string().max(200_000).optional().describe("A job description with a judge-criteria block."),
-      deliverable: z.string().max(4_000_000).optional().describe("The delivery as text (UTF-8)."),
-      deliverableBase64: z.string().max(1_400_000).optional().describe("The delivery's exact bytes, base64."),
+      // Taken as it arrives, not through a record schema: a record would silently drop a __proto__ member the
+      // judge refuses, and the dry run would then pass criteria the judge will never score.
+      criteria: z.unknown().optional().describe("The criteria object (the JSON inside a judge-criteria block)."),
+      jobDescription: z.string().max(MAX_DESCRIPTION).optional().describe("A job description with a judge-criteria block."),
+      deliverable: z.string().max(MAX_TEXT).optional().describe("The delivery as text (UTF-8)."),
+      deliverableBase64: z.string().max(MAX_BASE64).optional().describe("The delivery's exact bytes, base64."),
     }),
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ criteria, jobDescription, deliverable, deliverableBase64 }) => {
     if ((criteria === undefined) === (jobDescription === undefined)) return refuse("Give exactly one of criteria or jobDescription.");
     if ((deliverable === undefined) === (deliverableBase64 === undefined)) return refuse("Give exactly one of deliverable or deliverableBase64.");
+    if (criteria !== undefined && (criteria === null || typeof criteria !== "object" || Array.isArray(criteria))) {
+      return refuse("criteria must be a JSON object, the one inside a judge-criteria block.");
+    }
     const c = criteria ?? app.extractCriteria(jobDescription);
     if (!c) return refuse("The job description has no judge-criteria block the judge can read.");
     const v = app.validateCriteria(c);
     if (!v.valid) return refuse(`The judge would abstain: these criteria are invalid (${v.reason}).`);
-    let bytes;
-    if (deliverable !== undefined) {
-      bytes = new TextEncoder().encode(deliverable);
-    } else {
-      const b64 = deliverableBase64.replace(/\s+/g, "");
-      if (b64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(b64)) return refuse("deliverableBase64 is not valid base64.");
-      bytes = new Uint8Array(Buffer.from(b64, "base64"));
-    }
+    const bytes = deliverable !== undefined ? new TextEncoder().encode(deliverable) : fromBase64(deliverableBase64);
+    if (!bytes) return refuse("deliverableBase64 is not valid base64.");
     const r = await builder.dryRun(c, bytes);
     if (r.tooLarge) return json({ final: false, tooLarge: true, pass: null, score: null, bytes: bytes.length, results: [], note: TOO_LARGE });
     return json({
@@ -194,7 +214,8 @@ export function createJudgeServer({ fetchImpl = (...a) => fetch(...a) } = {}) {
       judgeIsEvaluator: job.evaluator.toLowerCase() === v.CFG.judge.toLowerCase(),
       budgetUsdc: usdc(job.budget),
       expiresAt: iso(job.expiredAt),
-      hasChecklist: app.extractCriteria(job.description) !== null,
+      expiresAtSeconds: String(job.expiredAt),
+      ...checklistState(job.description),
       verdict: verdictOut(verdict),
       verifier: `${VERIFIER}/?network=${net}`,
     });
@@ -204,17 +225,27 @@ export function createJudgeServer({ fetchImpl = (...a) => fetch(...a) } = {}) {
     title: "Verify a ruling",
     description: "Recompute a Judge Protocol ruling from public chain data with the in-browser verifier's code: re-derive every hash, "
       + "re-run the checks, and compare them with the signed verdict on chain. The outcome is verified, mismatch, unsupported (a live "
-      + "web check it cannot replay), incomplete, awaiting (submitted, not ruled yet) or error. Read only.",
-    inputSchema: z.strictObject({ network, jobId }),
+      + "web check it cannot replay), incomplete, awaiting (submitted, not ruled yet) or error. A delivery hosted on https or IPFS is "
+      + "not fetched: pass its exact bytes as deliverable or deliverableBase64, and they count only if they hash to the provider's "
+      + "on-chain commitment. Read only.",
+    inputSchema: z.strictObject({
+      network,
+      jobId,
+      deliverable: z.string().max(MAX_TEXT).optional().describe("The delivered text, for a delivery hosted on https or IPFS."),
+      deliverableBase64: z.string().max(MAX_BASE64).optional().describe("The delivered bytes, base64, for a delivery hosted on https or IPFS."),
+    }),
     annotations: { readOnlyHint: true, openWorldHint: true },
-  }, async ({ network: net, jobId: raw }) => {
+  }, async ({ network: net, jobId: raw, deliverable, deliverableBase64 }) => {
     const id = idOf(raw);
     if (id === null) return refuse("jobId must be a positive whole number.");
+    if (deliverable !== undefined && deliverableBase64 !== undefined) return refuse("Give at most one of deliverable or deliverableBase64.");
+    const pasted = deliverable !== undefined ? new TextEncoder().encode(deliverable) : deliverableBase64 !== undefined ? fromBase64(deliverableBase64) : undefined;
+    if (pasted === null) return refuse("deliverableBase64 is not valid base64.");
     const v = await verifierFor(net);
     const base = { network: net, jobId: String(id), judge: v.CFG.judge };
     let r;
     try {
-      r = await v.verifyJob(id);
+      r = await v.verifyJob(id, pasted);
     } catch (e) {
       return json({ ...base, outcome: "error", error: `could not read ${NETWORKS[net].label}: ${e.message}` });
     }
@@ -225,7 +256,11 @@ export function createJudgeServer({ fetchImpl = (...a) => fetch(...a) } = {}) {
       verdict: verdictOut(r.verdict),
       checks: (r.checks || []).map((c) => ({ id: c.id, label: c.label, ok: c.ok, got: c.got ?? null, want: c.want ?? null })),
       deliverableSource: r.deliverableSource ?? null,
-      note: r.fetchNote ?? null,
+      incomplete: r.incomplete ?? null,
+      unsupported: r.unsupported ?? [],
+      ...((r.needsDeliverable || ["remote-uri", "no-uri"].includes(r.incomplete?.reason)) && {
+        hint: "Pass the delivered bytes as deliverable or deliverableBase64; they count only if they hash to the provider's on-chain commitment.",
+      }),
       verifier: `${VERIFIER}/?network=${net}`,
     });
   });
@@ -255,7 +290,7 @@ export function createJudgeServer({ fetchImpl = (...a) => fetch(...a) } = {}) {
       return refuse(`The tool could not reach the hosted judge: ${e.message}`);
     }
     const out = await res.json().catch(() => ({}));
-    return json({ network: net, httpStatus: res.status, ...out });
+    return json({ ...out, network: net, httpStatus: res.status });
   });
 
   server.registerResource("criteria-reference", "judge://docs/criteria", {

@@ -26,7 +26,7 @@ ArcBounty's job 18 to the same criteria hash as on chain.
 
 **For AI agents:** [`mcp/`](mcp/README.md) is an MCP server with Judge Protocol as tools: write a checklist,
 test a delivery (a dry run), read a job, verify a ruling from chain data, and ask the judge to rule on Arc
-testnet. An agent that pays for work can check that work before any money moves.
+testnet. An agent that pays for work can check that work before the escrow pays out.
 
 ## See it work
 
@@ -296,10 +296,11 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
   hashing and deliverable decoding, inline or hosted; nothing reaches the chain on bad input; the
   docs state every check, parameter, limit and API result with the code's own numbers, and every
   example in them is valid; the checklist builder writes the kit's block byte for byte.
-- ✅ **12/12 MCP server tests** (`cd mcp && npm ci && npm test`): every tool through an MCP client, every
-  refusal (unknown networks and fields, non-ids, mainnet ruling requests), real Arc testnet rulings verified
-  against a fake chain built from recorded data, and overlapping calls on two networks that must never share
-  settings; `node live-check.js` runs it over stdio against Arc itself.
+- ✅ **17/17 MCP server tests** (`cd mcp && npm ci && npm test`, after `npm ci` in `judge-service`): every
+  tool through an MCP client, every refusal with its message (unknown networks and fields, non-ids, criteria
+  the judge refuses, mainnet ruling requests), real Arc testnet rulings verified against a fake chain built
+  from recorded data, and overlapping calls on two networks, each proven to read only its own RPC and
+  contracts; `node live-check.js` runs it over stdio against Arc itself.
 - ✅ **75/75 paymaster agent tests** (`cd agent && npm ci && npm test`, after `npm ci` in
   `judge-service` and `kit`): the wallet guard refuses everything but creating, funding and reclaiming
   judged escrow; hard spend caps and the approval band; the drafter refuses to guess; records

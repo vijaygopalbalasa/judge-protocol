@@ -96,9 +96,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: install deps (the server reuses web/builder.js and web/app.js, which need none)
-        working-directory: mcp
-        run: npm ci
+      - name: install deps (the tests build synthetic jobs with the judge service's own code)
+        run: |
+          npm ci --prefix judge-service
+          npm ci --prefix mcp
       - name: test
         working-directory: mcp
         run: npm test
