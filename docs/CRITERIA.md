@@ -214,6 +214,9 @@ uses, and a contact that is an email address or a URL, with no other fields:
 - Check what can be checked mechanically: format, presence, size, structure, exact files.
 - Keep subjective quality (tone, taste, "is this good") out of the criteria; a
   deterministic judge cannot rule on it. Escalate those jobs to a human or a dispute process.
+- No JSON needed: the checklist builder at https://judge-protocol-verifier.vercel.app/build writes the
+  block from a few plain answers and tests a sample deliverable against it in your browser, with the
+  same checks (it runs no `http-endpoint` probe; only the judge does, when it rules).
 - Try your criteria against a sample deliverable first: `POST /api/evaluate` or the
   kit's `dryRun()` returns exactly the score the judge would give. The hosted dry run does
   not run `http-endpoint` checks: with one in the criteria, `score` and `pass` come back `null`.

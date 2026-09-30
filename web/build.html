@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Judge Protocol: checklist builder</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta name="description" content="Write a checklist Judge Protocol can check, test a sample delivery against it in your browser, and paste it into a bounty or an ERC-8183 job.">
+<style>
+  :root{
+    --bg:#0f1117; --panel:#161923; --panel2:#1c2030; --line:#272c3d;
+    --fg:#e6e9f0; --dim:#8d97ad; --accent:#5ec8e5; --ok:#3ddc91; --bad:#ff6b6b; --warn:#f3d675;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    color-scheme:dark;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#f7f8fb; --panel:#fff; --panel2:#f0f2f7; --line:#dfe3ec; --fg:#161923; --dim:#5c6478; --accent:#0d7fa0; --ok:#0a8a54; --bad:#c0392b; --warn:#8a5a00; color-scheme:light; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  a{color:var(--accent)}
+  .wrap{max-width:860px;margin:0 auto;padding:28px 18px 70px}
+  header{border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:8px}
+  h1{font-size:26px;margin:0 0 8px;letter-spacing:-.01em;text-wrap:balance}
+  .tag{display:inline-block;font:11px/1 var(--mono);color:var(--accent);border:1px solid var(--accent);border-radius:99px;padding:5px 9px;margin-bottom:12px;letter-spacing:.04em}
+  .lede{color:var(--dim);max-width:68ch;margin:0 0 10px}
+  .lede strong{color:var(--fg)}
+  h2{font-size:14px;margin:30px 0 12px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+  h2 .n{color:var(--accent);font-family:var(--mono);margin-right:6px}
+  .note{color:var(--dim);font-size:13px}
+  .choices{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+  .choice{font:inherit;text-align:left;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:11px 12px;cursor:pointer}
+  .choice .t{display:block;font-weight:600}
+  .choice .d{display:block;color:var(--dim);font-size:12.5px;margin-top:2px}
+  .choice[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+  label{display:block;font-size:13px;color:var(--dim);margin-bottom:5px}
+  input,textarea,select{font:inherit;background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%;min-width:0}
+  textarea{resize:vertical}
+  input[type="checkbox"]{width:auto;margin:0 7px 0 0;vertical-align:-2px}
+  input[type="file"]{padding:6px}
+  .grid2{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+  .stack{display:grid;gap:14px}
+  .check-line{color:var(--fg);font-size:14px}
+  .fields{display:grid;gap:8px}
+  .field{display:grid;gap:8px;grid-template-columns:minmax(0,1.3fr) minmax(0,1.2fr) minmax(0,1.3fr) 96px 86px;align-items:center}
+  .field .req{font-size:13px;color:var(--dim);white-space:nowrap}
+  .field .opts.off{visibility:hidden}
+  .field.head{font-size:12px;color:var(--dim);margin-bottom:-2px}
+  @media (max-width:620px){
+    .field{grid-template-columns:minmax(0,1fr) minmax(0,1fr);padding-bottom:10px;border-bottom:1px solid var(--line)}
+    .field .opts{grid-column:1 / -1}
+    .field .opts.off,.field.head{display:none}
+  }
+  button{font:inherit;background:var(--accent);color:#04121a;border:0;border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--fg);font-weight:400}
+  button.x{background:transparent;border:1px solid var(--line);color:var(--dim);padding:6px 10px;font-weight:400}
+  .row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+  .error{color:var(--bad);font-size:14px;margin-top:10px}
+  .error:empty{display:none}
+  ul.plain{margin:0;padding-left:20px}
+  ul.plain li{margin:3px 0}
+  .banner{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:8px;padding:12px 14px;margin:14px 0;font-size:13.5px;color:var(--dim)}
+  .banner strong{color:var(--fg)}
+  .out{font-family:var(--mono);font-size:12.5px;line-height:1.5}
+  .hashes{font-family:var(--mono);font-size:11.5px;color:var(--dim);word-break:break-all;margin-top:8px}
+  details{margin-top:12px}
+  summary{cursor:pointer;color:var(--dim);font-size:13.5px}
+  .scroll{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:8px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font:11px/1 var(--mono);color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+  td.mark{width:28px;font-weight:700}
+  .ok{color:var(--ok)} .no{color:var(--bad)} .na{color:var(--dim)}
+  td.detail{font-family:var(--mono);font-size:12px;color:var(--dim);word-break:break-word}
+  .verdict{margin-top:12px;font-size:17px;font-weight:700}
+  footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);color:var(--dim);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="tag">CHECKLIST BUILDER</div>
+    <h1>Write a checklist the judge can check</h1>
+    <p class="lede">
+      Say what the delivery must be, in a few plain answers. You get the text to paste into a bounty or an
+      <strong>ERC-8183</strong> job description, and you can test a sample delivery against it right here.
+      This page runs the same checks the judge runs, <strong>in your browser</strong>, and sends nothing anywhere.
+    </p>
+    <div class="note"><a href="./">Verify a ruling</a> · <a href="https://github.com/vijaygopalbalasa/judge-protocol/blob/master/docs/CRITERIA.md" target="_blank" rel="noopener noreferrer">Criteria reference</a> · <a href="https://github.com/vijaygopalbalasa/judge-protocol/blob/master/web/builder.js" target="_blank" rel="noopener noreferrer">Source</a></div>
+  </header>
+
+  <h2><span class="n">1</span>What will be delivered?</h2>
+  <div class="choices" id="templates" role="group" aria-label="Kind of delivery"></div>
+  <p class="note" id="example"></p>
+
+  <h2><span class="n">2</span>What must it be?</h2>
+  <div class="panel">
+    <div id="form" class="stack"></div>
+    <details>
+      <summary>Pass mark and summary</summary>
+      <div class="grid2" style="margin-top:12px">
+        <div>
+          <label for="passMark">Pass mark (0 to 100)</label>
+          <input id="passMark" inputmode="numeric" value="100">
+          <div class="note" style="margin-top:4px">100 means every check must pass.</div>
+        </div>
+        <div>
+          <label for="summary">Summary for people (goes above the checklist)</label>
+          <textarea id="summary" rows="3" placeholder="What the job is, in your words"></textarea>
+        </div>
+      </div>
+    </details>
+    <div class="error" id="formError" role="alert"></div>
+  </div>
+
+  <h2><span class="n">3</span>Your checklist</h2>
+  <ul class="plain" id="plain"></ul>
+  <div class="banner">
+    <strong>The judge checks only what is written here.</strong> On ArcBounty
+    <a href="https://arcbounty.app/bounty/18" target="_blank" rel="noopener noreferrer">job 18</a>, a live bounty on Arc
+    mainnet, the delivery met every rule, and the reviewers also wanted things the checklist never asked for: teams on
+    Arc, and contact links that open a contact page. If something matters to you, make it a rule, for example
+    <code>network</code> as one of "Arc" only. Quality and taste stay with your own review; no computer check covers them.
+  </div>
+  <label for="out">Paste this into the bounty or job description</label>
+  <textarea id="out" class="out" rows="9" readonly></textarea>
+  <div class="row" style="margin-top:8px">
+    <button id="copy" type="button">Copy</button>
+    <span class="note" id="copied" aria-live="polite"></span>
+  </div>
+  <div class="hashes" id="hash"></div>
+
+  <h2><span class="n">4</span>Test a delivery</h2>
+  <p class="note">Paste a sample delivery or pick a file. The page runs the checklist on it with the judge's own
+    checks and shows the score the judge would give. Nothing is uploaded.</p>
+  <div class="stack">
+    <textarea id="sample" rows="6" placeholder="Paste a sample delivery"></textarea>
+    <div class="row">
+      <input type="file" id="sampleFile" aria-label="Or pick a file to test" style="max-width:320px">
+      <button id="test" type="button">Run the checks</button>
+    </div>
+  </div>
+  <div id="result"></div>
+
+  <footer>
+    Everything on this page runs in your browser: the checklist is built by <code>web/builder.js</code> and tested
+    with the same checkers the <a href="./">verifier</a> uses to recompute rulings, which a test holds equal to the
+    judge's own. Judge Protocol only runs checks a computer can repeat; it refuses to guess.
+  </footer>
+</div>
+<script type="module" src="./build-ui.js"></script>
+</body>
+</html>
