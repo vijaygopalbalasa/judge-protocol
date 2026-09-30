@@ -44,8 +44,8 @@ only once in BountyAdapter V4.7 (every exit from a dispute also sets `resolved`)
 1. A poster or worker raises a dispute on the adapter (`disputeBounty`, or `challengeRejection` after a
    rejection).
 2. Judge rules from chain data plus the two IPFS files, recomputing every link:
-   `node judge-service/src/arcbounty.js <jobId> --network arc-mainnet` (or `--network arc-testnet` for the testnet
-   adapter ArcBounty named for the first run, `0xeDf2c738915b042da97788b2b5499D4655FB1f20`). A pass becomes
+   `node judge-service/src/arcbounty.js <jobId> --network arc-mainnet` (or `--network arc-testnet` for the adapter
+   ArcBounty deployed for the testnet run, `0xF6b89bD7FCd9a277f08c2b5Cbe388a721A16fe14`). A pass becomes
    `payProvider = true`, a reject `payProvider = false`.
 3. The ruling record is published and its IPFS link becomes `rulingCid`; the adapter stores it as the bounty's
    `disputeRulingHash`.
@@ -81,13 +81,15 @@ the environment and never printed.
 
 | | Address |
 |---|---|
-| JudgeArbitrator ([Sourcify exact match](https://repo.sourcify.dev/5042002/0xb810FEFDDE482f908e01F84c5c3645A7036816F2)) | `0xb810FEFDDE482f908e01F84c5c3645A7036816F2` |
-| ArcBounty BountyAdapter V4.7 (the testnet adapter ArcBounty named) | `0xeDf2c738915b042da97788b2b5499D4655FB1f20` |
+| JudgeArbitrator ([Sourcify exact match](https://repo.sourcify.dev/5042002/0x7C967E9A8f3Ed9450e667f5314F6d5f7b9d24F16)) | `0x7C967E9A8f3Ed9450e667f5314F6d5f7b9d24F16` |
+| ArcBounty BountyAdapter V4.7, deployed by ArcBounty for this run only | `0xF6b89bD7FCd9a277f08c2b5Cbe388a721A16fe14` |
 | Principal (the adapter's arbitrator: ArcBounty's testnet key) | `0xde427f3967cc7a0BF7A9F891195760cCffC82edA` |
 | Judge signer | `0xaaa287033E603ec6a6056F1882086B93F9ee0FB0` |
 | Owner | `0xf629006403580E2A7d94B666daA8374353a1d368` |
 
-It holds no role until ArcBounty hands it over: `transferArbitrator(0xb810...)` on the adapter, then `acceptRole()`.
+ArcBounty asked for a dedicated adapter so the run cannot touch any other bounty, and deployed it; a first
+JudgeArbitrator (`0xb810...16F2`, bound to their earlier testnet adapter `0xeDf2...1f20`) holds no role and is not used.
+It holds no role until ArcBounty hands it over: `transferArbitrator(0x7C96...4F16)` on the adapter, then `acceptRole()`.
 Deployed with `contracts/script/DeployArbitrator.s.sol`, which refuses to deploy unless the principal is the
 adapter's arbitrator and the adapter's CID bound is 96, and reads every role back.
 

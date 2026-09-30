@@ -327,10 +327,11 @@ test("the CLI refuses a chain that is not the network asked for, and unknown fla
   await assert.rejects(runCli(["7", "--netwrok", "arc-mainnet"], { makeClient: () => chain }), /unknown option --netwrok/);
 });
 
-test("the CLI rules on ArcBounty's Arc testnet adapter, the one named for the arbitrator run", async () => {
+test("the CLI rules on the Arc testnet adapter ArcBounty deployed for the arbitrator run", async () => {
   const t = ARCBOUNTY_NETWORKS["arc-testnet"];
   assert.equal(t.chainId, 5042002);
-  assert.equal(t.adapter, "0xeDf2c738915b042da97788b2b5499D4655FB1f20");
+  assert.equal(t.adapter, "0xF6b89bD7FCd9a277f08c2b5Cbe388a721A16fe14");
+  assert.equal(t.fromBlock, 64781962n);
   assert.equal(t.escrow, "0x0747EEf0706327138c69792bF28Cd525089e4583");
   const chain = fakeChain({ chainId: 5042002, desc: link(description), sub: link(good), escrow: t.escrow });
   const r = await runCli(["7", "--network", "arc-testnet"], { makeClient: () => chain,

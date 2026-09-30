@@ -27,14 +27,14 @@ export const ARCBOUNTY_NETWORKS = {
     escrow: "0x64cA39Fc57315D0D488acCaC07c37C6E841CD058",  // the ERC-8183 escrow the adapter drives
     fromBlock: 21153190n,                                  // the adapter's deployment block
   },
-  // The testnet adapter ArcBounty named for the JudgeArbitrator run (2026-09-30): V4.7, the mainnet code, driving
-  // Circle's ERC-8183 contract on Arc testnet.
+  // The dedicated adapter ArcBounty deployed for the JudgeArbitrator test run (Sofiia7/ARC#4, 2026-09-30): V4.7 at
+  // their commit ef5d100, the mainnet adapter's code, driving Circle's ERC-8183 contract on Arc testnet.
   "arc-testnet": {
     chainId: 5042002,
     rpc: "https://rpc.testnet.arc.network",
-    adapter: "0xeDf2c738915b042da97788b2b5499D4655FB1f20", // BountyAdapter V4.7, per their contracts/DEPLOYMENTS.md
+    adapter: "0xF6b89bD7FCd9a277f08c2b5Cbe388a721A16fe14", // BountyAdapter V4.7, deployed by ArcBounty for the run
     escrow: "0x0747EEf0706327138c69792bF28Cd525089e4583",  // Circle's ERC-8183 contract on Arc testnet
-    fromBlock: 60965136n,                                  // the adapter's deployment block (tx 0xfb7f9e82...)
+    fromBlock: 64781962n,                                  // the adapter's deployment block (tx 0x99d668c2...)
   },
 };
 

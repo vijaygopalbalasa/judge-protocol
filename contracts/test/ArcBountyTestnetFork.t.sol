@@ -17,9 +17,10 @@ interface IBountyAdapterViews {
 ///           ARC_TESTNET_RPC=https://rpc.testnet.arc.network forge test --match-contract ArcBountyTestnetFork -vv
 contract ArcBountyTestnetForkTest is Test {
     uint256 constant ARC_TESTNET = 5042002;
-    /// @dev The testnet adapter ArcBounty named for the arbitrator run on 2026-09-30 (V4.7, the mainnet code; arbitrator
-    ///      and owner are their testnet deployer). ARCBOUNTY_ADAPTER overrides it, for example with their earlier
-    ///      rehearsal adapter 0xD74984D965F2aBf532605Fe57F735C82a7A5c13E.
+    /// @dev An ArcBounty V4.7 testnet adapter with live bounties to decode (arbitrator and owner: their testnet
+    ///      deployer). ARCBOUNTY_ADAPTER overrides it: the dedicated run adapter 0xF6b89bD7FCd9a277f08c2b5Cbe388a721A16fe14
+    ///      (no bounties before the run, so only the handover test applies) or their earlier rehearsal adapter
+    ///      0xD74984D965F2aBf532605Fe57F735C82a7A5c13E.
     address ADAPTER = 0xeDf2c738915b042da97788b2b5499D4655FB1f20;
 
     bool forked;
