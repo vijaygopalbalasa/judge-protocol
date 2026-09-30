@@ -3,17 +3,17 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Script.sol";
 import "../src/JudgeEvaluator.sol";
-import "../src/JudgeReputationHook.sol";
 
-/// @notice Deploys the Judge protocol against the canonical Arc ACP. Chain-agnostic:
-///         point ACP_ADDRESS at the testnet or mainnet ACP and broadcast to that chain.
-///         Env: ACP_ADDRESS, GUARDIAN, SIGNER, REPUTATION (opt).
+/// @notice Deploys JudgeEvaluator against an ERC-8183 escrow with Circle's Job layout, as on Arc testnet in August 2026
+///         (broadcast/Deploy.s.sol/5042002). That run also deployed the first reputation hook, which was written
+///         against an earlier ERC-8004 draft and has since been removed from this repo; JudgeReputationHookV2 and
+///         script/DeployKit.s.sol replace it.
+///         Env: ACP_ADDRESS, GUARDIAN, SIGNER.
 contract Deploy is Script {
     function run() external {
         address acp = vm.envAddress("ACP_ADDRESS");
         address guardian = vm.envAddress("GUARDIAN");
         address signer = vm.envAddress("SIGNER");
-        address reputation = vm.envOr("REPUTATION", address(0));
 
         vm.startBroadcast();
 
@@ -21,9 +21,6 @@ contract Deploy is Script {
         signers[0] = signer;
         JudgeEvaluator judge = new JudgeEvaluator(acp, guardian, signers);
         console2.log("JudgeEvaluator:", address(judge));
-
-        JudgeReputationHook hook = new JudgeReputationHook(acp, reputation);
-        console2.log("JudgeReputationHook:", address(hook));
 
         vm.stopBroadcast();
     }

@@ -19,7 +19,7 @@ export const NETWORKS = {
   'arc-testnet': {
     label: 'Arc testnet', chainId: 5042002, directRpc: 'https://rpc.testnet.arc.io', relay: true,
     judge: '0x6EFF7d4BB514d341AbEd90bF4c667d0A980173AD',
-    hook: '0xfe38bF336148eb3F2E1A5DEE8Ed89AC3B8bcF1c8',
+    hook: null, // Circle's contract whitelists no hooks, so none is shown
     acp: '0x0747EEf0706327138c69792bF28Cd525089e4583', acpLabel: 'Canonical ERC-8183',
     explorer: 'https://testnet.arcscan.app',
     judgeApi: 'https://judge-protocol-api.vercel.app',

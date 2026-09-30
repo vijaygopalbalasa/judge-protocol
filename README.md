@@ -77,7 +77,6 @@ and rules once its relayer has gas: `GET /api/health` shows whether it does.
 | Contract | Address |
 |---|---|
 | **JudgeEvaluator** (source-verified ✓) | [`0x6EFF7d4BB514d341AbEd90bF4c667d0A980173AD`](https://testnet.arcscan.app/address/0x6EFF7d4BB514d341AbEd90bF4c667d0A980173AD) |
-| **JudgeReputationHook** (source-verified ✓; first version, written against an earlier ERC-8004 draft, superseded by JudgeReputationHookV2) | [`0xfe38bF336148eb3F2E1A5DEE8Ed89AC3B8bcF1c8`](https://testnet.arcscan.app/address/0xfe38bF336148eb3F2E1A5DEE8Ed89AC3B8bcF1c8) |
 | Canonical ACP (Circle) | [`0x0747EEf0706327138c69792bF28Cd525089e4583`](https://testnet.arcscan.app/address/0x0747EEf0706327138c69792bF28Cd525089e4583) |
 | Owner (signer allowlist) | `0xf629006403580E2A7d94B666daA8374353a1d368` |
 | Guardian (pause) | `0x427C62eDCae20DDc8c5e875De39D4E4845491458` |
@@ -221,14 +220,13 @@ evidence for humans, never decide.
 contracts/        Foundry project (Solidity 0.8.28, cancun)
   src/JudgeEvaluator.sol        core evaluator: signed verdicts → complete()/reject()
   src/JudgeReputationHookV2.sol IACPHook → ERC-8004 feedback for each verdict (registry v2.0.0, as deployed)
-  src/JudgeReputationHook.sol   first hook, written against an earlier ERC-8004 draft (superseded)
   src/JudgeArbitrator.sol       applies signed Judge rulings to ArcBounty disputes (docs/ARBITRATOR.md)
   src/JudgeAttestor.sol         ERC-8412 verifier: records attestations a trusted judge key signed
-  src/interfaces/               IACP, IACPHook, IERC8004, IBountyAdapter, IReputationRegistry (draft)
+  src/interfaces/               IACP, IACPHook, IERC8004, IBountyAdapter
   src/mocks/                    MockACP (faithful to Circle's reference), MockUSDC
-  test/                         125 Foundry tests (evaluator, hooks, attestor, arbitrator, attack paths)
+  test/                         118 Foundry tests (evaluator, hook, attestor, arbitrator, attack paths)
   vendor/erc8183-escrow/        ArcBounty's ERC-8183 escrow (MIT), for chains that have none
-  script/Deploy.s.sol           Arc testnet deploy
+  script/                       Deploy (Arc testnet), DeployArcMainnet, DeployKit (any chain), DeployArbitrator
   broadcast/                    deploy receipts (public audit trail)
 judge-service/    Node/viem off-chain engine
   src/checkers/                 6 deterministic checkers + validateCriteria() gate
@@ -257,12 +255,10 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
 
 ## Status
 
-- ✅ **125/125 contract tests** (`cd contracts && forge test`): 42 for the evaluator, the first hook
-  and the attestor, 41 for the arbitrator, 42 for the ERC-8004 hook. Evaluator: full lifecycle, both settlement
-  paths, and attack paths: bad signer, double-resolution, pause, criteria mismatch, stale
-  verdict, threshold enforcement, criteria-registration gating, withdraw auth, and the full
-  hook feedback flow (7 hook tests; the hook decode bug that these now cover was previously
-  untested). Five came from the pre-deployment review (see ARCHITECTURE.md): renouncing ownership
+- ✅ **118/118 contract tests** (`cd contracts && forge test`): 35 for the evaluator and the attestor,
+  41 for the arbitrator, 42 for the ERC-8004 hook. Evaluator: full lifecycle, both settlement paths, and attack
+  paths: bad signer, double-resolution, pause, criteria mismatch, stale verdict, threshold enforcement,
+  criteria-registration gating and withdraw auth. Five came from the pre-deployment review (see ARCHITECTURE.md): renouncing ownership
   is disabled, ownership needs acceptance, and criteria can be bound only for this judge's jobs,
   never while paused, and cleared only by the owner.
 - ✅ **Live on Arc mainnet** (see above). Eight fork tests run JudgeEvaluator against the live escrow
@@ -310,7 +306,7 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
 
 ```bash
 # contracts
-cd contracts && git submodule update --init --recursive && forge test   # 125/125, plus 10 fork tests (skipped without their RPC variables)
+cd contracts && git submodule update --init --recursive && forge test   # 118/118, plus 10 fork tests (skipped without their RPC variables)
 
 # service
 cd ../judge-service && npm install && npm test                          # 277/277
@@ -363,13 +359,13 @@ chunks to stay inside RPC limits.
   text presence/length, HTTP). Subjective quality is out of scope for the trust path; the
   intended path for contested/subjective work is escalation to a dispute layer (e.g. UMA /
   GenLayer Internet Court), not an LLM in the settlement path.
-- ERC-8004 reputation: the first hook (JudgeReputationHook) was written against an earlier ERC-8004
-  draft and cannot write to the registries deployed today. JudgeReputationHookV2 targets the deployed
+- ERC-8004 reputation: the first hook was written against an earlier ERC-8004 draft and could not write to
+  the registries deployed today, so it has been removed from this repo. JudgeReputationHookV2 targets the deployed
   ReputationRegistry (v2.0.0) and is tested against its source. It counts only the judge's own verdicts, on
   jobs attributed to the provider's agent when they were funded (so unlinking later cannot hide a REJECT), never
   jobs with no budget or self-dealt jobs, and keeps its own tally beside the registry.
-  Neither is attachable on Circle's testnet ACP, whose hook whitelist holds only `address(0)`; an escrow
-  whose admin whitelists it can attach it. A verdict shows the delivery met the client's criteria, not
+  It is not attachable on Circle's testnet ACP, whose hook whitelist holds only `address(0)`; an escrow
+  whose admin whitelists it can attach it, as our second Arc testnet deployment above does. A verdict shows the delivery met the client's criteria, not
   that the criteria were demanding, so a client and provider acting together can earn easy passes.
 - Per-evaluation fees are charged **out of band**: the canonical ACP exposes no per-job fee
   surface (`evaluatorFeeBP` is a single global rate only Circle can set). `withdraw()` is a

@@ -13,6 +13,9 @@ __pycache__/
 *.pyc
 judge-service/judge-service.log
 judge-service/state/
+# Raw per-job output of judge-service/src/measure-acp.js; the summary it also writes (acp-measurement.json) is
+# what the verifier shows and stays committed.
+judge-service/acp-measurement.csv
 
 # NOTE: contracts/broadcast/ (deploy receipts) and judge-service/evidence/
 # (verdict evidence) are intentionally COMMITTED; they are public on-chain
