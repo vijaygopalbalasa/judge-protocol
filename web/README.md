@@ -12,6 +12,13 @@ check goes red; anything it cannot recompute (a live `http-endpoint` probe, or a
 not load) shows as NOT REPLAYABLE HERE or INCOMPLETE, never VERIFIED. The command-line verifier,
 `node judge-service/src/verify.js <jobId>`, runs this same code.
 
+## The checklist builder (`build.html`)
+`build.html`, served at `/build`, writes acceptance criteria from plain answers (`builder.js`, no DOM) and
+tests a sample delivery against them with the same checkers the verifier uses (`build-ui.js` is only the
+form). Its CSP sets `connect-src 'none'`: nothing a visitor types or picks leaves the browser.
+`test/builder.test.mjs` holds every template to the judge's own validator and checkers, and rebuilds
+ArcBounty job 18's checklist to its on-chain criteria hash.
+
 ## Design constraints
 - **No build step, no CDN.** Plain ES modules served as static files. On the deployed site, chain
   reads pass through `api/rpc.js`, a read-only same-origin relay; open the page with `?rpc=direct`

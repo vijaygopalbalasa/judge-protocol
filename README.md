@@ -18,6 +18,12 @@ ERC-8183 contract: pass → provider paid, fail → client refunded.
 > Built on Circle's canonical ERC-8183 deployment on **Arc testnet**. We never fork the escrow
 > contract. Every judged job is a real job on the official protocol.
 
+**Write a checklist without writing JSON:** https://judge-protocol-verifier.vercel.app/build turns a few
+plain answers (a word range and required terms, a list of records and their fields, an exact file, a live
+web address) into the criteria block to paste into a job or a bounty, then tests a sample delivery against
+it with the judge's own checks, in your browser. Nothing leaves the page. It rebuilds the checklist of
+ArcBounty's job 18 to the same criteria hash as on chain.
+
 ## See it work
 
 A real job posted on Circle's canonical contract, judged, escrow settled, then the verdict
@@ -274,15 +280,17 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
   load abstaining instead of retrying forever), and paid rulings over x402 (payments signed by
   Circle's own client; a payment settles only once a verdict is ready and the contract would
   accept it).
-- ✅ **122/122 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
+- ✅ **137/137 web verifier tests** (`node --test 'web/test/*.test.mjs'`, needs `npm ci` in
   `judge-service` first): the page's CSP, the read-only relay, the public numbers, parity with the
   service's own checkers, the CLI, and the in-browser verifier run against a fake chain built from
-  recorded Arc testnet data, including tampered inputs that must never verify.
-- ✅ **41/41 kit and docs tests** (`cd kit && npm ci && npm test`, after `npm ci` in
+  recorded Arc testnet data, including tampered inputs that must never verify. The checklist builder:
+  every template makes criteria the judge accepts, answers the judge would refuse are refused in plain
+  words, its dry run equals the judge's checkers, and job 18's checklist comes out with its on-chain hash.
+- ✅ **43/43 kit and docs tests** (`cd kit && npm ci && npm test`, after `npm ci` in
   `judge-service`): the kit agrees with the judge on validation (down to the refusal reason),
   hashing and deliverable decoding, inline or hosted; nothing reaches the chain on bad input; the
   docs state every check, parameter, limit and API result with the code's own numbers, and every
-  example in them is valid.
+  example in them is valid; the checklist builder writes the kit's block byte for byte.
 - ✅ **75/75 paymaster agent tests** (`cd agent && npm ci && npm test`, after `npm ci` in
   `judge-service` and `kit`): the wallet guard refuses everything but creating, funding and reclaiming
   judged escrow; hard spend caps and the approval band; the drafter refuses to guess; records
