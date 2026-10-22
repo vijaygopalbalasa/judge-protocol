@@ -5,13 +5,15 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../interfaces/IBnbCommerce.sol";
 import "../interfaces/IACPHook.sol";
+import "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
 
-/// @notice A faithful, minimal re-implementation of BNB Chain's ERC-8183 kernel (bnbagent-sdk's
-///         AgenticCommerceUpgradeable, Sourcify exact match 0xe8d47866... on BSC) for local tests of the
-///         Judge router and policy: the same Job layout (11 fields, submittedAt and deliverable at the end), the
-///         same status gates, evaluator-only complete/reject on a Submitted job, fund(jobId, expectedBudget),
-///         the hook called before and after each action with the kernel's encodings, and the hook's revert
-///         bubbled. No fees, one token. NOT for production.
+/// @notice A minimal re-implementation of BNB Chain's ERC-8183 kernel (bnbagent-sdk's AgenticCommerceUpgradeable,
+///         Sourcify exact match 0xe8d47866... on BSC) for local tests of the Judge router and policy. Kept the same:
+///         the Job layout (11 fields, submittedAt and deliverable at the end), the status and auth gates, the hook
+///         required at createJob and checked for ERC-165, the hook called before and after each action with the
+///         kernel's encodings, the hook's revert bubbled, fund(jobId, expectedBudget). Left out: fees, pause, the
+///         expiry bounds, multi-token. The real kernel is exercised by test/JudgeOnBnbKernelFork.t.sol. NOT for
+///         production.
 contract MockBnbCommerce is IBnbCommerce {
     using SafeERC20 for IERC20;
 
@@ -35,6 +37,8 @@ contract MockBnbCommerce is IBnbCommerce {
     error ZeroBudget();
     error BudgetMismatch();
     error HookCallFailed();
+    error HookRequired();
+    error HookMissingInterface();
 
     constructor(address _paymentToken) {
         paymentToken = IERC20(_paymentToken);
@@ -61,18 +65,21 @@ contract MockBnbCommerce is IBnbCommerce {
     function createJob(address provider, address evaluator, uint256 expiredAt, string calldata description, address hook)
         external returns (uint256 jobId)
     {
+        if (hook == address(0)) revert HookRequired();
+        if (!ERC165Checker.supportsInterface(hook, type(IACPHook).interfaceId)) revert HookMissingInterface();
         jobId = ++jobCounter;
         Job storage job = _jobs[jobId];
         job.id = jobId; job.client = msg.sender; job.provider = provider; job.evaluator = evaluator;
         job.description = description; job.expiredAt = expiredAt; job.status = JobStatus.Open; job.hook = hook;
         emit JobCreated(jobId, msg.sender, provider, evaluator, expiredAt, hook);
+        _after(hook, jobId, this.createJob.selector, abi.encode(msg.sender, provider, evaluator));
     }
 
     function setBudget(uint256 jobId, uint256 amount, bytes calldata optParams) external {
         Job storage job = _jobs[jobId];
         if (job.id == 0) revert InvalidJob();
         if (job.status != JobStatus.Open) revert WrongStatus();
-        if (msg.sender != job.provider) revert Unauthorized();
+        if (msg.sender != job.client && msg.sender != job.provider) revert Unauthorized();
         _before(job.hook, jobId, this.setBudget.selector, abi.encode(amount, optParams));
         job.budget = amount;
         jobHasBudget[jobId] = true;
@@ -106,8 +113,8 @@ contract MockBnbCommerce is IBnbCommerce {
         job.status = JobStatus.Submitted;
         job.submittedAt = block.timestamp;
         job.deliverable = deliverable;
-        emit JobSubmitted(jobId, msg.sender, deliverable);
         _after(job.hook, jobId, this.submit.selector, hookData);
+        emit JobSubmitted(jobId, msg.sender, deliverable);
     }
 
     function complete(uint256 jobId, bytes32 reason, bytes calldata optParams) external {

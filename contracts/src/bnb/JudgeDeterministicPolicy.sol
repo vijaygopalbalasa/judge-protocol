@@ -16,7 +16,8 @@ interface IJobPolicySource {
 ///         `check(jobId, evidence)` for a verdict and applies it to the kernel. The reference OptimisticPolicy
 ///         ignores evidence and decides on time and votes alone (silence approves). This policy decides on a
 ///         Judge Protocol verdict instead: the bytes passed as evidence are `abi.encode(Verdict, signature)`,
-///         the same EIP-712 verdict JudgeEvaluator accepts on Arc, signed by an allowlisted judge key, bound to
+///         the same Verdict struct JudgeEvaluator accepts on Arc, signed under this policy's own EIP-712 domain
+///         (so a signature is never portable between contracts or chains) by an allowlisted judge key, bound to
 ///         this job and to the deliverable hash the kernel recorded at submission. Anyone may relay it: the
 ///         signature, not the caller, is what the policy trusts. The judging itself stays off chain and
 ///         recomputable (the verdict's evidenceHash commits to the criteria, the delivered bytes and every check).
@@ -150,7 +151,7 @@ contract JudgeDeterministicPolicy is Ownable2Step, EIP712 {
     /// @return reason  The verdict's evidenceHash (the recomputable commitment), or zero when PENDING.
     function check(uint256 jobId, bytes calldata evidence) external view returns (uint8 verdict, bytes32 reason) {
         if (paused) return (PENDING, bytes32(0));
-        if (evidence.length < 32 * 9) return (PENDING, bytes32(0)); // a verdict is 8 words; a signature at least one more
+        if (evidence.length < 32 * 10) return (PENDING, bytes32(0)); // 8 verdict words, the signature's offset and its length
         (Verdict memory v, bytes memory sig) = abi.decode(evidence, (Verdict, bytes));
         if (v.jobId != jobId) return (PENDING, bytes32(0));
         bytes32 recorded = submitted[jobId];
