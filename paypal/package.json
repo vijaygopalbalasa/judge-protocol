@@ -1,0 +1,20 @@
+{
+  "name": "@judgeprotocol/pay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Judge Pay: pay AI agents through PayPal only for work that passes the checks agreed up front",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test --test-timeout=60000 'test/*.test.js'",
+    "dev": "node scripts/dev-server.js",
+    "sync-engine": "node scripts/sync-engine.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "undici": "^7.30.0",
+    "viem": "^2.55.11"
+  }
+}
