@@ -6,6 +6,10 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "../interfaces/IBnbCommerce.sol";
 
+interface IJobPolicySource {
+    function jobPolicy(uint256 jobId) external view returns (address);
+}
+
 /// @title JudgeDeterministicPolicy: Judge Protocol as an evaluator policy for BNB Chain's ERC-8183 router
 /// @notice bnbagent-sdk settles jobs through an EvaluatorRouter that is the job's evaluator and hook; the router
 ///         forwards each action to the job's policy and, on `settle(jobId, evidence)`, asks the policy
@@ -59,17 +63,26 @@ contract JudgeDeterministicPolicy is Ownable2Step, EIP712 {
     mapping(uint256 => bytes32) public submitted;
     /// @notice When the policy saw the submission, per job.
     mapping(uint256 => uint64) public submittedAt;
+    /// @notice Optional per-job commitment to the acceptance criteria, written by a judge signer before submission.
+    ///         When set, only a verdict that carries this criteriaHash can settle the job.
+    mapping(uint256 => bytes32) public jobCriteria;
 
     event SignerUpdated(address indexed signer, bool allowed);
     event GuardianUpdated(address indexed guardian);
     event Paused(bool paused);
     event SubmissionRecorded(uint256 indexed jobId, bytes32 deliverable);
+    event CriteriaRegistered(uint256 indexed jobId, bytes32 criteriaHash);
 
     error NotRouter();
     error NotGuardian();
     error Paused_();
     error ZeroAddress();
     error RenounceDisabled();
+    error NotSigner();
+    error ZeroCriteria();
+    error AlreadyRegistered();
+    error NotThisPolicy();
+    error NotOpen();
 
     modifier onlyRouter() {
         if (msg.sender != router) revert NotRouter();
@@ -107,6 +120,22 @@ contract JudgeDeterministicPolicy is Ownable2Step, EIP712 {
         emit SubmissionRecorded(jobId, deliverable);
     }
 
+    /// @notice Bind acceptance criteria to a job before the provider submits, as JudgeEvaluator.registerCriteria does
+    ///         on Arc. Restricted to a judge signer or the owner, write-once, only while the job is Open or Funded,
+    ///         only for a job the router has bound to this policy, and refused while paused. Optional: the criteria
+    ///         are also committed in the immutable job description; this makes the commitment explicit, so a provider
+    ///         can read it on chain before accepting the work.
+    function registerCriteria(uint256 jobId, bytes32 criteriaHash) external {
+        if (paused) revert Paused_();
+        if (!isSigner[msg.sender] && msg.sender != owner()) revert NotSigner();
+        if (criteriaHash == bytes32(0)) revert ZeroCriteria();
+        if (jobCriteria[jobId] != bytes32(0)) revert AlreadyRegistered();
+        if (IJobPolicySource(router).jobPolicy(jobId) != address(this)) revert NotThisPolicy();
+        if (uint8(IBnbCommerce(commerce).getJob(jobId).status) >= uint8(IBnbCommerce.JobStatus.Submitted)) revert NotOpen();
+        jobCriteria[jobId] = criteriaHash;
+        emit CriteriaRegistered(jobId, criteriaHash);
+    }
+
     /// @notice No time-based approval: a job settles only on a Judge verdict (or expires on the kernel).
     function disputeWindow() external pure returns (uint64) {
         return 0;
@@ -126,6 +155,8 @@ contract JudgeDeterministicPolicy is Ownable2Step, EIP712 {
         if (v.jobId != jobId) return (PENDING, bytes32(0));
         bytes32 recorded = submitted[jobId];
         if (recorded == bytes32(0) || v.deliverable != recorded) return (PENDING, bytes32(0));
+        bytes32 registered = jobCriteria[jobId];
+        if (registered != bytes32(0) && v.criteriaHash != registered) return (PENDING, bytes32(0));
         if (v.pass && v.score < v.threshold) return (PENDING, bytes32(0));
         if (v.timestamp > block.timestamp) return (PENDING, bytes32(0)); // a verdict cannot be from the future
         if (v.timestamp + MAX_VERDICT_AGE < block.timestamp) return (PENDING, bytes32(0));

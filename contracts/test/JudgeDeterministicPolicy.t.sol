@@ -232,6 +232,103 @@ contract JudgeDeterministicPolicyTest is Test {
         router.settle(jobId, evidence);
     }
 
+    // ── pre-registered criteria (the same optional commitment JudgeEvaluator offers on Arc) ──
+
+    /// A job that has the router as evaluator and hook and this policy registered, still Open.
+    function _openRegisteredJob() internal returns (uint256 jobId) {
+        vm.prank(client);
+        jobId = commerce.createJob(provider, address(router), block.timestamp + 7 days, "job", address(router));
+        vm.prank(client);
+        router.registerJob(jobId, address(policy));
+    }
+
+    function _fundAndSubmit(uint256 jobId) internal {
+        vm.prank(provider);
+        commerce.setBudget(jobId, BUDGET, "");
+        vm.prank(client);
+        commerce.fund(jobId, BUDGET, "");
+        vm.prank(provider);
+        commerce.submit(jobId, DELIVERABLE, "");
+    }
+
+    function test_registeredCriteriaBindTheVerdict() public {
+        uint256 jobId = _openRegisteredJob();
+        vm.prank(signer);
+        policy.registerCriteria(jobId, CRITERIA);
+        assertEq(policy.jobCriteria(jobId), CRITERIA);
+        _fundAndSubmit(jobId);
+        JudgeDeterministicPolicy.Verdict memory other = _verdict(jobId, true);
+        other.criteriaHash = keccak256("criteria the client never agreed to");
+        _assertNotDecided(jobId, _evidence(other, signerKey));
+        router.settle(jobId, _evidence(_verdict(jobId, true), signerKey)); // the registered criteria still settle
+        assertEq(uint8(commerce.getJob(jobId).status), uint8(IBnbCommerce.JobStatus.Completed));
+    }
+
+    function test_withoutRegistrationAnyCriteriaHashIsAccepted() public {
+        // Registration is optional, as on Arc: the criteria are also committed in the immutable job description.
+        uint256 jobId = _submittedJob();
+        assertEq(policy.jobCriteria(jobId), bytes32(0));
+        router.settle(jobId, _evidence(_verdict(jobId, true), signerKey));
+        assertEq(uint8(commerce.getJob(jobId).status), uint8(IBnbCommerce.JobStatus.Completed));
+    }
+
+    function test_criteriaAreWriteOnceAndNeverZero() public {
+        uint256 jobId = _openRegisteredJob();
+        vm.prank(signer);
+        vm.expectRevert(JudgeDeterministicPolicy.ZeroCriteria.selector);
+        policy.registerCriteria(jobId, bytes32(0));
+        vm.prank(signer);
+        policy.registerCriteria(jobId, CRITERIA);
+        vm.prank(signer);
+        vm.expectRevert(JudgeDeterministicPolicy.AlreadyRegistered.selector);
+        policy.registerCriteria(jobId, keccak256("a later, different bar"));
+        assertEq(policy.jobCriteria(jobId), CRITERIA);
+    }
+
+    function test_criteriaCannotBeRegisteredOnceTheProviderHasSubmitted() public {
+        uint256 jobId = _submittedJob();
+        vm.prank(signer);
+        vm.expectRevert(JudgeDeterministicPolicy.NotOpen.selector);
+        policy.registerCriteria(jobId, CRITERIA);
+    }
+
+    function test_criteriaCanBeRegisteredWhileFundedButNotSubmitted() public {
+        uint256 jobId = _openRegisteredJob();
+        vm.prank(provider);
+        commerce.setBudget(jobId, BUDGET, "");
+        vm.prank(client);
+        commerce.fund(jobId, BUDGET, "");
+        policy.registerCriteria(jobId, CRITERIA); // the owner (this test contract) may register too
+        assertEq(policy.jobCriteria(jobId), CRITERIA);
+    }
+
+    function test_onlyASignerOrTheOwnerRegistersCriteria() public {
+        uint256 jobId = _openRegisteredJob();
+        vm.prank(client);
+        vm.expectRevert(JudgeDeterministicPolicy.NotSigner.selector);
+        policy.registerCriteria(jobId, CRITERIA);
+        vm.prank(provider);
+        vm.expectRevert(JudgeDeterministicPolicy.NotSigner.selector);
+        policy.registerCriteria(jobId, CRITERIA);
+    }
+
+    function test_criteriaOnlyForJobsBoundToThisPolicy() public {
+        vm.prank(client);
+        uint256 unregistered = commerce.createJob(provider, address(router), block.timestamp + 7 days, "job", address(router));
+        vm.prank(signer);
+        vm.expectRevert(JudgeDeterministicPolicy.NotThisPolicy.selector);
+        policy.registerCriteria(unregistered, CRITERIA);
+    }
+
+    function test_noCriteriaRegistrationWhilePaused() public {
+        uint256 jobId = _openRegisteredJob();
+        vm.prank(guardian);
+        policy.setPaused(true);
+        vm.prank(signer);
+        vm.expectRevert(JudgeDeterministicPolicy.Paused_.selector);
+        policy.registerCriteria(jobId, CRITERIA);
+    }
+
     // ── pause, signers, roles ────────────────────────────────────────────────
 
     function test_pauseAnswersPendingAndTheKernelRefundStillWorks() public {
