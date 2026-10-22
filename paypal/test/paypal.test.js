@@ -101,6 +101,27 @@ test("a payout pays the worker from the merchant balance; a lost answer is recov
   await assert.rejects(pp.createPayout({ ...args, senderBatchId: "JP-1005", senderItemId: "1005", requestId: "1005-payout" }), (e) => e.paypalName === "INSUFFICIENT_FUNDS");
 });
 
+test("Log in with PayPal: a one-time code becomes the account's confirmed primary email and payer id", async () => {
+  const { fake, pp } = setup();
+  const code = fake.loginCode({ email: "w@personal.example.com", payerId: "PAYERW" });
+  const who = await pp.loginWithPayPal(code);
+  assert.deepEqual(who, { email: "w@personal.example.com", emailConfirmed: true, payerId: "PAYERW", verifiedAccount: true });
+  const exchange = fake.calls.find((c) => c.path === "/v1/oauth2/token" && c.body?.grant_type === "authorization_code");
+  assert.equal(exchange.body.code, code);
+  assert.match(exchange.headers.get("authorization"), /^Basic /, "the code is exchanged with the app's own credentials");
+  const info = fake.calls.find((c) => c.path === "/v1/identity/oauth2/userinfo");
+  assert.match(info.headers.get("authorization"), /^Bearer A21AA-user-/, "user info is read with the user's token, not the app's");
+  await assert.rejects(pp.loginWithPayPal(code), (e) => e instanceof PayPalError && e.status === 400, "codes are single use");
+  const unconfirmed = await pp.loginWithPayPal(fake.loginCode({ email: "u@personal.example.com", confirmed: false }));
+  assert.equal(unconfirmed.emailConfirmed, false);
+  const several = await pp.loginWithPayPal(fake.loginCode({ emails: [
+    { value: "old@personal.example.com", primary: false, confirmed: true },
+    { value: "main@personal.example.com", primary: true, confirmed: true },
+    { value: "spare@personal.example.com", primary: false, confirmed: false },
+  ] }));
+  assert.equal(several.email, "main@personal.example.com", "the primary email, wherever it sits in the list");
+});
+
 test("tokens are cached, refreshed when PayPal says 401, and bad credentials fail loudly", async () => {
   const { fake, pp } = setup();
   await pp.createOrder({ referenceId: "1", customId: "c", invoiceId: "JP-1", description: "d", amount: AMOUNT });

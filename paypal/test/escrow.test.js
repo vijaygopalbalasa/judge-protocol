@@ -27,8 +27,9 @@ function setup({ clock = { t: Date.parse("2026-10-22T10:00:00Z") }, ...opts } = 
     idgen: () => String(1_792_000_000_000_000 + ++n), keygen: () => `key-${++n}`, operatorKeyHash: hashSecret(OPERATOR), ...opts });
   const keys = new Map();
   /** The worker's key for an email, registering on first use. */
+  /** The worker's key for an email: they sign in with PayPal once, on first use. */
   const keyFor = async (email = WORKER) => {
-    if (!keys.has(email)) keys.set(email, (await escrow.registerWorker({ email })).key);
+    if (!keys.has(email)) keys.set(email, (await escrow.registerWorker({ loginCode: fake.loginCode({ email }) })).key);
     return keys.get(email);
   };
   return { fake, paypal, escrow, clock, keyFor, workers };
@@ -113,29 +114,47 @@ test("the public view is an allowlist: hashes and record ids, never the bytes, t
   assert.equal(publicView(null), null);
 });
 
-test("a worker registers once and holds the only key; only its hash is stored; rotation needs the current key", async () => {
+test("a worker key is issued only to whoever signs in with PayPal as that email; only its hash is stored", async () => {
   const env = setup();
-  const { email, key } = await env.escrow.registerWorker({ email: "  New.Worker@Personal.Example.com " });
-  assert.equal(email, "new.worker@personal.example.com", "normalized");
+  const { email, key } = await env.escrow.registerWorker({ loginCode: env.fake.loginCode({ email: "  New.Worker@Personal.Example.com " }) });
+  assert.equal(email, "new.worker@personal.example.com", "the confirmed email PayPal returned, normalized");
   assert.match(key, /^key-/);
-  await assert.rejects(env.escrow.registerWorker({ email }), (e) => e.status === 409, "no second registration without the key");
+  await assert.rejects(env.escrow.registerWorker({ email }), (e) => e.status === 400, "an email alone registers nothing");
+  await assert.rejects(env.escrow.registerWorker({ loginCode: "C21AA-made-up" }), (e) => e.status === 403);
+  await assert.rejects(env.escrow.registerWorker({ loginCode: env.fake.loginCode({ email: "x@personal.example.com", confirmed: false }) }),
+    (e) => e.status === 403 && /confirmed email/.test(e.message));
+  const used = env.fake.loginCode({ email: "once@personal.example.com" });
+  await env.escrow.registerWorker({ loginCode: used });
+  await assert.rejects(env.escrow.registerWorker({ loginCode: used }), (e) => e.status === 403, "a sign-in code works once");
+  const records = JSON.stringify(await env.workers.list());
+  assert.equal(records.includes(key), false, "the workers store holds hashes only");
+  assert.equal(records.includes(hashSecret(key)), true);
+  assert.equal(hashSecret("x"), hashSecret("x"));
+  assert.notEqual(hashSecret("x"), hashSecret("y"));
+});
+
+test("signing in again as the same PayPal account issues a fresh key and kills the old one; a squatter cannot lock anyone out", async () => {
+  const env = setup();
+  const first = await env.escrow.registerWorker({ loginCode: env.fake.loginCode({ email: WORKER }) });
+  const job = await funded(env);
+  const again = await env.escrow.registerWorker({ loginCode: env.fake.loginCode({ email: WORKER }) });
+  assert.notEqual(again.key, first.key);
+  await assert.rejects(env.escrow.deliver(job.id, { workerKey: first.key, content: GOOD }), (e) => e.status === 403, "the old key is dead");
+  const done = await env.escrow.deliver(job.id, { workerKey: again.key, content: GOOD });
+  assert.equal(done.status, "paid");
+  const stored = await env.escrow.get(job.id);
+  assert.equal(JSON.stringify(stored).includes(again.key), false, "no key in the clear in the job");
+});
+
+test("a worker can also rotate their key with the current one", async () => {
+  const env = setup();
+  const { email, key } = await env.escrow.registerWorker({ loginCode: env.fake.loginCode({ email: WORKER }) });
   await assert.rejects(env.escrow.rotateWorkerKey({ email, workerKey: "wrong" }), (e) => e.status === 403);
   const rotated = await env.escrow.rotateWorkerKey({ email, workerKey: key });
   assert.notEqual(rotated.key, key);
-  await assert.rejects(env.escrow.registerWorker({ email: "nope" }), (e) => e.status === 400);
-  const records = JSON.stringify(await env.workers.list());
-  assert.equal(records.includes(key) || records.includes(rotated.key), false, "the workers store holds hashes only");
-  assert.equal(records.includes(hashSecret(rotated.key)), true);
-  const job = await funded(env, { workerEmail: email });
-  const stored = await env.escrow.get(job.id);
-  assert.equal(JSON.stringify(stored).includes(rotated.key), false, "no key in the clear in the job");
-  assert.equal(JSON.stringify(stored).includes(key), false);
-  assert.equal(stored.worker.email, email);
-  await assert.rejects(env.escrow.deliver(job.id, { workerKey: key, content: GOOD }), (e) => e.status === 403, "the old key is dead");
-  const done = await env.escrow.deliver(job.id, { workerKey: rotated.key, content: GOOD });
-  assert.equal(done.status, "paid");
-  assert.equal(hashSecret("x"), hashSecret("x"));
-  assert.notEqual(hashSecret("x"), hashSecret("y"));
+  const job = await funded(env);
+  await assert.rejects(env.escrow.deliver(job.id, { workerKey: key, content: GOOD }), (e) => e.status === 403);
+  assert.equal((await env.escrow.deliver(job.id, { workerKey: rotated.key, content: GOOD })).status, "paid");
 });
 
 test("only the named worker can deliver, only once, and only while funded", async () => {

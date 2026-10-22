@@ -10,8 +10,9 @@
 // A step that moves money is recorded before PayPal is called and retried with the same PayPal-Request-Id, so a
 // timeout or a crash between steps never pays twice and never loses a payment.
 //
-// Who may do what: a worker registers their PayPal email once and gets a worker key, stored only as a SHA-256 hash.
-// Only the worker named on a job can deliver to it, so a buyer cannot deliver in the worker's place to force a refund.
+// Who may do what: a worker signs in with PayPal and gets a key for that account's confirmed email, stored only as a
+// SHA-256 hash. Only the worker named on a job can deliver to it, so a buyer cannot deliver in the worker's place to
+// force a refund, and nobody can hold a key for an address they do not control.
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { keccak256 } from "viem";
 import { dryRunEvaluate, MAX_DELIVERABLE_BYTES } from "../engine/evaluate.js";
@@ -82,12 +83,19 @@ export function createEscrow({ paypal, store, workers, now = () => Date.now(), p
     return job;
   }
 
-  /** A worker registers their PayPal email once and gets their key, shown exactly once; only its hash is kept. */
-  async function registerWorker({ email } = {}) {
-    const e = normalizeEmail(email);
-    if (await workers.get(e)) throw conflict("that email already has a worker key; rotate it with the current key");
+  /** A worker signs in with PayPal and gets a key for the confirmed email on that PayPal account, shown exactly once;
+   *  only its hash is kept. Signing in again as the same account issues a fresh key and retires the old one, so the
+   *  owner of an address can always take it back and nobody can hold a key for an address they do not control. */
+  async function registerWorker({ loginCode } = {}) {
+    if (typeof loginCode !== "string" || !loginCode) throw bad("sign in with PayPal to get a worker key");
+    let who;
+    try { who = await paypal.loginWithPayPal(loginCode); } catch (e) { throw new EscrowError(403, `PayPal sign-in failed: ${e.message}`); }
+    if (!who?.email || !who.emailConfirmed) throw new EscrowError(403, "the PayPal account has no confirmed email to be paid at");
+    const e = normalizeEmail(who.email);
     const key = keygen();
-    await workers.put({ id: e, email: e, keyHash: hashSecret(key), createdAt: iso() });
+    const existing = await workers.get(e);
+    await workers.put({ id: e, email: e, payerId: who.payerId ?? null, keyHash: hashSecret(key), createdAt: existing?.createdAt ?? iso(),
+      ...(existing ? { reissuedAt: iso() } : {}) });
     return { email: e, key };
   }
 
