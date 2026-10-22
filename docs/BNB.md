@@ -93,7 +93,12 @@ and the policy, whitelists the policy, and reads every role back before it print
 - Tested against the real kernel on a fork, not yet through bnbagent-sdk's own client code end to end.
 - The SDK's `getDeliverableUrl` helper scans for the reference policy's `JobInitialised` log; this policy emits
   `SubmissionRecorded(jobId, deliverable)` instead, and the deliverable URL stays in the kernel's submit `optParams`.
-- The judge service does not yet sign BNB verdicts: the policy's EIP-712 domain differs from JudgeEvaluator's, and
-  BNB's deliverable commitment is the keccak256 of the SDK's canonical manifest JSON, so the service needs an adapter
-  (fetch the manifest from `optParams.deliverable_url`, recompute its hash against the kernel's `deliverable`, grade
-  `response.content` against the criteria block in the job description, sign under the policy's domain).
+- The judge service's side is `judge-service/src/bnb.js` (run it as `node src/bnb.js <jobId> --network bsc-testnet
+  --router 0x.. --policy 0x..`; with `BNB_SIGNER_KEY` set it also prints the signed evidence for `router.settle`).
+  It reads the job and the router's binding from chain, takes the deliverable URL from the provider's own submit
+  transaction, recomputes the manifest hash exactly as the SDK does (keccak256 of Python-compatible canonical JSON,
+  held to Python's `json.dumps` by a test vector), checks it equals the kernel's `deliverable` and names this job and
+  chain, grades `response.content` against the one judge-criteria block in the job description, and signs under the
+  policy's domain. It sends no transaction. A fixed vector signed by the service is accepted by the Solidity policy
+  (`test_aVerdictSignedByTheServiceIsAccepted`). It is a command-line step today, not yet a watcher that rules on
+  every new job by itself.

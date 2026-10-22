@@ -117,6 +117,26 @@ contract JudgeDeterministicPolicyTest is Test {
         router.settle(jobId, _evidence(_verdict(jobId, true), signerKey));
     }
 
+    /// The judge service signs evidence in JavaScript (judge-service/src/bnb.js, signBnbEvidence); this is the exact
+    /// vector judge-service/test/bnb.test.js produces: key 0xa11ce, chain 97, the policy at 0x...b0bab0ba.
+    function test_aVerdictSignedByTheServiceIsAccepted() public {
+        vm.chainId(97);
+        address at = address(0x00000000000000000000000000000000b0Bab0Ba);
+        address[] memory signers = new address[](1);
+        signers[0] = 0xe05fcC23807536bEe418f142D19fa0d21BB0cfF7;
+        deployCodeTo("JudgeDeterministicPolicy.sol:JudgeDeterministicPolicy", abi.encode(address(this), address(commerce), guardian, signers), at);
+        JudgeDeterministicPolicy p = JudgeDeterministicPolicy(at);
+        bytes memory evidence = hex"00000000000000000000000000000000000000000000000000000000000000078d154dad9b173273bd6a06953e52255c46c505eb740d5d3123ed996d82b23621cf872d830abc1cfdaf207b6054b9e503120d894a37b2c51253eb5f74c9315ee000000000000000000000000000000000000000000000000000000000000000640000000000000000000000000000000000000000000000000000000000000064000000000000000000000000000000000000000000000000000000000000000114030b16b9d0817ea21580d216efab41b25e0b356bd4c3d2b8d5da1b909ce82e000000000000000000000000000000000000000000000000000000006acfc0c8000000000000000000000000000000000000000000000000000000000000012000000000000000000000000000000000000000000000000000000000000000412e614201a4a7e813cb1d834d099cceaf1f46803072e96b86442a0d5cba26d7da6b4a1324366f99bbc878366e063a0acba94566065095a0b2cb3a15def009e8991c00000000000000000000000000000000000000000000000000000000000000";
+        (JudgeDeterministicPolicy.Verdict memory v,) = abi.decode(evidence, (JudgeDeterministicPolicy.Verdict, bytes));
+        assertEq(p.verdictDigest(v), 0x35ec0de757c820d90c27689493e87f9d356eb4353516b69a1042f1fda0c81b48, "same EIP-712 digest as viem");
+        vm.warp(1792000100);
+        p.onSubmitted(7, keccak256("manifest-canonical-json"), ""); // this test contract plays the router
+        vm.warp(1792000300);
+        (uint8 verdict, bytes32 reason) = p.check(7, evidence);
+        assertEq(verdict, 1, "APPROVE");
+        assertEq(reason, keccak256("verdict-core-json"));
+    }
+
     // ── what must never settle ───────────────────────────────────────────────
 
     function _assertNotDecided(uint256 jobId, bytes memory evidence) internal {
