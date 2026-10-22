@@ -189,6 +189,10 @@ export function fakePayPal({ clientId = "client-id", clientSecret = "client-secr
       o.payer = payer;
     },
     expireTokens() { for (const k of tokens.keys()) tokens.set(k, 0); },
+    /** PayPal keeps PayPal-Request-Id replays for a limited time; after that a repeated request is judged afresh. */
+    forgetReplays() { idem.clear(); },
+    /** The batch id of the latest payout PayPal holds (what a person would find in the PayPal dashboard). */
+    lastPayoutBatchId() { return [...payouts.keys()].at(-1) ?? null; },
     /** The order vanishes (PayPal drops unapproved orders after a while): later reads are 404. */
     dropOrder(i) { orders.delete(i); },
     voidOrder(i) { orders.get(i).status = "VOIDED"; },

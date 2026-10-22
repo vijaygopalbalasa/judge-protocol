@@ -2,14 +2,17 @@
 // delivers; Judge Protocol's deterministic checks decide; a pass captures the payment and pays the worker out, a fail
 // voids the authorization so the buyer is never charged. No person and no AI model decides a payment: the checks were
 // agreed before any money moved, they are pinned by their hash on PayPal's own order record (custom_id), and anyone
-// can recompute the verdict from the receipt.
+// holding the delivered bytes can recompute the verdict from the receipt.
 //
 // Status: posted -> funding -> funded -> judged -> captured -> paid      (every check passed)
 //                                       judged -> refunded               (a check failed: the hold is voided)
 //                            funded -> expired                           (no delivery by the deadline: voided)
 // A step that moves money is recorded before PayPal is called and retried with the same PayPal-Request-Id, so a
 // timeout or a crash between steps never pays twice and never loses a payment.
-import { randomBytes, timingSafeEqual } from "node:crypto";
+//
+// Who may do what: a worker registers their PayPal email once and gets a worker key, stored only as a SHA-256 hash.
+// Only the worker named on a job can deliver to it, so a buyer cannot deliver in the worker's place to force a refund.
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { keccak256 } from "viem";
 import { dryRunEvaluate, MAX_DELIVERABLE_BYTES } from "../engine/evaluate.js";
 import { validateCriteria } from "../engine/checkers/index.js";
@@ -19,6 +22,10 @@ import { PayPalError, authorizationOf, approveLinkOf } from "./paypal.js";
 
 export const LIVE_CHECKS = new Set(["http-endpoint"]);
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,63}\.[^\s@]{2,63}$/;
+const ID = /^[0-9]{6,30}$/;
+/** Payout refusals that prove PayPal created no batch, so a fresh sender_batch_id cannot pay twice. Any other refusal
+ *  (SENDER_BATCH_ID_ALREADY_EXISTS among them) may mean a payout exists: it is stopped for a person to review. */
+export const SAFE_PAYOUT_REFUSALS = new Set(["INSUFFICIENT_FUNDS", "VALIDATION_ERROR"]);
 
 export class EscrowError extends Error {
   constructor(status, message) { super(message); this.name = "EscrowError"; this.status = status; }
@@ -32,9 +39,17 @@ const conflict = (m) => new EscrowError(409, m);
 const definitive = (e) => e instanceof PayPalError && e.status >= 400 && e.status < 500 && ![401, 408, 409, 429].includes(e.status);
 const rid = (job, step) => { const n = job.paypal.attempts?.[step] ?? 0; return n ? `${job.id}-${step}-${n}` : `${job.id}-${step}`; };
 
-function sameToken(a, b) {
-  const x = Buffer.from(String(a ?? "")), y = Buffer.from(String(b ?? ""));
-  return x.length === y.length && x.length > 0 && timingSafeEqual(x, y);
+export const hashSecret = (s) => createHash("sha256").update(String(s ?? "")).digest("hex");
+function matches(secret, hash) {
+  if (typeof secret !== "string" || !secret || typeof hash !== "string") return false;
+  const a = Buffer.from(hashSecret(secret)), b = Buffer.from(hash);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+export function normalizeEmail(email) {
+  const e = typeof email === "string" ? email.trim().toLowerCase() : "";
+  if (!e || e.length > 127 || !EMAIL.test(e)) throw bad("a PayPal email address is required");
+  return e;
 }
 
 /** A 16-digit numeric id: milliseconds plus three random digits. Numeric because it is mixed into the evidenceHash
@@ -53,18 +68,43 @@ export function checkCriteria(criteria) {
   return criteria;
 }
 
-export function createEscrow({ paypal, store, now = () => Date.now(), publicUrl = "http://localhost:3000", feeBps = 500, deadlineHours = 72,
-  idgen = newJobId, tokengen = () => randomBytes(16).toString("hex") } = {}) {
-  if (!paypal || !store) throw new Error("createEscrow needs paypal and store");
+export function createEscrow({ paypal, store, workers, now = () => Date.now(), publicUrl = "http://localhost:3000", feeBps = 500, deadlineHours = 72,
+  idgen = newJobId, keygen = () => randomBytes(24).toString("base64url") } = {}) {
+  if (!paypal || !store || !workers) throw new Error("createEscrow needs paypal, store and workers");
   const iso = () => new Date(now()).toISOString();
   const receiptUrl = (id) => `${publicUrl}/job.html?id=${id}`;
   const event = (job, type, detail) => { job.events.push({ at: iso(), type, ...(detail ? { detail } : {}) }); job.updatedAt = iso(); return job; };
 
   async function load(id) {
-    if (!/^[0-9]{6,30}$/.test(String(id ?? ""))) throw bad("no such job");
+    if (!ID.test(String(id ?? ""))) throw bad("no such job");
     const job = await store.get(String(id));
     if (!job) throw new EscrowError(404, "no such job");
     return job;
+  }
+
+  /** A worker registers their PayPal email once and gets their key, shown exactly once; only its hash is kept. */
+  async function registerWorker({ email } = {}) {
+    const e = normalizeEmail(email);
+    if (await workers.get(e)) throw conflict("that email already has a worker key; rotate it with the current key");
+    const key = keygen();
+    await workers.put({ id: e, email: e, keyHash: hashSecret(key), createdAt: iso() });
+    return { email: e, key };
+  }
+
+  /** A new key for a registered worker, in exchange for the current one. */
+  async function rotateWorkerKey({ email, workerKey } = {}) {
+    const e = normalizeEmail(email);
+    const w = await workers.get(e);
+    if (!w || !matches(workerKey, w.keyHash)) throw new EscrowError(403, "bad worker key");
+    const key = keygen();
+    await workers.update(e, (x) => ({ ...x, keyHash: hashSecret(key), rotatedAt: iso() }));
+    return { email: e, key };
+  }
+
+  async function workerFor(job, workerKey) {
+    const w = await workers.get(job.worker.email);
+    if (!w || !matches(workerKey, w.keyHash)) throw new EscrowError(403, "only the worker named on this job can deliver (bad worker key)");
+    return w;
   }
 
   /** Post a job: the task, the agreed checks, the price and the worker. Nothing is charged yet. */
@@ -74,14 +114,15 @@ export function createEscrow({ paypal, store, now = () => Date.now(), publicUrl 
     const c = checkCriteria(criteria);
     let cents;
     try { cents = checkPrice(price); } catch (e) { throw bad(e.message); }
-    if (typeof workerEmail !== "string" || workerEmail.length > 127 || !EMAIL.test(workerEmail)) throw bad("workerEmail must be the worker's PayPal email");
+    let email;
+    try { email = normalizeEmail(workerEmail); } catch { throw bad("workerEmail must be the worker's PayPal email"); }
     const created = now();
     const id = idgen(created);
     const job = {
       id, title: title.trim(), task: task.trim(), criteria: c, criteriaHash: criteriaHash(c),
       price: { currency: CURRENCY, value: fromCents(cents), cents }, feeBps,
       payout: { currency: CURRENCY, value: fromCents(payoutCents(cents, feeBps)), cents: payoutCents(cents, feeBps) },
-      worker: { email: workerEmail }, workerToken: tokengen(),
+      worker: { email },
       status: "posted", createdAt: new Date(created).toISOString(), updatedAt: new Date(created).toISOString(),
       deadline: new Date(created + deadlineHours * 3600_000).toISOString(),
       paypal: {}, deliverable: null, verdict: null, decision: null, events: [],
@@ -152,9 +193,9 @@ export function createEscrow({ paypal, store, now = () => Date.now(), publicUrl 
   }
 
   /** The worker's delivery. Judged at once; the money then moves by the verdict alone. */
-  async function deliver(id, { workerToken, content, base64, contentType = "text/plain", by = "worker" } = {}) {
+  async function deliver(id, { workerKey, content, base64, contentType = "text/plain" } = {}) {
     let job = await load(id);
-    if (!sameToken(workerToken, job.workerToken)) throw new EscrowError(403, "only the worker named on this job can deliver (bad worker token)");
+    await workerFor(job, workerKey);
     job = await sweep(id);
     if (job.status !== "funded") throw conflict(`the job is ${job.status}; a delivery is taken only while it is funded`);
     const hasText = typeof content === "string", hasB64 = typeof base64 === "string";
@@ -167,7 +208,7 @@ export function createEscrow({ paypal, store, now = () => Date.now(), publicUrl 
     const v = r.body;
     job = await store.update(job.id, (j) => {
       if (j.status !== "funded") throw conflict(`the job is ${j.status}`);
-      j.deliverable = { base64: bytes.toString("base64"), bytes: bytes.length, keccak: v.deliverable, contentType: String(contentType).slice(0, 100), by, submittedAt: iso() };
+      j.deliverable = { base64: bytes.toString("base64"), bytes: bytes.length, keccak: v.deliverable, contentType: String(contentType).slice(0, 100), submittedAt: iso() };
       j.verdict = { results: v.results, score: v.score, threshold: v.threshold, pass: v.pass, evidenceHash: v.evidenceHash, criteriaHash: v.criteriaHash, judgedAt: iso() };
       j.decision = v.pass ? "release" : "refund";
       j.status = "judged";
@@ -221,29 +262,57 @@ export function createEscrow({ paypal, store, now = () => Date.now(), publicUrl 
         return event(j, "captured", `${cap.amount?.value} ${cap.amount?.currency_code} captured (capture ${cap.id})`);
       });
     }
-    if (job.status === "captured" && !job.paypal.payoutBatchId) {
+    if (job.status === "captured" && !job.paypal.payoutBatchId && !job.paypal.payoutReview) {
+      const n = job.paypal.attempts?.payout ?? 0;
+      const senderBatchId = n ? `JP-${job.id}-${n}` : `JP-${job.id}`;
+      // The attempt is on record before PayPal is asked, so a crash here is reconciled against this batch id, never
+      // paid again under another.
+      job = await store.update(job.id, (j) => { j.paypal.payoutAttempt = { senderBatchId, at: iso() }; return j; });
       let p;
       try {
-        const n = job.paypal.attempts?.payout ?? 0;
         p = await paypal.createPayout({
-          senderBatchId: n ? `JP-${job.id}-${n}` : `JP-${job.id}`, senderItemId: job.id, requestId: rid(job, "payout"), receiver: job.worker.email,
+          senderBatchId, senderItemId: job.id, requestId: rid(job, "payout"), receiver: job.worker.email,
           amount: { currency: job.payout.currency, value: job.payout.value },
           emailSubject: "You were paid for verified work",
           emailMessage: `Judge Pay checked your delivery for "${job.title}" against the agreed checks and every one passed.`,
           note: `Receipt: ${receiptUrl(job.id)}`,
         });
       } catch (e) {
-        if (definitive(e)) await bump(job, "payout");
-        return note(job, "payout-retry", `payout did not complete: ${e.message}`);
+        if (definitive(e) && SAFE_PAYOUT_REFUSALS.has(e.paypalName)) {
+          await bump(job, "payout"); // PayPal created nothing: the next try may use a fresh batch id
+          return note(job, "payout-retry", `payout refused, will retry: ${e.message}`);
+        }
+        if (definitive(e)) {
+          // PayPal may already hold a batch under this id (the answer to an earlier try was lost and its replay
+          // window passed). Paying again under a new id could pay twice, so this stops for a person to reconcile.
+          return store.update(job.id, (j) => {
+            j.paypal.payoutReview = `${senderBatchId}: ${e.message}`;
+            return event(j, "payout-review", `payout stopped for review, batch ${senderBatchId}: ${e.message}`);
+          });
+        }
+        return note(job, "payout-retry", `payout did not complete: ${e.message}`); // timeout or 5xx: same request id next time
       }
       job = await store.update(job.id, (j) => {
         j.paypal.payoutBatchId = p.batch_header?.payout_batch_id;
         j.paypal.payoutStatus = p.batch_header?.batch_status ?? "PENDING";
-        return event(j, "payout-sent", `${job.payout.value} ${job.payout.currency} to ${job.worker.email} (batch ${j.paypal.payoutBatchId})`);
+        return event(j, "payout-sent", `${job.payout.value} ${job.payout.currency} to the worker (batch ${j.paypal.payoutBatchId})`);
       });
     }
     if (job.status === "captured" && job.paypal.payoutBatchId) return refreshPayout(job.id);
     return job;
+  }
+
+  /** A person reconciled a payout stopped for review: PayPal's batch id for it, or none, after which it is retried. */
+  async function resolvePayoutReview(id, { payoutBatchId = null } = {}) {
+    const job = await load(id);
+    if (!job.paypal.payoutReview) throw conflict("this job's payout is not under review");
+    const next = await store.update(job.id, (j) => {
+      delete j.paypal.payoutReview;
+      if (payoutBatchId) { j.paypal.payoutBatchId = String(payoutBatchId); j.paypal.payoutStatus = "PENDING"; event(j, "payout-reconciled", `batch ${payoutBatchId} recorded by hand`); }
+      else { j.paypal.attempts = { ...(j.paypal.attempts || {}), payout: (j.paypal.attempts?.payout ?? 0) + 1 }; event(j, "payout-reconciled", "no batch exists at PayPal: a fresh batch id will be used"); }
+      return j;
+    });
+    return next.status === "captured" ? settle(next.id) : next;
   }
 
   /** Read the payout's state from PayPal; the job is paid once PayPal reports the item paid. */
@@ -305,14 +374,24 @@ export function createEscrow({ paypal, store, now = () => Date.now(), publicUrl 
     return (await store.list()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  return { postJob, createOrder, authorize, deliver, settle, sweep, refreshPayout, get: load, list, receiptUrl };
+  return { registerWorker, rotateWorkerKey, postJob, createOrder, authorize, deliver, settle, sweep, refreshPayout, resolvePayoutReview, get: load, list, receiptUrl };
 }
 
-/** What anyone may see: everything except the worker's delivery token. */
+/** What anyone may see: the terms, the state, the verdict, the hashes and PayPal's record ids. Never the delivered
+ *  bytes, the worker's or the buyer's details. An allowlist, so a new field is private until it is listed here. */
 export function publicView(job) {
   if (!job) return null;
-  const { workerToken, ...rest } = job;
-  return rest;
+  const pp = job.paypal || {};
+  return {
+    id: job.id, title: job.title, task: job.task, criteria: job.criteria, criteriaHash: job.criteriaHash,
+    price: job.price, feeBps: job.feeBps, payout: job.payout, status: job.status, decision: job.decision,
+    createdAt: job.createdAt, updatedAt: job.updatedAt, deadline: job.deadline,
+    deliverable: job.deliverable ? { keccak: job.deliverable.keccak, bytes: job.deliverable.bytes, contentType: job.deliverable.contentType, submittedAt: job.deliverable.submittedAt } : null,
+    verdict: job.verdict,
+    paypal: { orderId: pp.orderId ?? null, authorizationId: pp.authorizationId ?? null, captureId: pp.captureId ?? null, voided: !!pp.voided,
+      payoutBatchId: pp.payoutBatchId ?? null, payoutStatus: pp.payoutStatus ?? null, payoutItemStatus: pp.payoutItemStatus ?? null, underReview: !!pp.payoutReview },
+    events: job.events,
+  };
 }
 
 /** The receipt: the terms, the delivery, the checks, the decision and PayPal's records, with a hash over all of it. */

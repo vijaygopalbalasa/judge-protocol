@@ -1,9 +1,10 @@
-// Where jobs live. Every store has the same four calls; update() runs one job's read-modify-write at a time, so two
-// requests for the same job cannot interleave inside this process.
+// Where jobs and workers live. Every store has the same four calls; update() runs one record's read-modify-write at a
+// time, so two requests for the same record cannot interleave inside this process. Records carry their key in `id`.
+import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-const ID = /^[0-9]{6,30}$/;
+const JOB_ID = /^[0-9]{6,30}$/;
 const clone = (x) => (x === null || x === undefined ? null : structuredClone(x));
 
 function serial() {
@@ -17,41 +18,46 @@ function serial() {
 }
 
 export function memoryStore() {
-  const jobs = new Map();
+  const records = new Map();
   const run = serial();
   return {
     kind: "memory",
-    async get(id) { return clone(jobs.get(String(id))); },
-    async put(job) { jobs.set(job.id, clone(job)); return clone(job); },
-    async list() { return [...jobs.values()].map(clone); },
+    async get(id) { return clone(records.get(String(id))); },
+    async put(record) { records.set(String(record.id), clone(record)); return clone(record); },
+    async list() { return [...records.values()].map(clone); },
     update(id, fn) {
       return run(String(id), async () => {
-        const cur = jobs.get(String(id));
+        const cur = records.get(String(id));
         if (!cur) return null;
         const next = await fn(clone(cur));
-        jobs.set(String(id), clone(next));
+        records.set(String(id), clone(next));
         return clone(next);
       });
     },
   };
 }
 
-/** One JSON file per job, written to a temporary name and renamed, so a crash never leaves half a job. */
-export function fileStore(dir) {
+/** Jobs: one file per job named by its numeric id. */
+export const jobFileName = (id) => {
+  if (!JOB_ID.test(String(id))) throw new RangeError(`bad job id: ${id}`);
+  return `${id}.json`;
+};
+/** Workers: one file per worker named by the hash of their email, so no address appears in a file name. */
+export const workerFileName = (email) => `${createHash("sha256").update(String(email)).digest("hex").slice(0, 40)}.json`;
+
+/** One JSON file per record, written to a temporary name and renamed, so a crash never leaves half a record. */
+export function fileStore(dir, { fileName = jobFileName } = {}) {
   const run = serial();
-  const path = (id) => {
-    if (!ID.test(String(id))) throw new RangeError(`bad job id: ${id}`);
-    return join(dir, `${id}.json`);
-  };
+  const path = (id) => join(dir, fileName(id));
   async function read(id) {
     try { return JSON.parse(await readFile(path(id), "utf8")); } catch (e) { if (e.code === "ENOENT") return null; throw e; }
   }
-  async function write(job) {
+  async function write(record) {
     await mkdir(dir, { recursive: true });
-    const tmp = `${path(job.id)}.${process.pid}.tmp`;
-    await writeFile(tmp, JSON.stringify(job, null, 2));
-    await rename(tmp, path(job.id));
-    return job;
+    const tmp = `${path(record.id)}.${process.pid}.tmp`;
+    await writeFile(tmp, JSON.stringify(record, null, 2));
+    await rename(tmp, path(record.id));
+    return record;
   }
   return {
     kind: "file",
@@ -60,9 +66,12 @@ export function fileStore(dir) {
     async list() {
       let names = [];
       try { names = await readdir(dir); } catch (e) { if (e.code !== "ENOENT") throw e; }
-      const jobs = [];
-      for (const n of names) if (/^[0-9]+\.json$/.test(n)) { const j = await read(n.slice(0, -5)); if (j) jobs.push(j); }
-      return jobs;
+      const records = [];
+      for (const n of names) {
+        if (!n.endsWith(".json")) continue;
+        try { records.push(JSON.parse(await readFile(join(dir, n), "utf8"))); } catch { /* a half-written temp file is never .json */ }
+      }
+      return records;
     },
     update(id, fn) {
       return run(String(id), async () => {
