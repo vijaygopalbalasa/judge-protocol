@@ -19,8 +19,11 @@ interface IJudgePolicy {
 ///         ERC8183_ROUTER_ADDRESS and ERC8183_POLICY_ADDRESS environment variables. This router keeps the official
 ///         router's public surface that the SDK uses (registerJob, settle, jobPolicy, policyWhitelist, markExpired)
 ///         and the same error names, and does nothing else.
-/// @dev Hooks never revert on this router's own logic: the kernel bubbles a hook's revert, so a reverting hook
-///      would block the kernel's state change. A submit by a job this router does not know is simply ignored.
+/// @dev The router's own hook logic never reverts for a kernel caller: the kernel bubbles a hook's revert, so a
+///      reverting hook would block the kernel's state change. A submit for a job this router does not know is
+///      simply ignored. The one revert that can reach the kernel is a whitelisted policy's own onSubmitted, which
+///      is deliberate: a broken policy fails loudly at submit, where it is noticed, instead of stranding a funded
+///      job silently until expiry. The router owner is the one who whitelists policies.
 contract JudgeRouter is IACPHook, ERC165, Ownable2Step, ReentrancyGuard {
     uint8 public constant PENDING = 0;
     uint8 public constant APPROVE = 1;

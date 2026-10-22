@@ -380,8 +380,9 @@ contract JudgeDeterministicPolicyTest is Test {
         vm.prank(client);
         vm.expectRevert(JudgeRouter.RouterNotEvaluator.selector);
         router.registerJob(wrongEvaluator, address(policy));
+        JudgeRouter otherRouter = new JudgeRouter(address(commerce)); // some other ERC-165 hook the kernel accepts
         vm.prank(client);
-        uint256 wrongHook = commerce.createJob(provider, address(router), block.timestamp + 7 days, "job", address(0));
+        uint256 wrongHook = commerce.createJob(provider, address(router), block.timestamp + 7 days, "job", address(otherRouter));
         vm.prank(client);
         vm.expectRevert(JudgeRouter.RouterNotHook.selector);
         router.registerJob(wrongHook, address(policy));
@@ -393,6 +394,30 @@ contract JudgeDeterministicPolicyTest is Test {
         assertEq(router.jobPolicy(good), address(policy));
         assertTrue(router.policyWhitelist(address(policy)));
         assertFalse(router.policyWhitelist(address(other)));
+    }
+
+    function test_theMockKernelRequiresAnErc165HookLikeTheRealOne() public {
+        vm.prank(client);
+        vm.expectRevert(MockBnbCommerce.HookRequired.selector);
+        commerce.createJob(provider, address(router), block.timestamp + 7 days, "job", address(0));
+        vm.prank(client);
+        vm.expectRevert(MockBnbCommerce.HookMissingInterface.selector);
+        commerce.createJob(provider, address(router), block.timestamp + 7 days, "job", address(usdc));
+    }
+
+    function test_theClientMayAlsoSetTheBudgetAndTheRouterDoesNotMind() public {
+        vm.prank(client);
+        uint256 jobId = commerce.createJob(provider, address(router), block.timestamp + 7 days, "job", address(router));
+        vm.prank(client);
+        router.registerJob(jobId, address(policy));
+        vm.prank(client); // the real kernel lets the client or the provider set the budget
+        commerce.setBudget(jobId, BUDGET, "");
+        vm.prank(client);
+        commerce.fund(jobId, BUDGET, "");
+        vm.prank(provider);
+        commerce.submit(jobId, DELIVERABLE, "");
+        router.settle(jobId, _evidence(_verdict(jobId, true), signerKey));
+        assertEq(usdc.balanceOf(provider), BUDGET);
     }
 
     function test_hooksNeverBlockTheKernelForJobsTheRouterDoesNotKnow() public {

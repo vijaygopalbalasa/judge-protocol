@@ -64,13 +64,14 @@ contract DeployBnb is Script {
     }
 
     /// @dev BNB's Job struct has 11 fields: the description offset in getJob(1)'s raw words is 0x160, not Circle's
-    ///      0x120. A kernel with another layout is refused before anything is sent.
+    ///      0x120, whether or not job 1 exists (an empty struct encodes with the same offsets). A kernel with another
+    ///      layout is refused before anything is sent.
     function _requireBnbLayout(address commerce) internal view {
         require(commerce.code.length > 0, "no code at BNB_COMMERCE");
         (bool ok, bytes memory ret) = commerce.staticcall(abi.encodeCall(IBnbCommerce.getJob, (1)));
         require(ok && ret.length >= 12 * 32, "getJob(1) failed");
-        (uint256 tupleOffset, uint256 id,,,, uint256 descriptionOffset) =
+        (uint256 tupleOffset,,,,, uint256 descriptionOffset) =
             abi.decode(ret, (uint256, uint256, uint256, uint256, uint256, uint256));
-        require(tupleOffset == 0x20 && id == 1 && descriptionOffset == 0x160, "the kernel's getJob does not have BNB's Job layout");
+        require(tupleOffset == 0x20 && descriptionOffset == 0x160, "the kernel's getJob does not have BNB's Job layout");
     }
 }
