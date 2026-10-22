@@ -15,7 +15,7 @@ const TYPES = { TransferWithAuthorization: [
   { name: "validAfter", type: "uint256" }, { name: "validBefore", type: "uint256" }, { name: "nonce", type: "bytes32" },
 ] };
 
-export function fakeGateway({ balances = {}, supported = true, fail = {} } = {}) {
+export function fakeGateway({ balances = {}, supported = true, fail = {}, network = ARC } = {}) {
   const bal = new Map(Object.entries(balances).map(([a, v]) => [a.toLowerCase(), BigInt(v)]));
   const usedNonces = new Set(); // lower-cased: a nonce is a number, not a string
   const transfers = new Map();   // nonce -> the settled transfer, as Gateway's transfer search returns it
@@ -42,7 +42,7 @@ export function fakeGateway({ balances = {}, supported = true, fail = {} } = {})
     async getSupported() {
       calls.getSupported++;
       if (fail.getSupported) throw new Error("gateway unreachable");
-      return { kinds: supported ? [{ x402Version: 2, scheme: "exact", network: ARC,
+      return { kinds: supported ? [{ x402Version: 2, scheme: "exact", network,
         extra: { name: "GatewayWalletBatched", version: "1", verifyingContract: GATEWAY_WALLET.toLowerCase(), minValiditySeconds: 604800,
           assets: [{ symbol: "USDC", address: USDC, decimals: 6 }] } }] : [], extensions: [], signers: {} };
     },

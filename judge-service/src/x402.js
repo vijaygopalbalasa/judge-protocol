@@ -27,6 +27,12 @@ import { judgeNow as defaultJudgeNow, jobStatus as defaultJobStatus, rulingPrech
 
 export const ARC_TESTNET_NETWORK = "eip155:5042002";
 export const USDC_ARC_TESTNET = "0x3600000000000000000000000000000000000000";
+/** The Circle Gateway networks a hosted judge can settle on, by the chain it runs on. USDC is the same predeploy on
+ *  both Arc networks, and Arc is Gateway domain 26 on both (checked against both Gateway APIs, 2026-10-22). */
+export const NETWORKS = {
+  5042002: { label: "Arc testnet", network: "eip155:5042002", usdc: USDC_ARC_TESTNET, gatewayUrl: "https://gateway-api-testnet.circle.com", domain: 26 },
+  5042: { label: "Arc mainnet", network: "eip155:5042", usdc: USDC_ARC_TESTNET, gatewayUrl: "https://gateway-api.circle.com", domain: 26 },
+};
 const ISSUES_URL = "https://github.com/vijaygopalbalasa/judge-protocol/issues";
 export const PRICE_ATOMIC = "10000"; // 0.01 USDC (6 decimals)
 export const PRICE_LABEL = "0.01 USDC";
@@ -46,7 +52,7 @@ const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64");
 const jsonable = (v) => JSON.parse(JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x)));
 const out = (status, body, headers = {}) => ({ status, body: jsonable(body), headers });
 const same = (x, y) => String(x ?? "").toLowerCase() === String(y ?? "").toLowerCase();
-function withTimeout(promise, ms, what) {
+export function withTimeout(promise, ms, what) {
   let timer;
   return Promise.race([
     Promise.resolve(promise).finally(() => clearTimeout(timer)),
@@ -54,29 +60,29 @@ function withTimeout(promise, ms, what) {
   ]);
 }
 
-/** A depositor's available Circle Gateway balance on Arc testnet, in USDC atomic units. */
-export async function gatewayBalance(address, { url = GATEWAY_TESTNET_URL, fetchImpl = fetch } = {}) {
+/** A depositor's available Circle Gateway balance on Arc (testnet by default), in USDC atomic units. */
+export async function gatewayBalance(address, { url = GATEWAY_TESTNET_URL, domain = ARC_GATEWAY_DOMAIN, fetchImpl = fetch } = {}) {
   const res = await fetchImpl(`${url}/v1/balances`, {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ token: "USDC", sources: [{ depositor: address, domain: ARC_GATEWAY_DOMAIN }] }),
+    body: JSON.stringify({ token: "USDC", sources: [{ depositor: address, domain }] }),
     signal: AbortSignal.timeout(8000),
   });
   const data = await res.json().catch(() => null);
-  const entry = (data?.balances || []).find((b) => b.domain === ARC_GATEWAY_DOMAIN && same(b.depositor, address));
+  const entry = (data?.balances || []).find((b) => b.domain === domain && same(b.depositor, address));
   if (!res.ok || typeof entry?.balance !== "string") throw new Error(`Gateway balance lookup failed (${res.status})`);
   return parseUnits(entry.balance, 6);
 }
 
 /** Gateway's record of a payment, by its nonce (null if Gateway has never seen it). */
-export async function gatewayTransfer(nonce, { url = GATEWAY_TESTNET_URL, fetchImpl = fetch } = {}) {
-  const res = await fetchImpl(`${url}/v1/x402/transfers?nonce=${encodeURIComponent(nonce)}&network=${ARC_TESTNET_NETWORK}`, { signal: AbortSignal.timeout(8000) });
+export async function gatewayTransfer(nonce, { url = GATEWAY_TESTNET_URL, network = ARC_TESTNET_NETWORK, fetchImpl = fetch } = {}) {
+  const res = await fetchImpl(`${url}/v1/x402/transfers?nonce=${encodeURIComponent(nonce)}&network=${network}`, { signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error(`Gateway transfer lookup failed (${res.status})`);
   const data = await res.json().catch(() => null);
   return (data?.transfers || []).find((t) => same(t.nonce, nonce) && t.status !== "failed") ?? null;
 }
 
 /** Local checks on a payment-signature header, before anything leaves this process. */
-async function checkPayment(header, terms, nowSec) {
+export async function checkPayment(header, terms, nowSec) {
   if (typeof header !== "string") return { status: 400, error: "send exactly one payment-signature header, as a single string" };
   if (header.length > MAX_HEADER_BYTES) return { status: 400, error: "the payment-signature header is too large" };
   let p;
@@ -110,8 +116,40 @@ async function checkPayment(header, terms, nowSec) {
       signature: sig,
     });
   } catch { signer = null; }
-  if (!signer || !same(signer, a.from)) return { status: 402, error: "the payment signature does not match the payer (it must be signed by the paying address for Arc testnet)" };
+  if (!signer || !same(signer, a.from)) return { status: 402, error: "the payment signature does not match the payer (it must be signed by the paying address, for this network)" };
   return { ok: true, payload: p, from: getAddress(a.from), nonce: String(a.nonce).toLowerCase() };
+}
+
+/** The x402 terms for one price on one Gateway network, read once from Gateway's supported list. */
+export function makeTerms({ facilitator, network = ARC_TESTNET_NETWORK, asset = USDC_ARC_TESTNET, payTo, timeoutMs = 8000, label = "Arc testnet" }) {
+  let kind = null;
+  return async function terms() {
+    if (!kind) {
+      const s = await withTimeout(facilitator.getSupported(), timeoutMs, "Gateway supported list");
+      kind = (s?.kinds || []).find((k) => k.network === network && k.scheme === "exact" && k.extra?.verifyingContract) || null;
+      if (!kind) throw new Error(`Circle Gateway does not list ${label}`);
+    }
+    return { scheme: "exact", network, asset, amount: PRICE_ATOMIC, payTo: getAddress(payTo),
+      maxTimeoutSeconds: GATEWAY_AUTH_VALIDITY_WINDOW_SECONDS,
+      extra: { ...BATCHING, verifyingContract: getAddress(kind.extra.verifyingContract) } };
+  };
+}
+
+/** Settle a checked payment, and if the answer never comes back, ask Gateway whether it went through. */
+export function makeSettle({ facilitator, lookupTransfer, timeoutMs = 8000 }) {
+  return async function settle(c, t) {
+    let s;
+    try { s = await withTimeout(facilitator.settle(c.payload, t), timeoutMs, "Gateway settle"); } catch (e) {
+      let found;
+      try { found = await withTimeout(lookupTransfer(c.nonce), timeoutMs, "Gateway transfer lookup"); } catch {
+        return { charged: "unknown", reason: `${e.message}; the payment could not be looked up` };
+      }
+      return found ? { charged: true, transaction: found.id, payer: found.fromAddress ?? c.from, via: "lookup" }
+        : { charged: false, reason: `${e.message}; Gateway has no record of the payment` };
+    }
+    if (s?.success) return { charged: true, transaction: s.transaction, payer: s.payer || c.from };
+    return { charged: false, reason: s?.errorReason || "unknown" };
+  };
 }
 
 export function createPaidJudge({
@@ -127,35 +165,10 @@ export function createPaidJudge({
   now = () => Math.floor(Date.now() / 1000),
   timeoutMs = 8000,
 } = {}) {
-  let arcKind = null;          // Gateway's Arc testnet entry, fetched once per instance
   const inFlight = new Set();  // nonces being processed right now (a cheap first line; Gateway is the real one)
   const spent = new Set();     // nonces this instance has settled
-
-  async function terms() {
-    if (!arcKind) {
-      const s = await withTimeout(facilitator.getSupported(), timeoutMs, "Gateway supported list");
-      arcKind = (s?.kinds || []).find((k) => k.network === ARC_TESTNET_NETWORK && k.scheme === "exact" && k.extra?.verifyingContract) || null;
-      if (!arcKind) throw new Error("Circle Gateway does not list Arc testnet");
-    }
-    return { scheme: "exact", network: ARC_TESTNET_NETWORK, asset: USDC_ARC_TESTNET, amount: PRICE_ATOMIC, payTo: getAddress(payTo),
-      maxTimeoutSeconds: GATEWAY_AUTH_VALIDITY_WINDOW_SECONDS,
-      extra: { ...BATCHING, verifyingContract: getAddress(arcKind.extra.verifyingContract) } };
-  }
-
-  /** Settle, and if the answer never comes back, ask Gateway whether it went through. */
-  async function settle(c, t) {
-    let s;
-    try { s = await withTimeout(facilitator.settle(c.payload, t), timeoutMs, "Gateway settle"); } catch (e) {
-      let found;
-      try { found = await withTimeout(lookupTransfer(c.nonce), timeoutMs, "Gateway transfer lookup"); } catch {
-        return { charged: "unknown", reason: `${e.message}; the payment could not be looked up` };
-      }
-      return found ? { charged: true, transaction: found.id, payer: found.fromAddress ?? c.from, via: "lookup" }
-        : { charged: false, reason: `${e.message}; Gateway has no record of the payment` };
-    }
-    if (s?.success) return { charged: true, transaction: s.transaction, payer: s.payer || c.from };
-    return { charged: false, reason: s?.errorReason || "unknown" };
-  }
+  const terms = makeTerms({ facilitator, payTo, timeoutMs });
+  const settle = makeSettle({ facilitator, lookupTransfer, timeoutMs });
 
   return async function paidJudge({ jobId, submitTx, paymentHeader } = {}) {
     if (parseJobIdInput(jobId) === null) return out(400, { error: "jobId must be a positive integer", charged: false });
