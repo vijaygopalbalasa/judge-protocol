@@ -192,6 +192,28 @@ one that says your payment settled (see above).
 The judge address, its signer and whether the signer is authorized on chain, the
 relayer's gas balance, and the ERC-8412 registry and attestor.
 
+### `GET /api/arcbounty?jobId=<id>&network=arc-mainnet`
+For ArcBounty bounties: the score for the latest submission on a bounty whose description carries a
+`judge-criteria` block, computed from the adapter's record, the escrow's commitment and the pinned IPFS
+files, exactly as `node judge-service/src/arcbounty.js <id> --network <network>` prints it. `network` is
+`arc-mainnet` (the default) or `arc-testnet`. Keyless and read-only: it never signs or settles.
+
+```bash
+curl -s 'https://judge-protocol-api-mainnet.vercel.app/api/arcbounty?jobId=18'
+```
+
+| HTTP | `status` | Meaning |
+|---|---|---|
+| 200 | `ruled` | `ruling.score`, `ruling.pass`, `ruling.threshold`, each check in `ruling.results`, `ruling.criteriaHash` and `ruling.rulingHash` (what a ruling record commits to). |
+| 200 | `no-submission` | Nothing submitted on this bounty yet. |
+| 200 | `abstained` | No ruling is possible; `reason` says why (no criteria block, invalid criteria, a file that does not match its CID, a web link instead of an IPFS file, a check that needs a live probe). |
+| 404 | `not-found` | The job id is not an ArcBounty bounty on that network. |
+| 400 | (none) | Anything but a positive `jobId` and a known `network`; no other parameter is taken. |
+| 503 | (none) | The chain or IPFS could not be read right now; ask again. |
+
+Answers are cached for five minutes. A cold answer takes up to about 20 seconds: it finds the submission
+block on chain and fetches both files.
+
 ### `GET /api/erc8412?jobId=<id>`
 Before the provider submits: the job's ERC-8412 criteria document and the exact
 `preregister(...)` arguments for the job's client. After the judge attests: the whole

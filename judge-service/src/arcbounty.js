@@ -31,7 +31,7 @@ export const ARCBOUNTY_NETWORKS = {
   // their commit ef5d100, the mainnet adapter's code, driving Circle's ERC-8183 contract on Arc testnet.
   "arc-testnet": {
     chainId: 5042002,
-    rpc: "https://rpc.testnet.arc.network",
+    rpc: "https://rpc.testnet.arc.io",
     adapter: "0xF6b89bD7FCd9a277f08c2b5Cbe388a721A16fe14", // BountyAdapter V4.7, deployed by ArcBounty for the run
     escrow: "0x0747EEf0706327138c69792bF28Cd525089e4583",  // Circle's ERC-8183 contract on Arc testnet
     fromBlock: 64781962n,                                  // the adapter's deployment block (tx 0x99d668c2...)

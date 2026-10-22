@@ -153,6 +153,6 @@ neither hand the role back nor undo a hand-back.
   (vendored for tests only under `contracts/test/vendor/arcbounty`, MIT, pinned to their commit
   `ef5d100882a4bfe475c685586902ecc72da420e8`, pragma relaxed to this repo's solc; that folder alone compiles with
   via-IR, as it does in their repo).
-- `ARC_TESTNET_RPC=https://rpc.testnet.arc.network forge test --match-contract ArcBountyTestnetFork -vv`: reads a
+- `ARC_TESTNET_RPC=https://rpc.testnet.arc.io forge test --match-contract ArcBountyTestnetFork -vv`: reads a
   live bounty from their Arc testnet adapter through `IBountyAdapter` and runs the handover and hand-back on a
   fork. Skipped without the variable.
