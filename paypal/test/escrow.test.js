@@ -16,6 +16,7 @@ const CRITERIA = { version: 1, passThreshold: 100, checks: [
 const GOOD = "Every refund comes with a receipt the buyer can check.";
 const BAD = "Short answer without the two words.";
 const WORKER = "worker@personal.example.com";
+const OPERATOR = "operator-secret";
 
 function setup({ clock = { t: Date.parse("2026-10-22T10:00:00Z") }, ...opts } = {}) {
   const fake = fakePayPal({ now: () => clock.t });
@@ -23,7 +24,7 @@ function setup({ clock = { t: Date.parse("2026-10-22T10:00:00Z") }, ...opts } = 
   let n = 0;
   const workers = memoryStore();
   const escrow = createEscrow({ paypal, store: memoryStore(), workers, now: () => clock.t, publicUrl: "https://pay.example",
-    idgen: () => String(1_792_000_000_000_000 + ++n), keygen: () => `key-${++n}`, ...opts });
+    idgen: () => String(1_792_000_000_000_000 + ++n), keygen: () => `key-${++n}`, operatorKeyHash: hashSecret(OPERATOR), ...opts });
   const keys = new Map();
   /** The worker's key for an email, registering on first use. */
   const keyFor = async (email = WORKER) => {
@@ -296,9 +297,34 @@ test("a payout whose lost answer can no longer be replayed stops for review: nev
   assert.equal(publicView(stopped).paypal.underReview, true);
   // A person finds the batch at PayPal and records it; the job then completes from PayPal's own status.
   const known = env.fake.lastPayoutBatchId();
-  const done = await env.escrow.resolvePayoutReview(job.id, { payoutBatchId: known });
+  await assert.rejects(env.escrow.resolvePayoutReview(job.id, { payoutBatchId: known }), (e) => e.status === 403, "no operator key");
+  await assert.rejects(env.escrow.resolvePayoutReview(job.id, { operatorKey: "guess", payoutBatchId: known }), (e) => e.status === 403);
+  await assert.rejects(env.escrow.resolvePayoutReview(job.id, { operatorKey: OPERATOR }), (e) => e.status === 400, "one of the two answers is required");
+  const done = await env.escrow.resolvePayoutReview(job.id, { operatorKey: OPERATOR, payoutBatchId: known });
   assert.equal(done.status, "paid");
   assert.equal(done.paypal.payoutBatchId, known);
+});
+
+test("a recorded batch must be this job's payout at PayPal: its batch id, amount and receiver", async () => {
+  const env = setup();
+  const other = await funded(env, { title: "other" });
+  await deliver(env, other, GOOD); // a real payout for another job
+  const otherBatch = env.fake.lastPayoutBatchId();
+  const job = await funded(env);
+  env.fake.fault("POST /v1/payments/payouts", "before", 400);
+  const stopped = await deliver(env, job, GOOD);
+  assert.equal(stopped.events.at(-1).type, "payout-review");
+  await assert.rejects(env.escrow.resolvePayoutReview(job.id, { operatorKey: OPERATOR, payoutBatchId: otherBatch }), (e) => e.status === 400 && /not this job's payout/.test(e.message));
+  await assert.rejects(env.escrow.resolvePayoutReview(job.id, { operatorKey: OPERATOR, payoutBatchId: "BATCH-NOPE" }), (e) => e.status === 400);
+  assert.equal((await env.escrow.get(job.id)).paypal.payoutReview !== undefined, true, "still under review");
+});
+
+test("without an operator key configured, a review cannot be resolved at all", async () => {
+  const env = setup({ operatorKeyHash: undefined });
+  const job = await funded(env);
+  env.fake.fault("POST /v1/payments/payouts", "before", 400);
+  await deliver(env, job, GOOD);
+  await assert.rejects(env.escrow.resolvePayoutReview(job.id, { operatorKey: OPERATOR, confirmedNoBatch: true }), (e) => e.status === 403);
 });
 
 test("a review resolved as 'no batch exists' retries with a fresh batch id", async () => {
@@ -307,11 +333,12 @@ test("a review resolved as 'no batch exists' retries with a fresh batch id", asy
   env.fake.fault("POST /v1/payments/payouts", "before", 400); // a definitive refusal that is not on the safe list
   const stopped = await deliver(env, job, GOOD);
   assert.equal(stopped.events.at(-1).type, "payout-review");
-  await assert.rejects(env.escrow.resolvePayoutReview(`${Number(job.id) + 1}`, {}), (e) => e.status === 404);
-  const done = await env.escrow.resolvePayoutReview(job.id, {});
+  await assert.rejects(env.escrow.resolvePayoutReview(`${Number(job.id) + 1}`, { operatorKey: OPERATOR, confirmedNoBatch: true }), (e) => e.status === 404);
+  await assert.rejects(env.escrow.resolvePayoutReview(job.id, { operatorKey: OPERATOR, confirmedNoBatch: "yes" }), (e) => e.status === 400, "the confirmation is an explicit true");
+  const done = await env.escrow.resolvePayoutReview(job.id, { operatorKey: OPERATOR, confirmedNoBatch: true });
   assert.equal(done.status, "paid");
   assert.equal(env.fake.calls.filter((c) => c.path === "/v1/payments/payouts").at(-1).body.sender_batch_header.sender_batch_id, `JP-${job.id}-1`);
-  await assert.rejects(env.escrow.resolvePayoutReview(job.id, {}), (e) => e.status === 409, "not under review any more");
+  await assert.rejects(env.escrow.resolvePayoutReview(job.id, { operatorKey: OPERATOR, confirmedNoBatch: true }), (e) => e.status === 409, "not under review any more");
 });
 
 test("a void whose answer was lost still ends refunded, without a second void", async () => {

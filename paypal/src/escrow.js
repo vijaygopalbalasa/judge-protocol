@@ -69,7 +69,7 @@ export function checkCriteria(criteria) {
 }
 
 export function createEscrow({ paypal, store, workers, now = () => Date.now(), publicUrl = "http://localhost:3000", feeBps = 500, deadlineHours = 72,
-  idgen = newJobId, keygen = () => randomBytes(24).toString("base64url") } = {}) {
+  idgen = newJobId, keygen = () => randomBytes(24).toString("base64url"), operatorKeyHash = null } = {}) {
   if (!paypal || !store || !workers) throw new Error("createEscrow needs paypal, store and workers");
   const iso = () => new Date(now()).toISOString();
   const receiptUrl = (id) => `${publicUrl}/job.html?id=${id}`;
@@ -302,14 +302,28 @@ export function createEscrow({ paypal, store, workers, now = () => Date.now(), p
     return job;
   }
 
-  /** A person reconciled a payout stopped for review: PayPal's batch id for it, or none, after which it is retried. */
-  async function resolvePayoutReview(id, { payoutBatchId = null } = {}) {
+  /** An operator reconciled a payout stopped for review, after looking in PayPal: either PayPal's batch id for this
+   *  job's payout (checked against PayPal: the batch id this job sent, its amount and its receiver), or an explicit
+   *  confirmedNoBatch: true, after which a fresh batch id is used. Needs the operator key; with none configured, a
+   *  review cannot be resolved at all. */
+  async function resolvePayoutReview(id, { operatorKey, payoutBatchId = null, confirmedNoBatch = false } = {}) {
+    if (!operatorKeyHash || !matches(operatorKey, operatorKeyHash)) throw new EscrowError(403, "resolving a payout review needs the operator key");
     const job = await load(id);
     if (!job.paypal.payoutReview) throw conflict("this job's payout is not under review");
+    if (Boolean(payoutBatchId) === (confirmedNoBatch === true)) throw bad("give either the payoutBatchId found at PayPal or confirmedNoBatch: true");
+    if (payoutBatchId) {
+      let p;
+      try { p = await paypal.getPayout(String(payoutBatchId)); } catch (e) { throw bad(`PayPal has no payout ${payoutBatchId}: ${e.message}`); }
+      const item = p?.items?.[0]?.payout_item;
+      if (p?.batch_header?.sender_batch_header?.sender_batch_id !== job.paypal.payoutAttempt?.senderBatchId
+        || item?.amount?.value !== job.payout.value || item?.amount?.currency !== job.payout.currency || item?.receiver !== job.worker.email) {
+        throw bad(`batch ${payoutBatchId} is not this job's payout (batch id, amount or receiver differ)`);
+      }
+    }
     const next = await store.update(job.id, (j) => {
       delete j.paypal.payoutReview;
-      if (payoutBatchId) { j.paypal.payoutBatchId = String(payoutBatchId); j.paypal.payoutStatus = "PENDING"; event(j, "payout-reconciled", `batch ${payoutBatchId} recorded by hand`); }
-      else { j.paypal.attempts = { ...(j.paypal.attempts || {}), payout: (j.paypal.attempts?.payout ?? 0) + 1 }; event(j, "payout-reconciled", "no batch exists at PayPal: a fresh batch id will be used"); }
+      if (payoutBatchId) { j.paypal.payoutBatchId = String(payoutBatchId); j.paypal.payoutStatus = "PENDING"; event(j, "payout-reconciled", `batch ${payoutBatchId} confirmed at PayPal by the operator`); }
+      else { j.paypal.attempts = { ...(j.paypal.attempts || {}), payout: (j.paypal.attempts?.payout ?? 0) + 1 }; event(j, "payout-reconciled", "the operator confirmed no batch exists at PayPal: a fresh batch id will be used"); }
       return j;
     });
     return next.status === "captured" ? settle(next.id) : next;
