@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https:; img-src 'self' data:; font-src 'self' data:; base-uri 'none'; form-action 'none'">
+<title>Judge Pay jobs</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../style.css">
+<script src="https://cdn.jsdelivr.net/npm/ag-grid-community@36.2.0/dist/ag-grid-community.min.js"
+  integrity="sha384-icvtRKM0YJJgeDhXnWY8UlF1PVBFd4K8Pj61la+vG+EU+awBeoP0xGPZhCD2SQOV" crossorigin="anonymous"></script>
+</head>
+<body>
+<main class="wide">
+  <h1>Judge Pay jobs</h1>
+  <p id="source" class="hint">Loading...</p>
+  <div id="kpis" class="kpis"></div>
+  <div id="layout" class="layout">
+    <div id="grid"></div>
+    <aside id="detail" class="panel" hidden>
+      <h2 id="detail-title"></h2>
+      <dl id="detail-facts"></dl>
+      <h2>Agreed checks</h2>
+      <pre id="detail-criteria"></pre>
+      <h2>What happened</h2>
+      <ol id="detail-events" class="steps"></ol>
+      <p class="hint">To check a finished job yourself, open its receipt in the <a href="../receipt/">receipt checker</a>.</p>
+    </aside>
+  </div>
+</main>
+<script type="module" src="./page.js"></script>
+</body>
+</html>

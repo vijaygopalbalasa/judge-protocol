@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' https:; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<title>Check a Judge Pay receipt</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<main>
+  <h1>Check a Judge Pay receipt</h1>
+  <p class="lede">Load a receipt and the file that was delivered. This page runs the agreed checks again here, in your browser,
+    and tells you whether every number in the receipt agrees with those checks and your file. Nothing you load leaves this
+    page.</p>
+
+  <section>
+    <h2>1. The receipt</h2>
+    <textarea id="receipt" rows="8" spellcheck="false" placeholder="Paste the receipt JSON here, or choose the file below"></textarea>
+    <p class="row">
+      <input type="file" id="receipt-file" accept="application/json,.json">
+      <button id="example" type="button">Load the example</button>
+    </p>
+  </section>
+
+  <section>
+    <h2>2. The delivered file</h2>
+    <input type="file" id="delivery-file">
+    <p id="delivery-note" class="hint">Use the original file. Text copied by hand can change its bytes (line endings, for
+      example), and then it will not match.</p>
+  </section>
+
+  <button id="check" type="button" class="primary">Check the receipt</button>
+
+  <section id="result" hidden>
+    <p id="verdict" class="verdict"></p>
+    <ol id="steps" class="steps"></ol>
+    <p class="hint">This page cannot see PayPal, and a receipt carries no signature, so it shows that the numbers agree,
+      not who issued them. Confirm the payment or the refund in your own PayPal account using the ids listed above.</p>
+  </section>
+</main>
+<script type="module" src="./page.js"></script>
+</body>
+</html>

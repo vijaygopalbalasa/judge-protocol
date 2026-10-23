@@ -1,0 +1,637 @@
+[
+  {
+    "id": "1792000000001001",
+    "title": "Product blurb for the SteelSip bottle",
+    "task": "A 12 to 60 word blurb naming SteelSip and its 750 ml size.",
+    "criteria": {
+      "version": 1,
+      "passThreshold": 100,
+      "checks": [
+        {
+          "kind": "contains",
+          "params": {
+            "all": [
+              "SteelSip",
+              "750 ml"
+            ]
+          },
+          "weight": 2
+        },
+        {
+          "kind": "length",
+          "params": {
+            "min": 12,
+            "max": 60,
+            "unit": "words"
+          },
+          "weight": 1
+        }
+      ]
+    },
+    "criteriaHash": "0x8cf5d17651d5b99518d1ebf42b50bf8da38649e064c1ccf50af0aaafd4bcf21b",
+    "price": {
+      "currency": "USD",
+      "value": "5.00",
+      "cents": 500
+    },
+    "feeBps": 500,
+    "payout": {
+      "currency": "USD",
+      "value": "4.75",
+      "cents": 475
+    },
+    "status": "paid",
+    "decision": "release",
+    "createdAt": "2026-10-21T06:00:00.000Z",
+    "updatedAt": "2026-10-21T07:02:00.000Z",
+    "deadline": "2026-10-24T06:00:00.000Z",
+    "deliverable": {
+      "keccak": "0x7b1c259f8bff81226a543a51754564769ec4cc06efecb0dbc1773cff51ca7707",
+      "bytes": 144,
+      "contentType": "text/plain",
+      "submittedAt": "2026-10-21T07:00:00.000Z"
+    },
+    "verdict": {
+      "results": [
+        {
+          "pass": true,
+          "detail": "all 2 terms present",
+          "kind": "contains",
+          "weight": 2
+        },
+        {
+          "pass": true,
+          "detail": "words=30 (need 12–60)",
+          "kind": "length",
+          "weight": 1
+        }
+      ],
+      "score": 100,
+      "threshold": 100,
+      "pass": true,
+      "evidenceHash": "0x215b1ff008b71cefcc75d94523a8d2ed7e561aadd2ef978f6ec825c4e6e0efc8",
+      "criteriaHash": "0x8cf5d17651d5b99518d1ebf42b50bf8da38649e064c1ccf50af0aaafd4bcf21b",
+      "judgedAt": "2026-10-21T07:00:00.000Z"
+    },
+    "paypal": {
+      "orderId": "EXAMPLE-ORDER-1",
+      "authorizationId": "EXAMPLE-AUTH-1",
+      "captureId": "EXAMPLE-CAPTURE-1",
+      "voided": false,
+      "payoutBatchId": "EXAMPLE-BATCH-1",
+      "payoutStatus": "SUCCESS",
+      "payoutItemStatus": "SUCCESS",
+      "underReview": false
+    },
+    "events": [
+      {
+        "at": "2026-10-21T06:00:00.000Z",
+        "type": "posted"
+      },
+      {
+        "at": "2026-10-21T06:05:00.000Z",
+        "type": "funded"
+      },
+      {
+        "at": "2026-10-21T07:00:00.000Z",
+        "type": "judged"
+      },
+      {
+        "at": "2026-10-21T07:01:00.000Z",
+        "type": "captured"
+      },
+      {
+        "at": "2026-10-21T07:02:00.000Z",
+        "type": "paid"
+      }
+    ]
+  },
+  {
+    "id": "1792000000001002",
+    "title": "Product blurb, second try",
+    "task": "Same brief as job 1.",
+    "criteria": {
+      "version": 1,
+      "passThreshold": 100,
+      "checks": [
+        {
+          "kind": "contains",
+          "params": {
+            "all": [
+              "SteelSip",
+              "750 ml"
+            ]
+          },
+          "weight": 2
+        },
+        {
+          "kind": "length",
+          "params": {
+            "min": 12,
+            "max": 60,
+            "unit": "words"
+          },
+          "weight": 1
+        }
+      ]
+    },
+    "criteriaHash": "0x8cf5d17651d5b99518d1ebf42b50bf8da38649e064c1ccf50af0aaafd4bcf21b",
+    "price": {
+      "currency": "USD",
+      "value": "5.00",
+      "cents": 500
+    },
+    "feeBps": 500,
+    "payout": {
+      "currency": "USD",
+      "value": "4.75",
+      "cents": 475
+    },
+    "status": "refunded",
+    "decision": "refund",
+    "createdAt": "2026-10-21T08:00:00.000Z",
+    "updatedAt": "2026-10-21T09:01:00.000Z",
+    "deadline": "2026-10-24T08:00:00.000Z",
+    "deliverable": {
+      "keccak": "0x10183d832779aafbfdc1f57d3f6c83fde6294580e25afaa60948114bfd8ee7a7",
+      "bytes": 42,
+      "contentType": "text/plain",
+      "submittedAt": "2026-10-21T09:00:00.000Z"
+    },
+    "verdict": {
+      "results": [
+        {
+          "pass": false,
+          "detail": "missing terms: SteelSip, 750 ml",
+          "kind": "contains",
+          "weight": 2
+        },
+        {
+          "pass": false,
+          "detail": "words=9 (need 12–60)",
+          "kind": "length",
+          "weight": 1
+        }
+      ],
+      "score": 0,
+      "threshold": 100,
+      "pass": false,
+      "evidenceHash": "0xeb659659dab14a0fb20dfde62630027fa2a9a78f8b252e372a9e2e2ccc17c51f",
+      "criteriaHash": "0x8cf5d17651d5b99518d1ebf42b50bf8da38649e064c1ccf50af0aaafd4bcf21b",
+      "judgedAt": "2026-10-21T09:00:00.000Z"
+    },
+    "paypal": {
+      "orderId": "EXAMPLE-ORDER-2",
+      "authorizationId": "EXAMPLE-AUTH-2",
+      "captureId": null,
+      "voided": true,
+      "payoutBatchId": null,
+      "payoutStatus": null,
+      "payoutItemStatus": null,
+      "underReview": false
+    },
+    "events": [
+      {
+        "at": "2026-10-21T08:00:00.000Z",
+        "type": "posted"
+      },
+      {
+        "at": "2026-10-21T08:04:00.000Z",
+        "type": "funded"
+      },
+      {
+        "at": "2026-10-21T09:00:00.000Z",
+        "type": "judged"
+      },
+      {
+        "at": "2026-10-21T09:01:00.000Z",
+        "type": "refunded"
+      }
+    ]
+  },
+  {
+    "id": "1792000000001003",
+    "title": "Catalog entry as JSON",
+    "task": "One product as JSON with name, price and at least two tags.",
+    "criteria": {
+      "version": 1,
+      "passThreshold": 100,
+      "checks": [
+        {
+          "kind": "json",
+          "params": {
+            "shape": {
+              "type": "object",
+              "required": [
+                "name",
+                "price",
+                "tags"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "price": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "tags": {
+                  "type": "array",
+                  "minItems": 2,
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "criteriaHash": "0x4fffa3dbdb8499eb840e7ec33f19a5724db49c9c840cc721454c8cb9729c58ed",
+    "price": {
+      "currency": "USD",
+      "value": "12.00",
+      "cents": 1200
+    },
+    "feeBps": 500,
+    "payout": {
+      "currency": "USD",
+      "value": "11.40",
+      "cents": 1140
+    },
+    "status": "captured",
+    "decision": "release",
+    "createdAt": "2026-10-21T10:00:00.000Z",
+    "updatedAt": "2026-10-21T11:01:00.000Z",
+    "deadline": "2026-10-24T10:00:00.000Z",
+    "deliverable": {
+      "keccak": "0x3f363e81c50cc67afa7626f3d700ec97fd33dc40570f68b65b83bf53acc330cb",
+      "bytes": 62,
+      "contentType": "text/plain",
+      "submittedAt": "2026-10-21T11:00:00.000Z"
+    },
+    "verdict": {
+      "results": [
+        {
+          "pass": true,
+          "detail": "json ok",
+          "kind": "json",
+          "weight": 1
+        }
+      ],
+      "score": 100,
+      "threshold": 100,
+      "pass": true,
+      "evidenceHash": "0xd938002956b98e2fb3719eb731ad4639329c86070c3d1022b2535c65a5680094",
+      "criteriaHash": "0x4fffa3dbdb8499eb840e7ec33f19a5724db49c9c840cc721454c8cb9729c58ed",
+      "judgedAt": "2026-10-21T11:00:00.000Z"
+    },
+    "paypal": {
+      "orderId": "EXAMPLE-ORDER-3",
+      "authorizationId": "EXAMPLE-AUTH-3",
+      "captureId": "EXAMPLE-CAPTURE-3",
+      "voided": false,
+      "payoutBatchId": null,
+      "payoutStatus": null,
+      "payoutItemStatus": null,
+      "underReview": false
+    },
+    "events": [
+      {
+        "at": "2026-10-21T10:00:00.000Z",
+        "type": "posted"
+      },
+      {
+        "at": "2026-10-21T10:03:00.000Z",
+        "type": "funded"
+      },
+      {
+        "at": "2026-10-21T11:00:00.000Z",
+        "type": "judged"
+      },
+      {
+        "at": "2026-10-21T11:01:00.000Z",
+        "type": "captured"
+      }
+    ]
+  },
+  {
+    "id": "1792000000001004",
+    "title": "Refund policy FAQ answer",
+    "task": "Under 600 characters, mentioning refund and receipt.",
+    "criteria": {
+      "version": 1,
+      "passThreshold": 100,
+      "checks": [
+        {
+          "kind": "contains",
+          "params": {
+            "all": [
+              "refund",
+              "receipt"
+            ],
+            "wholeWords": true
+          },
+          "weight": 1
+        },
+        {
+          "kind": "length",
+          "params": {
+            "max": 600,
+            "unit": "chars"
+          },
+          "weight": 1
+        }
+      ]
+    },
+    "criteriaHash": "0xddc0675574f8a79d5d861699bb74563148fbb8374092cffcddfb7247c9de8be5",
+    "price": {
+      "currency": "USD",
+      "value": "8.00",
+      "cents": 800
+    },
+    "feeBps": 500,
+    "payout": {
+      "currency": "USD",
+      "value": "7.60",
+      "cents": 760
+    },
+    "status": "funded",
+    "decision": null,
+    "createdAt": "2026-10-21T12:00:00.000Z",
+    "updatedAt": "2026-10-21T12:06:00.000Z",
+    "deadline": "2026-10-24T12:00:00.000Z",
+    "deliverable": null,
+    "verdict": null,
+    "paypal": {
+      "orderId": "EXAMPLE-ORDER-4",
+      "authorizationId": "EXAMPLE-AUTH-4",
+      "captureId": null,
+      "voided": false,
+      "payoutBatchId": null,
+      "payoutStatus": null,
+      "payoutItemStatus": null,
+      "underReview": false
+    },
+    "events": [
+      {
+        "at": "2026-10-21T12:00:00.000Z",
+        "type": "posted"
+      },
+      {
+        "at": "2026-10-21T12:06:00.000Z",
+        "type": "funded"
+      }
+    ]
+  },
+  {
+    "id": "1792000000001005",
+    "title": "Second catalog entry",
+    "task": "Same shape as job 3.",
+    "criteria": {
+      "version": 1,
+      "passThreshold": 100,
+      "checks": [
+        {
+          "kind": "json",
+          "params": {
+            "shape": {
+              "type": "object",
+              "required": [
+                "name",
+                "price",
+                "tags"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "price": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "tags": {
+                  "type": "array",
+                  "minItems": 2,
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "criteriaHash": "0x4fffa3dbdb8499eb840e7ec33f19a5724db49c9c840cc721454c8cb9729c58ed",
+    "price": {
+      "currency": "USD",
+      "value": "12.00",
+      "cents": 1200
+    },
+    "feeBps": 500,
+    "payout": {
+      "currency": "USD",
+      "value": "11.40",
+      "cents": 1140
+    },
+    "status": "funding",
+    "decision": null,
+    "createdAt": "2026-10-21T13:00:00.000Z",
+    "updatedAt": "2026-10-21T13:02:00.000Z",
+    "deadline": "2026-10-24T13:00:00.000Z",
+    "deliverable": null,
+    "verdict": null,
+    "paypal": {
+      "orderId": "EXAMPLE-ORDER-5",
+      "authorizationId": null,
+      "captureId": null,
+      "voided": false,
+      "payoutBatchId": null,
+      "payoutStatus": null,
+      "payoutItemStatus": null,
+      "underReview": false
+    },
+    "events": [
+      {
+        "at": "2026-10-21T13:00:00.000Z",
+        "type": "posted"
+      },
+      {
+        "at": "2026-10-21T13:02:00.000Z",
+        "type": "order"
+      }
+    ]
+  },
+  {
+    "id": "1792000000001006",
+    "title": "Three taglines",
+    "task": "Taglines for the SteelSip launch.",
+    "criteria": {
+      "version": 1,
+      "passThreshold": 100,
+      "checks": [
+        {
+          "kind": "contains",
+          "params": {
+            "all": [
+              "SteelSip",
+              "750 ml"
+            ]
+          },
+          "weight": 2
+        },
+        {
+          "kind": "length",
+          "params": {
+            "min": 12,
+            "max": 60,
+            "unit": "words"
+          },
+          "weight": 1
+        }
+      ]
+    },
+    "criteriaHash": "0x8cf5d17651d5b99518d1ebf42b50bf8da38649e064c1ccf50af0aaafd4bcf21b",
+    "price": {
+      "currency": "USD",
+      "value": "3.00",
+      "cents": 300
+    },
+    "feeBps": 500,
+    "payout": {
+      "currency": "USD",
+      "value": "2.85",
+      "cents": 285
+    },
+    "status": "posted",
+    "decision": null,
+    "createdAt": "2026-10-21T14:00:00.000Z",
+    "updatedAt": "2026-10-21T14:00:00.000Z",
+    "deadline": "2026-10-24T14:00:00.000Z",
+    "deliverable": null,
+    "verdict": null,
+    "paypal": {
+      "orderId": null,
+      "authorizationId": null,
+      "captureId": null,
+      "voided": false,
+      "payoutBatchId": null,
+      "payoutStatus": null,
+      "payoutItemStatus": null,
+      "underReview": false
+    },
+    "events": [
+      {
+        "at": "2026-10-21T14:00:00.000Z",
+        "type": "posted"
+      }
+    ]
+  },
+  {
+    "id": "1792000000001007",
+    "title": "Product blurb, hold expired",
+    "task": "Same brief as job 1.",
+    "criteria": {
+      "version": 1,
+      "passThreshold": 100,
+      "checks": [
+        {
+          "kind": "contains",
+          "params": {
+            "all": [
+              "SteelSip",
+              "750 ml"
+            ]
+          },
+          "weight": 2
+        },
+        {
+          "kind": "length",
+          "params": {
+            "min": 12,
+            "max": 60,
+            "unit": "words"
+          },
+          "weight": 1
+        }
+      ]
+    },
+    "criteriaHash": "0x8cf5d17651d5b99518d1ebf42b50bf8da38649e064c1ccf50af0aaafd4bcf21b",
+    "price": {
+      "currency": "USD",
+      "value": "5.00",
+      "cents": 500
+    },
+    "feeBps": 500,
+    "payout": {
+      "currency": "USD",
+      "value": "4.75",
+      "cents": 475
+    },
+    "status": "failed",
+    "decision": "release",
+    "createdAt": "2026-10-21T02:00:00.000Z",
+    "updatedAt": "2026-10-21T05:01:00.000Z",
+    "deadline": "2026-10-24T02:00:00.000Z",
+    "deliverable": {
+      "keccak": "0x7b1c259f8bff81226a543a51754564769ec4cc06efecb0dbc1773cff51ca7707",
+      "bytes": 144,
+      "contentType": "text/plain",
+      "submittedAt": "2026-10-21T05:00:00.000Z"
+    },
+    "verdict": {
+      "results": [
+        {
+          "pass": true,
+          "detail": "all 2 terms present",
+          "kind": "contains",
+          "weight": 2
+        },
+        {
+          "pass": true,
+          "detail": "words=30 (need 12–60)",
+          "kind": "length",
+          "weight": 1
+        }
+      ],
+      "score": 100,
+      "threshold": 100,
+      "pass": true,
+      "evidenceHash": "0xe53ac141cdabe816f49c0f4d912d788b5094a69dca1e2fd90e97aed4537e6af7",
+      "criteriaHash": "0x8cf5d17651d5b99518d1ebf42b50bf8da38649e064c1ccf50af0aaafd4bcf21b",
+      "judgedAt": "2026-10-21T05:00:00.000Z"
+    },
+    "paypal": {
+      "orderId": "EXAMPLE-ORDER-7",
+      "authorizationId": "EXAMPLE-AUTH-7",
+      "captureId": null,
+      "voided": false,
+      "payoutBatchId": null,
+      "payoutStatus": null,
+      "payoutItemStatus": null,
+      "underReview": false
+    },
+    "events": [
+      {
+        "at": "2026-10-21T02:00:00.000Z",
+        "type": "posted"
+      },
+      {
+        "at": "2026-10-21T02:05:00.000Z",
+        "type": "funded"
+      },
+      {
+        "at": "2026-10-21T05:00:00.000Z",
+        "type": "judged"
+      },
+      {
+        "at": "2026-10-21T05:01:00.000Z",
+        "type": "failed"
+      }
+    ]
+  }
+]

@@ -1,0 +1,68 @@
+{
+  "kind": "judge-pay/receipt@1",
+  "jobId": "1792000000001001",
+  "title": "Product blurb for the SteelSip bottle",
+  "task": "A 12 to 60 word blurb naming SteelSip and its 750 ml size.",
+  "criteria": {
+    "version": 1,
+    "passThreshold": 100,
+    "checks": [
+      {
+        "kind": "contains",
+        "params": {
+          "all": [
+            "SteelSip",
+            "750 ml"
+          ]
+        },
+        "weight": 2
+      },
+      {
+        "kind": "length",
+        "params": {
+          "min": 12,
+          "max": 60,
+          "unit": "words"
+        },
+        "weight": 1
+      }
+    ]
+  },
+  "criteriaHash": "0x8cf5d17651d5b99518d1ebf42b50bf8da38649e064c1ccf50af0aaafd4bcf21b",
+  "price": "5.00",
+  "currency": "USD",
+  "feeBps": 500,
+  "payout": "4.75",
+  "deliverable": {
+    "keccak": "0x7b1c259f8bff81226a543a51754564769ec4cc06efecb0dbc1773cff51ca7707",
+    "bytes": 144,
+    "submittedAt": "2026-10-21T07:00:00.000Z"
+  },
+  "results": [
+    {
+      "kind": "contains",
+      "weight": 2,
+      "pass": true,
+      "detail": "all 2 terms present"
+    },
+    {
+      "kind": "length",
+      "weight": 1,
+      "pass": true,
+      "detail": "words=30 (need 12–60)"
+    }
+  ],
+  "score": 100,
+  "threshold": 100,
+  "pass": true,
+  "evidenceHash": "0x215b1ff008b71cefcc75d94523a8d2ed7e561aadd2ef978f6ec825c4e6e0efc8",
+  "decision": "release",
+  "paypal": {
+    "orderId": "EXAMPLE-ORDER-1",
+    "authorizationId": "EXAMPLE-AUTH-1",
+    "captureId": "EXAMPLE-CAPTURE-1",
+    "voided": false,
+    "payoutBatchId": "EXAMPLE-BATCH-1"
+  },
+  "receiptHash": "0x5d110ab6c535ad35ad1df49632489bc3f3e2ab9c3b6c05eeaa376df0db981994"
+}
