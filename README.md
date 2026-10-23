@@ -28,6 +28,11 @@ ArcBounty's job 18 to the same criteria hash as on chain.
 test a delivery (a dry run), read a job, verify a ruling from chain data, and ask the judge to rule on Arc
 testnet. An agent that pays for work can check that work before the escrow pays out.
 
+**For escrow builders:** [`docs/CONFORMANCE.md`](docs/CONFORMANCE.md) is an ERC-8183 conformance suite: each SHALL
+rule of the draft is a Foundry test, run on a fork against any deployment. Measured on 2026-10-23: the ERC's own
+reference code, Circle's Arc testnet escrow and ArcBounty's Arc mainnet escrow pass 25 of 29, G2 Jobs 28 and
+Virtuals' AgenticCommerceV3 on Base 22, with what each difference means and which ones can move money.
+
 ## See it work
 
 A real job posted on Circle's canonical contract, judged, escrow settled, then the verdict
@@ -238,7 +243,8 @@ contracts/        Foundry project (Solidity 0.8.28, cancun)
   src/JudgeAttestor.sol         ERC-8412 verifier: records attestations a trusted judge key signed
   src/interfaces/               IACP, IACPHook, IERC8004, IBountyAdapter
   src/mocks/                    MockACP (faithful to Circle's reference), MockUSDC
-  test/                         118 Foundry tests (evaluator, hook, attestor, arbitrator, attack paths)
+  test/                         212 Foundry tests (evaluator, hook, attestor, arbitrator, BNB policy, attack paths)
+  test/conformance/             ERC-8183 conformance suite: the draft's SHALL rules as tests (docs/CONFORMANCE.md)
   vendor/erc8183-escrow/        ArcBounty's ERC-8183 escrow (MIT), for chains that have none
   script/                       Deploy (Arc testnet), DeployArcMainnet, DeployKit (any chain), DeployArbitrator
   broadcast/                    deploy receipts (public audit trail)
@@ -270,8 +276,9 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
 
 ## Status
 
-- ✅ **118/118 contract tests** (`cd contracts && forge test`): 35 for the evaluator and the attestor,
-  41 for the arbitrator, 42 for the ERC-8004 hook. Evaluator: full lifecycle, both settlement paths, and attack
+- ✅ **212/212 contract tests** (`cd contracts && forge test`): 35 for the evaluator and the attestor,
+  41 for the arbitrator, 42 for the ERC-8004 hook, 34 for the BNB Chain policy and router, and 60 that hold the
+  ERC-8183 conformance suite to an escrow written from the spec (with and without a fee). Evaluator: full lifecycle, both settlement paths, and attack
   paths: bad signer, double-resolution, pause, criteria mismatch, stale verdict, threshold enforcement,
   criteria-registration gating and withdraw auth. Five came from the pre-deployment review (see ARCHITECTURE.md): renouncing ownership
   is disabled, ownership needs acceptance, and criteria can be bound only for this judge's jobs,
@@ -328,7 +335,7 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
 
 ```bash
 # contracts
-cd contracts && git submodule update --init --recursive && forge test   # 118/118, plus 10 fork tests (skipped without their RPC variables)
+cd contracts && git submodule update --init --recursive && forge test   # 212/212, plus 16 fork tests and the conformance runs (skipped without their variables)
 
 # service
 cd ../judge-service && npm install && npm test                          # 307/307
