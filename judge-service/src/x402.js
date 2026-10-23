@@ -31,8 +31,39 @@ export const USDC_ARC_TESTNET = "0x3600000000000000000000000000000000000000";
  *  both Arc networks, and Arc is Gateway domain 26 on both (checked against both Gateway APIs, 2026-10-22). */
 export const NETWORKS = {
   5042002: { label: "Arc testnet", network: "eip155:5042002", usdc: USDC_ARC_TESTNET, gatewayUrl: "https://gateway-api-testnet.circle.com", domain: 26 },
-  5042: { label: "Arc mainnet", network: "eip155:5042", usdc: USDC_ARC_TESTNET, gatewayUrl: "https://gateway-api.circle.com", domain: 26 },
+  5042: { label: "Arc mainnet", network: "eip155:5042", usdc: USDC_ARC_TESTNET, gatewayUrl: "https://gateway-api.circle.com", domain: 26, mainnet: true },
 };
+
+export class PayoutAddressError extends Error {
+  constructor(code, message) { super(message); this.name = "PayoutAddressError"; this.code = code; }
+}
+
+/**
+ * The wallet a paid route credits. The built-in default (config.feeAddress) is the testnet relayer's hot key: fine for
+ * testnet, never for real money. On a mainnet network the wallet has to be named on purpose, with JUDGE_FEE_ADDRESS or
+ * the payTo option, so a deploy can never credit real payments to the default. A mixed-case address must carry the right
+ * checksum: it is the typo check for a wallet that receives money.
+ */
+export function resolvePayTo(net, payTo, cfg = config) {
+  let wallet = payTo;
+  let source = "the payTo option";
+  if (wallet === undefined || wallet === null) {
+    if (cfg.feeAddressSet) {
+      wallet = cfg.feeAddress;
+      source = "JUDGE_FEE_ADDRESS";
+    } else if (net?.mainnet) {
+      throw new PayoutAddressError("NO_PAYOUT_ADDRESS",
+        `${net.label} paid routes need a payout wallet you control: set JUDGE_FEE_ADDRESS (the built-in default is the testnet relayer's key)`);
+    } else {
+      wallet = cfg.feeAddress;
+      source = "the built-in default";
+    }
+  }
+  if (typeof wallet !== "string" || !isAddress(wallet) || /^0x0{40}$/i.test(wallet)) {
+    throw new PayoutAddressError("BAD_PAYOUT_ADDRESS", `the payout wallet (${source}) is not a valid address`);
+  }
+  return getAddress(wallet);
+}
 const ISSUES_URL = "https://github.com/vijaygopalbalasa/judge-protocol/issues";
 export const PRICE_ATOMIC = "10000"; // 0.01 USDC (6 decimals)
 export const PRICE_LABEL = "0.01 USDC";

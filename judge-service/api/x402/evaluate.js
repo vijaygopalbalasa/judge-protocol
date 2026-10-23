@@ -3,7 +3,7 @@
 //   Arc network this judge runs on (mainnet or testnet). Bad input is answered free; a ready result gets 402 with
 //   the terms until a payment-signature header comes with it. Never signs, never settles anything on chain.
 import { createPaidEvaluate, networkFor } from "../../src/x402-evaluate.js";
-import { PRICE_LABEL } from "../../src/x402.js";
+import { PRICE_LABEL, PayoutAddressError } from "../../src/x402.js";
 import { MAX_DELIVERABLE_BYTES } from "../../src/evaluate.js";
 import { cors, readJsonBody } from "../../src/vercel-util.js";
 import { config } from "../../src/config.js";
@@ -36,7 +36,11 @@ export function createX402EvaluateHandler(opts = {}) {
     }
     const body = readJsonBody(req, MAX_REQUEST_BYTES);
     if (!body.ok) { res.status(body.status).json({ error: body.error, charged: false }); return; }
-    paid ??= createPaidEvaluate({ chainId, ...opts });
+    try { paid ??= createPaidEvaluate({ chainId, ...opts }); } catch (e) {
+      if (!(e instanceof PayoutAddressError)) throw e;
+      res.status(503).json({ error: `${e.message}; the free POST /api/evaluate still works`, charged: false });
+      return;
+    }
     const host = (req.headers || {}).host;
     const resource = opts.resourceUrl ?? (host ? `https://${host}/api/x402/evaluate` : undefined);
     const r = await paid({ input: body.value, paymentHeader: (req.headers || {})["payment-signature"], resource });
