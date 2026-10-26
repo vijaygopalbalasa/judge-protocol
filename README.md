@@ -83,6 +83,10 @@ evaluator, so no third party has named the judge on chain yet. Ruling record:
 `judge-service/evidence/arcbounty-arc-mainnet/job-18-52ff8735.json`; recompute it with
 `node judge-service/src/arcbounty.js 18 --network arc-mainnet`.
 
+On 2026-10-26 ArcBounty merged our runbook for checking dispute evidence on bounties with a criteria block into
+their repo (Sofiia7/ARC#32). Fork tests for their five dispute paths, run against the live adapter, are in
+`contracts/test/ArcBountyDisputeFork.t.sol`.
+
 A hosted mainnet judge runs at
 https://judge-protocol-api-mainnet.vercel.app (`POST /api/judge` on mainnet; paid x402 rulings stay on testnet)
 and rules once its relayer has gas: `GET /api/health` shows whether it does.
