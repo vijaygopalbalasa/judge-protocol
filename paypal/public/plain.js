@@ -32,6 +32,7 @@ function describeShape(name, s = {}) {
   }
   if (type === "number" || type === "integer") {
     const what = type === "integer" ? "a whole number" : "a number";
+    if (s.minimum !== undefined && s.minimum === s.maximum) return `${name} is exactly ${num(s.minimum)}`;
     if (s.minimum !== undefined && s.maximum !== undefined) return `${name} is ${what} from ${num(s.minimum)} to ${num(s.maximum)}`;
     if (s.minimum !== undefined) return `${name} is ${what} of at least ${num(s.minimum)}`;
     if (s.maximum !== undefined) return `${name} is ${what} of at most ${num(s.maximum)}`;

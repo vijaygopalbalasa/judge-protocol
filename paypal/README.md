@@ -134,7 +134,7 @@ The CLI cannot discover private sandbox account credentials or approve a buyer o
 
 ### Verification status
 
-- **89 automated tests pass.** They cover the API, both settlement outcomes, retries, idempotency, private delivery authorization, key privacy, receipt tampering, dashboard totals, local-preview startup, both AI providers, the AI usage caps, the plain-language check descriptions, and the Vercel Blob job store's conflict handling.
+- **91 automated tests pass.** They cover the API, both settlement outcomes, retries, idempotency, private delivery authorization, key privacy, receipt tampering, dashboard totals, local-preview startup, both AI providers, the AI usage caps, the plain-language check descriptions, and the Vercel Blob job store's conflict handling.
 - **The complete browser scenario passes in Chromium:** one paid reconciliation, one refunded delivery, private worker-link use, independent receipt verification, live dashboard, and mobile layouts with no console errors.
 - **Real PayPal sandbox settlement passes.** A passing job captured $5.00 and paid the worker $4.75 with PayPal Payouts reporting `SUCCESS`. A failing job voided its authorization with no capture or payout. Independent PayPal reads confirmed the order terms, capture, payout receiver and amount, and void.
 - **Real receipt evidence passes in Chromium:** the paid job, refunded job, independent receipt recomputation, dashboard, and mobile layout were checked with no console errors. These checks used the real sandbox records, not the simulator.

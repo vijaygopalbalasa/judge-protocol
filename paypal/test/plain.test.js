@@ -35,6 +35,7 @@ test("simple checks read as one sentence", () => {
   assert.match(describeCheck({ kind: "checksum", params: { sha256: "ab".repeat(32) } }).title, /^The file is exactly the agreed one \(SHA-256 abababab/);
   assert.equal(describeCheck({ kind: "schema", params: { required: ["name", "price"] } }).title, "JSON with the fields name, price");
   assert.equal(describeCheck({ kind: "mystery", params: {} }).title, "mystery check");
+  assert.deepEqual(describeCheck({ kind: "json", params: { shape: { type: "object", properties: { total: { type: "number", minimum: 25, maximum: 25 } } } } }).lines, ["total is exactly 25"]);
 });
 
 test("results and events read as sentences, with the raw detail kept", () => {

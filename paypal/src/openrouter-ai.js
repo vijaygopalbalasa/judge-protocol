@@ -5,6 +5,11 @@ import { AiError, Draft, DRAFTER_SYSTEM, WORKER_SYSTEM, toCriteria } from "./ai.
 
 export const OPENROUTER_MODEL = "openai/gpt-4.1-mini";
 
+/** Identifiers the request names, like RCPT-1042 or INV-7: a draft must pin each one, or other IDs would pass. */
+export function namedIds(request) {
+  return [...new Set(String(request).match(/\b[A-Z][A-Z0-9]{1,15}-[0-9]{1,12}\b/g) ?? [])].slice(0, 32);
+}
+
 export function createOpenRouterAi({ apiKey = process.env.OPENROUTER_API_KEY, model = OPENROUTER_MODEL,
   fetchImpl = fetch, evaluate = dryRunEvaluate, baseUrl = "https://openrouter.ai/api/v1", publicUrl = "http://localhost:3000" } = {}) {
   if (!apiKey) throw new Error("Set OPENROUTER_API_KEY to use the OpenRouter AI provider");
@@ -42,6 +47,8 @@ export function createOpenRouterAi({ apiKey = process.env.OPENROUTER_API_KEY, mo
   async function draftCriteria({ request } = {}) {
     if (typeof request !== "string" || !request.trim() || request.length > 4000) throw new AiError(400, "describe the job in 1 to 4000 characters");
     const messages = [{ role: "system", content: DRAFTER_SYSTEM }, { role: "user", content: request.trim() }];
+    const named = namedIds(request);
+    let lastGood = null;
     for (let attempt = 0; attempt < 2; attempt++) {
       const result = await chat(messages, Draft);
       let problem = null;
@@ -52,11 +59,17 @@ export function createOpenRouterAi({ apiKey = process.env.OPENROUTER_API_KEY, mo
         else problem = "the reply did not match the acceptance-check schema";
       } catch { problem = "the reply was not valid JSON"; }
       if (draft) {
-        try { return { ...draft, criteria: checkCriteria(toCriteria(draft)), reasons: draft.checks.map((check) => check.why), model: result.model }; }
-        catch (error) { problem = error.message; }
+        try {
+          const out = { ...draft, criteria: checkCriteria(toCriteria(draft)), reasons: draft.checks.map((check) => check.why), model: result.model };
+          const unpinned = named.filter((id) => !JSON.stringify(out.criteria).includes(id));
+          if (!unpinned.length) return out;
+          lastGood = { ...out, unpinned };
+          problem = `the request names ${unpinned.join(", ")}, but no check pins them. Constrain the field or list that holds them with enum on exactly the allowed values, so a delivery with other IDs fails`;
+        } catch (error) { problem = error.message; }
       }
       messages.push({ role: "assistant", content: result.content }, { role: "user", content: `That draft cannot be used: ${problem}. Return a corrected draft.` });
     }
+    if (lastGood) return lastGood;
     throw new AiError(422, "could not draft valid checks for this request; write them by hand or rephrase the request");
   }
 

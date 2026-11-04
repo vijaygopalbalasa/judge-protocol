@@ -86,3 +86,25 @@ test("OpenRouter reports provider errors and validates input before calls", asyn
   assert.equal(fake.calls.length, 1);
   assert.throws(() => createOpenRouterAi({ apiKey: "" }), /OPENROUTER_API_KEY/);
 });
+
+test("a draft that leaves the request's named IDs unpinned is sent back once to pin them", async () => {
+  const loose = { ...DRAFT, checks: [{ ...nil, kind: "json", why: "shape", weight: 1,
+    shape: JSON.stringify({ type: "object", properties: { receipt_ids: { type: "array", items: { type: "string" } } } }) }] };
+  const pinned = { ...DRAFT, checks: [{ ...nil, kind: "json", why: "shape", weight: 1,
+    shape: JSON.stringify({ type: "object", properties: { receipt_ids: { type: "array", items: { type: "string", enum: ["RCPT-1042", "RCPT-1048"] } } } }) }] };
+  const fake = fakeFetch([{ content: JSON.stringify(loose) }, { content: JSON.stringify(pinned) }]);
+  const out = await createOpenRouterAi({ apiKey: "x", fetchImpl: fake.fetchImpl })
+    .draftCriteria({ request: "Reconcile RCPT-1042 and RCPT-1048 into JSON with receipt_ids." });
+  assert.equal(fake.calls.length, 2);
+  const messages = JSON.parse(fake.calls[1].request.body).messages;
+  assert.match(messages.at(-1).content, /RCPT-1042, RCPT-1048/);
+  assert.match(JSON.stringify(out.criteria), /RCPT-1048/);
+});
+
+test("if the second draft still leaves IDs unpinned, it is returned with a warning instead of failing", async () => {
+  const loose = { ...DRAFT, checks: [{ ...nil, kind: "length", why: "size", weight: 1, min: 1, max: 100, unit: "words" }] };
+  const fake = fakeFetch([{ content: JSON.stringify(loose) }, { content: JSON.stringify(loose) }]);
+  const out = await createOpenRouterAi({ apiKey: "x", fetchImpl: fake.fetchImpl }).draftCriteria({ request: "List INV-7 and INV-9." });
+  assert.equal(fake.calls.length, 2);
+  assert.deepEqual(out.unpinned, ["INV-7", "INV-9"]);
+});

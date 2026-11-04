@@ -34,7 +34,8 @@ $("draft").addEventListener("click", async () => {
     }));
     $("not-checkable").textContent = draft.notCheckable?.length ? `Not checked: ${draft.notCheckable.join("; ")}` : "";
     $("draft-notes").hidden = false;
-    message("message", "Checks drafted. Read them below and edit anything before creating the job.", "ok");
+    if (draft.unpinned?.length) message("message", `Checks drafted, but they do not restrict ${draft.unpinned.join(", ")}. Add them in the JSON below before funding, or other IDs would pass.`, "wait");
+    else message("message", "Checks drafted. Read them below and edit anything before creating the job.", "ok");
     $("criteria-panel").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
     message("message", error.message, "bad");
