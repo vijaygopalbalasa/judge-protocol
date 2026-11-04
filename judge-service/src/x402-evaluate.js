@@ -10,7 +10,7 @@
 //      settled payment (or one Gateway could not confirm either way, which is said in the answer).
 import { formatUnits } from "viem";
 import { BatchFacilitatorClient } from "@circle-fin/x402-batching/server";
-import { NETWORKS, PRICE_LABEL, checkPayment, gatewayBalance, gatewayTransfer, makeTerms, makeSettle, withTimeout } from "./x402.js";
+import { NETWORKS, PRICE_LABEL, checkPayment, gatewayBalance, gatewayTransfer, makeTerms, makeSettle, resolvePayTo, withTimeout } from "./x402.js";
 import { dryRunEvaluate } from "./evaluate.js";
 import { config } from "./config.js";
 
@@ -29,13 +29,14 @@ export function createPaidEvaluate({
   facilitator,
   balanceOf,
   lookupTransfer,
-  payTo = config.feeAddress,
+  payTo,
   resourceUrl,
   now = () => Math.floor(Date.now() / 1000),
   timeoutMs = 8000,
 } = {}) {
   const net = networkFor(chainId);
   if (!net) throw new Error(`no Circle Gateway network for chain ${chainId}`);
+  payTo = resolvePayTo(net, payTo);
   facilitator ??= new BatchFacilitatorClient({ url: net.gatewayUrl });
   balanceOf ??= (address) => gatewayBalance(address, { url: net.gatewayUrl, domain: net.domain });
   lookupTransfer ??= (nonce) => gatewayTransfer(nonce, { url: net.gatewayUrl, network: net.network });

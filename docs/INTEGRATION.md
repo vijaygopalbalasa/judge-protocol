@@ -232,7 +232,8 @@ checker's result. Pass `submitTx` when the submission is more than about 4 hours
 
 ## Limits, stated plainly
 
-- Arc testnet only. Best effort, no uptime guarantee, no SLA. If the judge never
+- This guide is for Arc testnet. On Arc mainnet the judge serves only ArcBounty's escrow (see
+  the README). Best effort, no uptime guarantee, no SLA. If the judge never
   rules, `claimRefund` after `expiredAt` returns the client's funds.
 - Deterministic checks cover objective, structured work. They do not judge quality or taste.
 - `http-endpoint` checks are live probes and cannot be re-run later as the judge saw them.

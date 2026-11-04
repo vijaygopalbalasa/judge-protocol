@@ -28,6 +28,11 @@ ArcBounty's job 18 to the same criteria hash as on chain.
 test a delivery (a dry run), read a job, verify a ruling from chain data, and ask the judge to rule on Arc
 testnet. An agent that pays for work can check that work before the escrow pays out.
 
+**For escrow builders:** [`docs/CONFORMANCE.md`](docs/CONFORMANCE.md) is an ERC-8183 conformance suite: each SHALL
+rule of the draft is a Foundry test, run on a fork against any deployment. Measured on 2026-10-23: the ERC's own
+reference code, Circle's Arc testnet escrow and ArcBounty's Arc mainnet escrow pass 25 of 29, G2 Jobs 28 and
+Virtuals' AgenticCommerceV3 on Base 22, with what each difference means and which ones can move money.
+
 ## See it work
 
 A real job posted on Circle's canonical contract, judged, escrow settled, then the verdict
@@ -77,6 +82,10 @@ agree on paying, and the gap is what the criteria left out. This ruling was advi
 evaluator, so no third party has named the judge on chain yet. Ruling record:
 `judge-service/evidence/arcbounty-arc-mainnet/job-18-52ff8735.json`; recompute it with
 `node judge-service/src/arcbounty.js 18 --network arc-mainnet`.
+
+On 2026-10-26 ArcBounty merged our runbook for checking dispute evidence on bounties with a criteria block into
+their repo (Sofiia7/ARC#32). Fork tests for their five dispute paths, run against the live adapter, are in
+`contracts/test/ArcBountyDisputeFork.t.sol`.
 
 A hosted mainnet judge runs at
 https://judge-protocol-api-mainnet.vercel.app (`POST /api/judge` on mainnet; paid x402 rulings stay on testnet)
@@ -145,7 +154,9 @@ own escrow; `POST /api/x402/judge` is the same ruling paid over x402 (0.01 USDC 
 Gateway, settled only once the judge has a verdict ready, before it signs). `POST /api/x402/evaluate`
 is the dry run sold over x402 (0.01 USDC through Circle Gateway on the Arc network the judge runs on;
 bad input and live-probe criteria are answered free, and only a settled payment gets the result), and
-`GET /api/openapi` describes every public endpoint.
+`GET /api/openapi` describes every public endpoint. A judge on Arc mainnet sells nothing until its operator names
+the wallet that receives the payments with `JUDGE_FEE_ADDRESS`: the built-in default is the testnet relayer's
+key, so on mainnet the paid route answers 503 (and charges nobody) rather than use it.
 
 - **Kit:** [`kit/judge-kit.js`](kit/judge-kit.js), one file that depends only on viem;
   [`kit/example.js`](kit/example.js) runs the whole flow on Arc testnet.
@@ -238,7 +249,8 @@ contracts/        Foundry project (Solidity 0.8.28, cancun)
   src/JudgeAttestor.sol         ERC-8412 verifier: records attestations a trusted judge key signed
   src/interfaces/               IACP, IACPHook, IERC8004, IBountyAdapter
   src/mocks/                    MockACP (faithful to Circle's reference), MockUSDC
-  test/                         118 Foundry tests (evaluator, hook, attestor, arbitrator, attack paths)
+  test/                         212 Foundry tests (evaluator, hook, attestor, arbitrator, BNB policy, attack paths)
+  test/conformance/             ERC-8183 conformance suite: the draft's SHALL rules as tests (docs/CONFORMANCE.md)
   vendor/erc8183-escrow/        ArcBounty's ERC-8183 escrow (MIT), for chains that have none
   script/                       Deploy (Arc testnet), DeployArcMainnet, DeployKit (any chain), DeployArbitrator
   broadcast/                    deploy receipts (public audit trail)
@@ -259,7 +271,7 @@ judge-service/    Node/viem off-chain engine
   src/rvr-snapshot.mjs          freezes one ruling's chain evidence for the ERC-8404 profile
   api/                          hosted judge (Vercel): /api/judge, /api/x402/judge, /api/evaluate,
                                 /api/x402/evaluate, /api/openapi, /api/arcbounty, /api/health, /api/cron/sweep
-  test/                         309 unit tests (checker gate, json shapes, SSRF, evidence determinism, hosted judge, x402, ERC-8412, ERC-8404, ArcBounty)
+  test/                         323 unit tests (checker gate, json shapes, SSRF, evidence determinism, hosted judge, x402, ERC-8412, ERC-8404, ArcBounty)
   evidence/                     recomputable verdict evidence (public audit trail)
 mcp/              MCP server: the checklist builder, a dry run, job reads, verification and ruling requests as tools
 rvr/              ERC-8404 profile, in the layout of the RVR reference repository
@@ -270,8 +282,9 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
 
 ## Status
 
-- ✅ **118/118 contract tests** (`cd contracts && forge test`): 35 for the evaluator and the attestor,
-  41 for the arbitrator, 42 for the ERC-8004 hook. Evaluator: full lifecycle, both settlement paths, and attack
+- ✅ **212/212 contract tests** (`cd contracts && forge test`): 35 for the evaluator and the attestor,
+  41 for the arbitrator, 42 for the ERC-8004 hook, 34 for the BNB Chain policy and router, and 60 that hold the
+  ERC-8183 conformance suite to an escrow written from the spec (with and without a fee). Evaluator: full lifecycle, both settlement paths, and attack
   paths: bad signer, double-resolution, pause, criteria mismatch, stale verdict, threshold enforcement,
   criteria-registration gating and withdraw auth. Five came from the pre-deployment review (see ARCHITECTURE.md): renouncing ownership
   is disabled, ownership needs acceptance, and criteria can be bound only for this judge's jobs,
@@ -282,7 +295,7 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
   touched, and an untrusted signature or mismatched criteria is refused. `script/DeployArcMainnet.s.sol`
   refuses any other chain, any escrow with another Job layout and any owner but the declared one. Gas
   on mainnet: the deployment cost 0.037 USDC, a full judged job about 0.017.
-- ✅ **309/309 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
+- ✅ **323/323 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
   criteria defects, SSRF denylist with DNS pinning, evidence-hash determinism, and the hosted judge
   (on-demand rulings, races, reverted transactions, the daily sweep, deliverables that can never
   load abstaining instead of retrying forever), and paid rulings over x402 (payments signed by
@@ -328,10 +341,10 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
 
 ```bash
 # contracts
-cd contracts && git submodule update --init --recursive && forge test   # 118/118, plus 10 fork tests (skipped without their RPC variables)
+cd contracts && git submodule update --init --recursive && forge test   # 212/212, plus 16 fork tests and the conformance runs (skipped without their variables)
 
 # service
-cd ../judge-service && npm install && npm test                          # 309/309
+cd ../judge-service && npm install && npm test                          # 323/323
 
 # run the judge against Arc testnet (needs a funded .env, see .env.example)
 node --env-file=.env src/index.js
