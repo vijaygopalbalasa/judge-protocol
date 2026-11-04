@@ -6,6 +6,23 @@ Judge Pay is an acceptance and payment layer for work bought from AI agents or p
 
 The demo job reconciles three refund receipts into JSON. The report must contain the exact total, every receipt ID, the agreed fields, and no unexpected fields. This is useful machine-verifiable work, not a chatbot with a checkout button.
 
+## Try it live
+
+**Hosted sandbox demo: https://judgepay.vercel.app** (PayPal sandbox only, so no real money moves.)
+
+1. On the home page, describe a task or keep the prefilled reconciliation task, then click **Draft checks with AI**. Review the checks and create the job.
+2. Copy the private worker link the job page shows. It is shown once.
+3. Click the PayPal button and log in with the sandbox buyer below. This places an authorization hold; nothing is captured yet.
+4. Open the worker link and click **Let the AI worker deliver and settle**, or paste an answer yourself. Passing work is captured and paid out to the worker; failing work voids the hold.
+5. Open **Jobs** for the AG Grid dashboard and **Verify a receipt** to recompute a result from the delivered file.
+
+Sandbox test accounts for judges (fake money, PayPal sandbox only):
+
+- Buyer login for the PayPal button: SANDBOX_BUYER_EMAIL_TBD / SANDBOX_BUYER_PASSWORD_TBD
+- Worker PayPal email (prefilled in the job form on the hosted demo): `sb-ia9ru53714828@personal.example.com`
+
+AI drafting is capped per visitor each hour and per day to protect the demo's model budget. If the cap is reached, write the checks as JSON or deliver by hand; the payment flow is unchanged.
+
 ## Why this is different
 
 Most agent-payment demos focus on how an agent sends money. Judge Pay focuses on when a buyer should release it.
@@ -115,28 +132,33 @@ The runner refuses to use the simulator. It creates no duplicate jobs when prepa
 
 The CLI cannot discover private sandbox account credentials or approve a buyer on the account holder's behalf. Those remain PayPal-hosted user actions. Everything else in the pass, refund, payout, and verification sequence is handled through the app API and PayPal REST API.
 
-### Verification status in this workspace
+### Verification status
 
-- **79 automated tests pass.** They cover the API, both settlement outcomes, retries, idempotency, private delivery authorization, key privacy, receipt tampering, dashboard totals, local-preview startup, and both AI providers.
+- **85 automated tests pass.** They cover the API, both settlement outcomes, retries, idempotency, private delivery authorization, key privacy, receipt tampering, dashboard totals, local-preview startup, both AI providers, the AI usage caps, and the Vercel Blob job store's conflict handling.
 - **The complete browser scenario passes in Chromium:** one paid reconciliation, one refunded delivery, private worker-link use, independent receipt verification, live dashboard, and mobile layouts with no console errors.
 - **Real PayPal sandbox settlement passes.** A passing job captured $5.00 and paid the worker $4.75 with PayPal Payouts reporting `SUCCESS`. A failing job voided its authorization with no capture or payout. Independent PayPal reads confirmed the order terms, capture, payout receiver and amount, and void.
 - **Real receipt evidence passes in Chromium:** the paid job, refunded job, independent receipt recomputation, dashboard, and mobile layout were checked with no console errors. These checks used the real sandbox records, not the simulator.
 - **Real OpenRouter drafting and delivery pass.** The verified run used `openai/gpt-4.1-mini` to produce one comprehensive JSON check, including the exact total, currency, closed object fields, and three unique allowed receipt IDs. Its criteria hash is `0x172bf9ca9fea09590e35133796efd0fd1ffc8b74ceec497ba460295848d39f66`. Passing job `1793795940574689` captured $5.00, paid the worker $4.75, and reached payout `SUCCESS`. Failing job `1793795943066454` voided its authorization without capture or payout. Both were independently checked through PayPal REST. The passing payout batch is `294Q842SX33N4`; the delivery is 229 bytes with SHA-256 `0e50ea63e70a0b35026ca84d236071fab66faa0bbd2b47f4b19757956bea7544`.
-- **The shared Judge engine passes its 309 tests**, including the `uniqueItems` support used by this AI draft. The engine sources in the service, browser verifier, and PayPal module are synchronized.
+- **The shared Judge engine passes its 323 tests**, including the `uniqueItems` support used by this AI draft. The engine sources in the service, browser verifier, and PayPal module are synchronized.
 
-These are local sandbox results, not a hosted-demo or production claim. The optional Anthropic provider has stand-in tests but was not used in the real AI run. Hosted PayPal Buttons, deployment, and the public video are separate release checks.
+These settlement results are from local sandbox runs, not a production claim. The hosted demo at https://judgepay.vercel.app answers healthy with real sandbox PayPal and OpenRouter, has drafted checks with the real model and created a real sandbox order; the full hosted pass and fail through PayPal Buttons is recorded below once it is run. The optional Anthropic provider has stand-in tests but was not used in the real AI run.
 
-## Deploy on Render
+## Deploy on Vercel
 
-A Blueprint is provided at the repository root in `render.yaml`.
+The hosted demo runs on Vercel from this folder: `public/` is served as static pages and every `/api/*` request goes to one function, `api/index.js` (see `vercel.json`). Jobs are kept in a private Vercel Blob store, because a function's disk does not last between requests.
 
-1. Push the public source repository, then create a new Blueprint in Render and select it.
-2. Render uses `paypal` as the root directory, `npm ci` for the build, `npm start` for the server, and `/api/health` for health checks.
-3. Set the US sandbox merchant's `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET`, plus `OPENROUTER_API_KEY`. Keep `OPENROUTER_MODEL=openai/gpt-4.1-mini`, `PAYPAL_ENV=sandbox`, and `HOST=0.0.0.0`. After Render assigns its HTTPS URL, set `PUBLIC_URL` to exactly that URL with no trailing slash. Anthropic is optional and is not needed.
-4. Run the real sandbox pass and fail through the hosted browser, including PayPal Buttons. Do not treat the local CLI proof as a hosted Buttons test.
-5. Limit the OpenRouter key to a small hackathon testing budget. The public demo has no production abuse controls or request authentication.
+```bash
+cd paypal
+vercel link
+vercel blob create-store judge-pay-jobs --access private --yes   # adds BLOB_READ_WRITE_TOKEN
+vercel env add PAYPAL_CLIENT_ID production       # and PAYPAL_CLIENT_SECRET, OPENROUTER_API_KEY
+vercel env add PAYPAL_ENV production             # sandbox
+vercel env add OPENROUTER_MODEL production       # openai/gpt-4.1-mini
+vercel env add PUBLIC_URL production             # the production https URL, no trailing slash
+vercel deploy --prod
+```
 
-The free configuration stores JSON records in `.data`, which is ephemeral across deploys and some restarts. This is suitable for a short-lived demo, not production accounting. Existing job records and their delivery-key hashes can disappear on a reset. Keep the hosted demo available through judging and use a persistent multi-process-safe store before production use.
+Blob reads bypass the CDN cache, and each job update is written only if nobody changed the job since it was read (an ETag check); a conflicting update is re-applied to the fresh record. PayPal calls happen outside those updates and carry their own idempotency keys. Give the OpenRouter key a small spend limit: the demo has no accounts, so the in-memory AI caps are its only abuse control besides that limit.
 
 ## API
 
@@ -164,23 +186,25 @@ All mutations use JSON. Public job views contain terms, hashes, verdicts, events
 - `src/escrow.js`: job state machine, settlement recovery, private delivery authorization, public views, and receipts.
 - `src/ai.js`: shared AI schemas and prompts, plus optional Anthropic delivery.
 - `src/openrouter-ai.js`: OpenRouter criteria drafting and self-checking worker.
-- `src/store.js`: memory and atomic JSON-file stores.
+- `src/store.js`: memory, atomic JSON-file, and Vercel Blob stores.
+- `src/server.js`: builds the app from environment variables for both runtimes.
+- `api/index.js` and `vercel.json`: the Vercel function and routing.
 - `engine/`: copied deterministic Judge Protocol engine, protected by a drift test.
 - `public/index.html`: buyer flow.
 - `public/job.html`: funding, private worker invitation, verdict, and evidence trail.
 - `public/worker.html`: private worker access and delivery.
 - `public/receipt/`: independent browser receipt checker.
 - `public/dashboard/`: AG Grid Community dashboard.
-- `scripts/dev-server.js`: real PayPal sandbox runtime.
+- `scripts/dev-server.js`: real PayPal sandbox runtime on your machine.
 - `scripts/local-demo.js`: isolated local preview runtime.
 
 ## AI and sponsor tools
 
 - **OpenRouter with `openai/gpt-4.1-mini` by default:** turns the task into structured checks and produces the worker's drafts. The request, repair loop, and actual model reporting are in `src/openrouter-ai.js`.
-- **Optional Anthropic Claude:** used when `ANTHROPIC_API_KEY` is set without OpenRouter, configured by `AI_MODEL`.
+- **Optional Anthropic Claude:** used only when `ANTHROPIC_API_KEY` is set without OpenRouter, configured by `AI_MODEL`. Not used by the hosted demo.
 - **PayPal Developer Platform:** authorization, capture, void, Payouts, and Buttons are part of the actual job lifecycle.
 - **AG Grid Community 36.2.0:** live filterable and sortable jobs dashboard with payment exceptions and per-job evidence.
-- **Render:** Blueprint deployment and health checks for a judge-accessible sandbox demo.
+- **Vercel:** hosts the judge-accessible sandbox demo, with jobs in Vercel Blob.
 
 ## Security and scope limits
 
@@ -188,9 +212,11 @@ All mutations use JSON. Public job views contain terms, hashes, verdicts, events
 - The 5% platform fee is illustrative application logic. PayPal processing and payout fees are separate and are not a revenue claim.
 - Only deterministic form, content, length, checksum, and JSON checks are supported. They cannot prove truth, taste, accuracy, or the authenticity of external records.
 - A private job link proves possession of its delivery key, not control of the worker's PayPal email. Add verified worker identity and key revocation before production use.
+- The buyer receives the worker link when creating the job and passes it on, so the buyer could also deliver through it, for example by submitting failing work first to have the hold voided. The prototype trusts the buyer not to do this; a production version needs a delivery credential only the worker holds.
+- AI calls are capped per caller each hour and per day in memory, to protect the demo's model budget. The provider key should also carry its own spend limit.
 - Delivery keys are stored in the browser and shown in private worker links. Keep them out of screenshots and public recordings.
 - Receipts are internally recomputable but not signed. Confirm PayPal IDs in the PayPal account to establish who issued them.
-- The JSON store serializes writes within one process. A production deployment needs a transactional shared store, persistent sessions, rate limits, monitoring, and operational payout reconciliation.
+- The file store serializes writes within one process; the Blob store adds ETag-checked writes across function instances. A production deployment still needs a transactional database, worker identity, per-account rate limits, monitoring, and operational payout reconciliation.
 - Job terms and payment record IDs are public by design. Delivered bytes, personal account details, and delivery-key hashes are not public.
 - This is a hackathon prototype, not a production escrow service, money transmitter, or guarantee of payment for subjective work.
 
@@ -208,6 +234,6 @@ The PayPal tests use a local stand-in shaped after PayPal's published API behavi
 
 ## Hackathon progress
 
-The pre-existing Judge engine and initial PayPal modules were significantly extended during the submission window with the complete browser application, HTTP API, buyer funding flow, private worker invitations, AI delivery route, private delivery retrieval, live dashboard integration, reconciliation demo, deployment Blueprint, and end-to-end tests.
+The pre-existing Judge engine and initial PayPal modules were significantly extended during the submission window with the complete browser application, HTTP API, buyer funding flow, private worker invitations, AI delivery route, private delivery retrieval, live dashboard integration, reconciliation demo, Vercel hosting with a Blob job store, AI usage caps, and end-to-end tests.
 
 MIT licensed. See the repository's top-level `LICENSE` file.

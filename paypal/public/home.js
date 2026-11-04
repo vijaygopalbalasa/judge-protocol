@@ -2,6 +2,7 @@ import { $, api, getConfig, message, modeBanner } from "./common.js";
 
 const config = await getConfig();
 modeBanner(config);
+if (config.demoWorkerEmail) $("worker-email").value = config.demoWorkerEmail;
 $("draft").textContent = config.localMode ? "Draft checks in local preview" : config.ai ? "Draft checks with AI" : "AI drafting unavailable";
 
 $("draft").addEventListener("click", async () => {

@@ -78,3 +78,58 @@ export function fileStore(dir, { fileName = jobFileName } = {}) {
     },
   };
 }
+
+/**
+ * Jobs in a private Vercel Blob store, for serverless hosting where the local disk does not last. Reads bypass the CDN
+ * cache (useCache: false) so they see the latest write. update() writes with ifMatch on the ETag it read, so when two
+ * function instances change one job at once, the later write is refused and its change is re-applied to the fresh
+ * record. That is safe because every update callback in the escrow is a pure edit of the record: PayPal calls happen
+ * outside update(), guarded by their own idempotency keys.
+ */
+export function blobStore({ client, isConflict, prefix = "judge-pay/jobs/", fileName = jobFileName, retries = 5 } = {}) {
+  if (!client) throw new Error("blobStore needs a client (the @vercel/blob module)");
+  const run = serial();
+  const path = (id) => `${prefix}${fileName(id)}`;
+  async function read(id) {
+    const r = await client.get(path(id), { access: "private", useCache: false });
+    if (!r || r.statusCode !== 200) return null;
+    return { record: JSON.parse(await new Response(r.stream).text()), etag: r.blob.etag };
+  }
+  async function write(record, ifMatch) {
+    await client.put(path(record.id), JSON.stringify(record), {
+      access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json",
+      ...(ifMatch ? { ifMatch } : {}),
+    });
+    return record;
+  }
+  return {
+    kind: "blob",
+    async get(id) { return (await read(id))?.record ?? null; },
+    put: (record) => write(record),
+    async list() {
+      const records = [];
+      let cursor;
+      do {
+        const page = await client.list({ prefix, cursor, limit: 1000 });
+        for (const b of page.blobs) {
+          const id = b.pathname.slice(prefix.length).replace(/\.json$/, "");
+          const r = await read(id).catch(() => null);
+          if (r) records.push(r.record);
+        }
+        cursor = page.hasMore ? page.cursor : undefined;
+      } while (cursor);
+      return records;
+    },
+    update(id, fn) {
+      return run(String(id), async () => {
+        for (let attempt = 0; attempt < retries; attempt++) {
+          const cur = await read(id);
+          if (!cur) return null;
+          const next = await fn(cur.record);
+          try { return await write(next, cur.etag); } catch (e) { if (!isConflict(e)) throw e; }
+        }
+        throw new Error(`job ${id} kept being changed by another request; try again`);
+      });
+    },
+  };
+}

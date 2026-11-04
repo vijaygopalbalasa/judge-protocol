@@ -14,13 +14,13 @@ const CRITERIA = { version: 1, passThreshold: 100, checks: [
 const GOOD = "Every refund includes a receipt the buyer can verify.";
 const WORKER = "worker@personal.example.com";
 
-async function setup(t, { ai = null, local = true } = {}) {
+async function setup(t, { ai = null, local = true, aiLimits, demoWorkerEmail } = {}) {
   const fake = fakePayPal();
   const paypal = createPayPal({ clientId: "client-id", clientSecret: "client-secret", fetchImpl: fake.fetch });
   let n = 0;
   const escrow = createEscrow({ paypal, store: memoryStore(), publicUrl: "http://localhost",
     idgen: () => String(1_792_000_000_000_000 + ++n), keygen: () => `worker-key-${++n}` });
-  const app = createApp({ escrow, ai, clientId: "public-client-id", local: local ? fake : null, logger: { error() {} } });
+  const app = createApp({ escrow, ai, clientId: "public-client-id", local: local ? fake : null, aiLimits, demoWorkerEmail, logger: { error() {} } });
   const server = createServer(app);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
@@ -172,4 +172,28 @@ test("an unconfigured AI returns a clear 503 and an unjudged job has no receipt"
   } });
   const receipt = await env.request(`/api/jobs/${created.data.id}/receipt`);
   assert.equal(receipt.res.status, 409);
+});
+
+test("AI calls are capped per caller and per day, so a stranger cannot spend the model budget", async (t) => {
+  let calls = 0;
+  const ai = { provider: "test", async draftCriteria() { calls++; return { criteria: CRITERIA }; } };
+  const env = await setup(t, { ai, aiLimits: { perCallerPerHour: 2, perDay: 3 } });
+  const draft = (ip) => env.request("/api/ai/draft", { method: "POST", body: { request: "write something" }, headers: { "x-forwarded-for": ip } });
+  assert.equal((await draft("1.1.1.1")).res.status, 200);
+  assert.equal((await draft("1.1.1.1")).res.status, 200);
+  const third = await draft("1.1.1.1");
+  assert.equal(third.res.status, 429);
+  assert.match(third.data.error, /limit/i);
+  assert.equal((await draft("2.2.2.2")).res.status, 200);
+  const overDay = await draft("3.3.3.3");
+  assert.equal(overDay.res.status, 429);
+  assert.equal(calls, 3);
+});
+
+test("the hosted demo can name its sandbox worker so judges' payouts reach a real sandbox account", async (t) => {
+  const env = await setup(t, { demoWorkerEmail: "sb-worker@personal.example.com" });
+  const { data } = await env.request("/api/config");
+  assert.equal(data.demoWorkerEmail, "sb-worker@personal.example.com");
+  const plain = await setup(t);
+  assert.equal((await plain.request("/api/config")).data.demoWorkerEmail, null);
 });

@@ -8,6 +8,10 @@
 *(The judge runs on demand plus a daily safety sweep on Arc testnet, best effort with no uptime
 guarantee: https://judge-protocol-api.vercel.app. The contracts and the in-browser verifier are live.)*
 
+> **PayPal AI Hackathon entry: [Judge Pay](paypal/README.md).** The same deterministic engine settles PayPal payments:
+> AI drafts the checks and does the work, PayPal holds the money, and only the agreed checks release it.
+> Live sandbox demo: https://judgepay.vercel.app
+
 When AI agents hire each other, escrow alone isn't enough: someone must decide *did the
 provider deliver what was promised?* ERC-8183 defines an `evaluator` role for exactly this
 but ships no evaluator. Judge Protocol is a standalone deterministic evaluator any

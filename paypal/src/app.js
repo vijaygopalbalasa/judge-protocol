@@ -61,10 +61,32 @@ function jobId(path, match) {
   return id;
 }
 
+/**
+ * Caps model calls so a stranger on the hosted demo cannot spend the AI budget. In memory, per process: the per-caller
+ * hourly cap uses the proxy's x-forwarded-for (spoofable), so the global daily cap is the real backstop, with a spend
+ * limit on the provider key behind both.
+ */
+export function aiLimiter({ perCallerPerHour = 20, perDay = 300, now = () => Date.now() } = {}) {
+  const callers = new Map();
+  let day = { start: now(), count: 0 };
+  return function take(req) {
+    const t = now();
+    if (t - day.start >= 86_400_000) day = { start: t, count: 0 };
+    const caller = String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim() || req.socket.remoteAddress || "unknown";
+    let c = callers.get(caller);
+    if (!c || t - c.start >= 3_600_000) { c = { start: t, count: 0 }; callers.set(caller, c); }
+    if (callers.size > 10_000) callers.clear();
+    if (day.count >= perDay) throw new HttpError(429, "the demo's daily AI limit is reached; write the checks as JSON or try tomorrow");
+    if (c.count >= perCallerPerHour) throw new HttpError(429, "AI limit reached for this hour; please try again later");
+    c.count++; day.count++;
+  };
+}
+
 export function createApp({
   escrow, ai = null, clientId = null, environment = "sandbox", local = null,
-  publicDir = PUBLIC_DIR, maxBodyBytes = 400_000, logger = console,
+  publicDir = PUBLIC_DIR, maxBodyBytes = 400_000, logger = console, aiLimits = {}, demoWorkerEmail = null,
 } = {}) {
+  const takeAi = aiLimiter(aiLimits);
   if (!escrow) throw new Error("createApp needs an escrow");
   const root = resolve(publicDir);
 
@@ -76,13 +98,15 @@ export function createApp({
     }
     if (method === "GET" && path === "/api/config") {
       return send(res, 200, {
-        clientId, environment, localMode: Boolean(local),
+        clientId, environment, localMode: Boolean(local), demoWorkerEmail,
         ai: Boolean(ai), assistant: local ? "preview" : ai ? (ai.provider ?? "anthropic") : "unconfigured",
       });
     }
     if (method === "POST" && path === "/api/ai/draft") {
       if (!ai) throw new HttpError(503, "AI is not configured. Set OPENROUTER_API_KEY or ANTHROPIC_API_KEY, or write the checks as JSON.");
-      return send(res, 200, await ai.draftCriteria(await bodyJson(req, maxBodyBytes)));
+      const body = await bodyJson(req, maxBodyBytes);
+      takeAi(req);
+      return send(res, 200, await ai.draftCriteria(body));
     }
     if (method === "POST" && path === "/api/jobs") {
       const job = await escrow.postJob(await bodyJson(req, maxBodyBytes));
@@ -120,6 +144,7 @@ export function createApp({
       const id = jobId(path, match);
       const { workerKey } = await bodyJson(req, maxBodyBytes);
       const job = await escrow.requireDeliveryWorker(id, workerKey);
+      takeAi(req);
       const work = await ai.work({ task: job.task, criteria: job.criteria, jobId: job.id });
       if (!work.passed) {
         return send(res, 422, { error: "The AI worker did not pass every agreed check. Nothing was delivered and no money moved.", trace: work.trace, content: work.content, job: publicView(await escrow.get(id)) });

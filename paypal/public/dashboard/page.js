@@ -80,6 +80,16 @@ try {
   const rows = toRows(views);
   const byId = new Map(views.map((v) => [v?.id, v]));
   $("source").textContent = label;
+  if (!rows.length) {
+    const a = document.createElement("a");
+    a.href = "/";
+    a.textContent = "Create the first job";
+    $("source").append(" No jobs yet on this server (a fresh demo instance starts empty). ", a, ", or view the ");
+    const s = document.createElement("a");
+    s.href = "./";
+    s.textContent = "labelled example data";
+    $("source").append(s, ".");
+  }
   kpis(summarize(rows));
   if (agGrid.ModuleRegistry && agGrid.AllCommunityModule) agGrid.ModuleRegistry.registerModules([agGrid.AllCommunityModule]);
   agGrid.createGrid($("grid"), {
