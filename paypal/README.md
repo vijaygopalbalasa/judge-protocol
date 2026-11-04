@@ -16,9 +16,9 @@ The demo job reconciles three refund receipts into JSON. The report must contain
 4. Open the worker link and click **Let the AI worker deliver and settle**, or paste an answer yourself. Passing work is captured and paid out to the worker; failing work voids the hold.
 5. Open **Jobs** for the AG Grid dashboard and **Verify a receipt** to recompute a result from the delivered file.
 
-Sandbox test accounts for judges (fake money, PayPal sandbox only):
+Sandbox accounts (fake money, PayPal sandbox only):
 
-- Buyer login for the PayPal button: SANDBOX_BUYER_EMAIL_TBD / SANDBOX_BUYER_PASSWORD_TBD
+- Buyer for the PayPal button: the login for judges is in the Devpost testing instructions. Any PayPal sandbox personal account also works; one can be created free under Sandbox accounts in the PayPal Developer Dashboard.
 - Worker PayPal email (prefilled in the job form on the hosted demo): `sb-ia9ru53714828@personal.example.com`
 
 AI drafting is capped per visitor each hour and per day to protect the demo's model budget. If the cap is reached, write the checks as JSON or deliver by hand; the payment flow is unchanged.
