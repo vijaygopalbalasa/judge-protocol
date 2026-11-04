@@ -18,10 +18,12 @@ preview();
 $("criteria").addEventListener("input", preview);
 if (config.demoWorkerEmail) $("worker-email").value = config.demoWorkerEmail;
 $("draft").textContent = config.localMode ? "Draft checks in local preview" : config.ai ? "Draft checks with AI" : "AI drafting unavailable";
+$("draft").disabled = !config.ai;
+$("create").disabled = false;
 
 $("draft").addEventListener("click", async () => {
   $("draft").disabled = true;
-  message("message", config.localMode ? "Preparing preview checks..." : "AI is drafting objective checks...", "wait");
+  message("message", config.localMode ? "Preparing preview checks..." : "AI is drafting the checks. This takes about 10 to 20 seconds...", "wait");
   try {
     const draft = await api("/api/ai/draft", { method: "POST", body: { request: $("task").value } });
     $("title").value = draft.title;

@@ -30,14 +30,14 @@
     <span class="label"><span class="step">01</span>Deliver</span>
     <h2>Let the AI do it, or deliver it yourself</h2>
     <p class="hint">The AI worker drafts the work, runs the same checks on it, and revises, for up to three drafts. It submits only a draft that passes. Either way, the checks alone decide payment.</p>
-    <button id="ai-work" class="primary">Let the AI worker deliver and settle</button>
+    <button id="ai-work" class="primary" disabled>Let the AI worker deliver and settle</button>
     <ol id="trace" class="trace" hidden></ol>
     <div class="separator"><span>or deliver it yourself</span></div>
     <label for="delivery">Your delivery</label>
     <textarea id="delivery" rows="8" placeholder="Paste the completed work here"></textarea>
     <label for="delivery-file">Or upload a file instead of the text</label>
     <input id="delivery-file" type="file">
-    <div class="actions"><button id="deliver" type="button">Deliver and run the checks</button><button id="download" class="secondary" hidden>Download what was delivered</button></div>
+    <div class="actions"><button id="deliver" type="button" disabled>Deliver and run the checks</button><button id="download" class="secondary" hidden>Download what was delivered</button></div>
     <p id="message" class="message" role="alert" hidden></p>
     <p id="job-link-wrap" hidden><a id="job-link" class="button-link primary">See the result and PayPal records</a></p>
   </section>

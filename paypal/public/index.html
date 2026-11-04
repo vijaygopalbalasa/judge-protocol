@@ -34,7 +34,7 @@
           <div><label for="price">Price in USD</label><input id="price" type="number" min="1" max="500" step="0.01" value="5.00" required></div>
           <div><label for="worker-email">Worker's PayPal email</label><input id="worker-email" type="email" value="worker@personal.example.com" required></div>
         </div>
-        <button id="draft" type="button">Draft checks with AI</button>
+        <button id="draft" type="button" disabled>Draft checks with AI</button>
 
         <div id="criteria-panel">
           <span class="label spaced"><span class="step">02</span>Agree the checks</span>
@@ -80,7 +80,7 @@
             <p id="criteria-error" class="message bad" hidden></p>
           </details>
         </div>
-        <button id="create" type="submit" class="primary">Create job and continue to PayPal</button>
+        <button id="create" type="submit" class="primary" disabled>Create job and continue to PayPal</button>
         <p id="message" class="message" role="alert" hidden></p>
       </form>
     </section>

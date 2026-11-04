@@ -39,6 +39,8 @@ async function brief() {
 }
 void brief();
 $("ai-work").textContent = config.localMode ? "Run the canned preview worker" : config.ai ? "Let the AI worker deliver and settle" : "AI worker unavailable";
+$("ai-work").disabled = !config.ai;
+$("deliver").disabled = false;
 
 function credentials() {
   const job = $("job-id").value.trim();
