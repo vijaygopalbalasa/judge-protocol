@@ -93,7 +93,8 @@ export function blobStore({ client, isConflict, prefix = "judge-pay/jobs/", file
   async function read(id) {
     const r = await client.get(path(id), { access: "private", useCache: false });
     if (!r || r.statusCode !== 200) return null;
-    return { record: JSON.parse(await new Response(r.stream).text()), etag: r.blob.etag };
+    // A compressed read carries a weak tag (W/"..."), but writes compare against the strong tag of the same bytes.
+    return { record: JSON.parse(await new Response(r.stream).text()), etag: String(r.blob.etag).replace(/^W\//, "") };
   }
   async function write(record, ifMatch) {
     await client.put(path(record.id), JSON.stringify(record), {

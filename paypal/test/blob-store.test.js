@@ -5,7 +5,7 @@ import { blobStore } from "../src/store.js";
 class PreconditionFailed extends Error {}
 
 /** An in-memory stand-in for the @vercel/blob calls the store uses, with ETags and ifMatch like the service. */
-function fakeBlob({ conflictOnce = false } = {}) {
+function fakeBlob({ conflictOnce = false, weakEtags = false } = {}) {
   const blobs = new Map();
   let version = 0;
   let conflict = conflictOnce;
@@ -30,7 +30,8 @@ function fakeBlob({ conflictOnce = false } = {}) {
       assert.equal(opts.useCache, false, "reads must bypass the CDN cache to see the latest write");
       const cur = blobs.get(pathname);
       if (!cur) return null;
-      return { statusCode: 200, stream: new Response(cur.body).body, blob: { pathname, etag: cur.etag } };
+      // The real service sends a weak tag (W/"...") on compressed reads but compares writes against the strong one.
+      return { statusCode: 200, stream: new Response(cur.body).body, blob: { pathname, etag: weakEtags ? `W/${cur.etag}` : cur.etag } };
     },
     async list({ prefix, cursor }) {
       const names = [...blobs.keys()].filter((k) => k.startsWith(prefix)).sort();
@@ -77,4 +78,13 @@ test("blob store: a record that keeps conflicting fails loudly instead of overwr
   const realPut = client.put;
   client.put = async (p, b, o) => { if (o.ifMatch) throw new PreconditionFailed("busy"); return realPut(p, b, o); };
   await assert.rejects(store.update("1000001", (j) => j), /changed by another request/);
+});
+
+test("blob store: a weak ETag from a compressed read still makes a valid conditional write", async () => {
+  const client = fakeBlob({ weakEtags: true });
+  const store = blobStore({ client, isConflict: (e) => e instanceof PreconditionFailed });
+  await store.put({ id: "1000001", n: 0 });
+  const out = await store.update("1000001", (j) => { j.n += 1; return j; });
+  assert.equal(out.n, 1);
+  assert.ok(client.calls.filter((c) => c.op === "put" && c.opts.ifMatch).every((c) => !c.opts.ifMatch.startsWith("W/")));
 });
