@@ -3,65 +3,61 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://*.paypal.com https://*.paypalobjects.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.paypal.com https://*.paypalobjects.com; img-src 'self' data: https://*.paypal.com https://*.paypalobjects.com; frame-src https://*.paypal.com; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://*.paypal.com https://*.paypalobjects.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.paypal.com https://*.paypalobjects.com; img-src 'self' data: https://*.paypal.com https://*.paypalobjects.com; frame-src https://*.paypal.com; font-src 'self'; base-uri 'none'; form-action 'none'">
 <title>Judge Pay job</title>
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<header class="site-header"><a class="brand" href="/">Judge <span>Pay</span></a><nav><a href="/">New job</a><a href="/dashboard/?src=/api/jobs">Jobs</a><a href="/receipt/">Verify a receipt</a></nav></header>
+<header class="site-header"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">J</span>Judge Pay</a><nav aria-label="Main"><a href="/">New job</a><a href="/dashboard/?src=/api/jobs">Jobs</a><a href="/receipt/">Verify a receipt</a></nav></header>
 <main>
   <div id="mode-banner" class="banner" hidden></div>
   <div id="loading" class="message wait">Loading the job...</div>
   <div id="job" hidden>
     <section>
-      <div class="status-head"><div><p class="step-label">Job <span id="job-id"></span></p><h1 id="title"></h1></div><span id="status" class="status-pill"></span></div>
+      <div class="status-head"><div><span class="label mono">Job <span id="job-id"></span></span><h1 id="title"></h1></div><span id="status" class="status-pill"></span></div>
       <p id="task" class="lede"></p>
       <div class="job-facts">
         <div><span>Buyer authorizes</span><strong id="price"></strong></div>
-        <div><span>Worker payout</span><strong id="payout"></strong></div>
+        <div><span>Worker receives on a pass</span><strong id="payout"></strong></div>
         <div><span>Delivery deadline</span><strong id="deadline"></strong></div>
       </div>
+      <ol id="stepper" class="stepper" aria-label="Progress"></ol>
     </section>
 
-    <section id="worker-access" hidden>
-      <p class="step-label">Private worker invitation</p>
-      <h2>Share delivery access only with your worker</h2>
-      <p class="hint">This job-specific link authorizes delivery and private file retrieval. It is not a PayPal login and gives no access to a PayPal account.</p>
-      <label for="worker-invite">Private worker link</label>
-      <input id="worker-invite" readonly>
-      <div class="actions"><a id="worker-access-open" class="button-link">Open worker desk</a><button id="copy-worker-link" type="button" class="secondary">Copy private link</button></div>
-      <p id="access-message" class="message" role="alert" hidden></p>
+    <section id="verdict-section" class="outcome" hidden>
+      <h2 id="verdict-title"></h2>
+      <p id="verdict-summary" class="lede"></p>
+      <dl id="outcome-facts"></dl>
+      <h3>What the checks found</h3>
+      <ol id="results" class="steps"></ol>
+      <div class="actions"><a id="receipt-link" class="button-link" download>Download receipt</a><a id="verify-link" class="button-link">Verify it yourself</a></div>
     </section>
 
     <section id="funding-section" hidden>
-      <p class="step-label">Buyer step</p>
-      <h2>Authorize the PayPal hold</h2>
-      <p class="hint">This holds the amount; it does not capture it. The checks below are pinned to this order. A failed delivery or a missed deadline voids the hold.</p>
+      <span class="label"><span class="step">02</span>Buyer</span>
+      <h2>Place a PayPal hold</h2>
+      <p class="hint">PayPal authorizes the amount without charging it. The checks below are pinned to this order. If the delivery fails a check or misses the deadline, the hold is voided.</p>
       <div id="paypal-buttons"></div>
       <button id="local-approve" class="primary" hidden>Approve the simulated hold</button>
       <p id="funding-message" class="message" role="alert" hidden></p>
     </section>
 
-    <section id="worker-section" hidden>
-      <p class="step-label">Worker step</p>
-      <h2>The hold is funded. Deliver the work.</h2>
-      <p class="hint">Only the holder of this job's private delivery key can submit. The worker can use the AI self-check loop or submit a file directly.</p>
-      <a id="worker-link" class="button-link" href="/worker.html">Open the worker desk</a>
-    </section>
-
-    <section id="verdict-section" hidden>
-      <p class="step-label">Deterministic result</p>
-      <h2 id="verdict-title"></h2>
-      <p id="verdict-summary" class="lede"></p>
-      <ol id="results" class="steps"></ol>
-      <div class="actions"><a id="receipt-link" download>Download receipt</a><a id="verify-link">Verify with the delivered file</a></div>
+    <section id="worker-access" hidden>
+      <span class="label"><span class="step">03</span>Worker</span>
+      <h2 id="worker-access-title">Send this private link to your worker</h2>
+      <p class="hint">It lets one person deliver for this job. It is not a PayPal login and gives no access to any PayPal account. Anyone holding it can deliver, so share it only with the worker.</p>
+      <label for="worker-invite">Private worker link</label>
+      <input id="worker-invite" readonly>
+      <div class="actions"><button id="copy-worker-link" type="button" class="primary">Copy private link</button><a id="worker-access-open" class="button-link">Open the worker desk</a></div>
+      <p id="access-message" class="message" role="alert" hidden></p>
     </section>
 
     <section>
-      <h2>Checks agreed before funding</h2>
+      <h2>The agreed checks</h2>
       <div id="criteria"></div>
-      <p class="hint">Criteria hash</p><pre id="criteria-hash"></pre>
+      <p class="hint">Fingerprint of these checks, also stored on the PayPal order:</p>
+      <p id="criteria-hash" class="hash"></p>
     </section>
 
     <section>

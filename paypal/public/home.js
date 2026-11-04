@@ -1,7 +1,21 @@
-import { $, api, getConfig, message, modeBanner } from "./common.js";
+import { $, api, criteriaList, getConfig, markNav, message, modeBanner } from "./common.js";
 
 const config = await getConfig();
 modeBanner(config);
+markNav();
+
+function preview() {
+  let criteria;
+  try { criteria = JSON.parse($("criteria").value); }
+  catch {
+    message("criteria-error", "This JSON does not parse yet, so the summary above shows the last valid version.", "bad");
+    return;
+  }
+  $("criteria-error").hidden = true;
+  $("checks-preview").replaceChildren(criteriaList(criteria, { raw: false }));
+}
+preview();
+$("criteria").addEventListener("input", preview);
 if (config.demoWorkerEmail) $("worker-email").value = config.demoWorkerEmail;
 $("draft").textContent = config.localMode ? "Draft checks in local preview" : config.ai ? "Draft checks with AI" : "AI drafting unavailable";
 
@@ -12,6 +26,7 @@ $("draft").addEventListener("click", async () => {
     const draft = await api("/api/ai/draft", { method: "POST", body: { request: $("task").value } });
     $("title").value = draft.title;
     $("criteria").value = JSON.stringify(draft.criteria, null, 2);
+    preview();
     $("reasons").replaceChildren(...(draft.reasons ?? []).map((reason) => {
       const li = document.createElement("li");
       li.textContent = reason;
@@ -19,7 +34,8 @@ $("draft").addEventListener("click", async () => {
     }));
     $("not-checkable").textContent = draft.notCheckable?.length ? `Not checked: ${draft.notCheckable.join("; ")}` : "";
     $("draft-notes").hidden = false;
-    message("message", "Checks drafted. Review and edit them before creating the job.", "ok");
+    message("message", "Checks drafted. Read them below and edit anything before creating the job.", "ok");
+    $("criteria-panel").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
     message("message", error.message, "bad");
   } finally {

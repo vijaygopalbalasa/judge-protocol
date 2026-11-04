@@ -190,6 +190,15 @@ test("AI calls are capped per caller and per day, so a stranger cannot spend the
   assert.equal(calls, 3);
 });
 
+test("the AI cap keys callers by the address the host sets, not a header the visitor can change", async (t) => {
+  const ai = { provider: "test", async draftCriteria() { return { criteria: CRITERIA }; } };
+  const env = await setup(t, { ai, aiLimits: { perCallerPerHour: 1, perDay: 100 } });
+  const draft = (spoof) => env.request("/api/ai/draft", { method: "POST", body: { request: "x" },
+    headers: { "x-vercel-forwarded-for": "9.9.9.9", "x-forwarded-for": spoof } });
+  assert.equal((await draft("1.1.1.1")).res.status, 200);
+  assert.equal((await draft("2.2.2.2")).res.status, 429, "changing x-forwarded-for does not reset the cap");
+});
+
 test("the hosted demo can name its sandbox worker so judges' payouts reach a real sandbox account", async (t) => {
   const env = await setup(t, { demoWorkerEmail: "sb-worker@personal.example.com" });
   const { data } = await env.request("/api/config");

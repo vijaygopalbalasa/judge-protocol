@@ -1,7 +1,8 @@
-import { $, api, getConfig, message, modeBanner } from "./common.js";
+import { $, api, criteriaList, getConfig, markNav, message, modeBanner, money, when } from "./common.js";
 
 const config = await getConfig();
 modeBanner(config);
+markNav();
 const params = new URLSearchParams(location.search);
 const storageKey = (id) => `judge-pay-delivery-${id}`;
 const linkedJob = params.get("job") ?? "";
@@ -13,7 +14,30 @@ $("job-id").value = linkedJob;
 $("worker-key").value = linkedJob ? localStorage.getItem(storageKey(linkedJob)) ?? "" : "";
 $("job-id").addEventListener("change", () => {
   $("worker-key").value = localStorage.getItem(storageKey($("job-id").value.trim())) ?? "";
+  void brief();
 });
+if (!linkedJob) $("access").open = true;
+
+const STATUS = { posted: "Not funded yet", funding: "Not funded yet", funded: "Ready for delivery", judged: "Judged", captured: "Paying out",
+  paid: "Paid", refunded: "Failed, hold voided", expired: "Expired", failed: "Needs attention" };
+async function brief() {
+  const id = $("job-id").value.trim();
+  if (!id) return;
+  try {
+    const job = await api(`/api/jobs/${encodeURIComponent(id)}`);
+    $("brief-title").textContent = job.title;
+    $("brief-task").textContent = job.task;
+    $("brief-pay").textContent = money(job.payout);
+    $("brief-deadline").textContent = when(job.deadline);
+    $("brief-status").textContent = STATUS[job.status] ?? job.status;
+    $("brief-status").className = `status-pill ${job.status}`;
+    $("brief-status").hidden = false;
+    $("brief-facts").hidden = false;
+    $("brief-checks").replaceChildren(criteriaList(job.criteria));
+    $("brief-checks-wrap").hidden = false;
+  } catch (error) { $("brief-task").textContent = `Could not load job ${id}: ${error.message}`; }
+}
+void brief();
 $("ai-work").textContent = config.localMode ? "Run the canned preview worker" : config.ai ? "Let the AI worker deliver and settle" : "AI worker unavailable";
 
 function credentials() {
@@ -27,7 +51,15 @@ function credentials() {
 
 function showTrace(trace) {
   $("trace").hidden = !trace?.length;
-  $("trace").textContent = JSON.stringify(trace ?? [], null, 2);
+  $("trace").replaceChildren(...(trace ?? []).map((round) => {
+    const li = document.createElement("li");
+    li.className = round.pass ? "ok" : "";
+    const b = document.createElement("b");
+    b.textContent = `Draft ${round.round}`;
+    const failed = (round.failed ?? []).map((f) => (typeof f === "string" ? f : f.kind ?? JSON.stringify(f)));
+    li.append(b, round.pass ? `score ${round.score}: every check passed, submitted` : `score ${round.score}: failed ${failed.join(", ") || "a check"}, revising`);
+    return li;
+  }));
 }
 
 function done(jobId) {
@@ -44,7 +76,9 @@ $("ai-work").addEventListener("click", async () => {
     message("message", config.localMode ? "Running the canned worker and deterministic checks..." : "AI is drafting and checking the work. This can take a minute...", "wait");
     const out = await api(`/api/jobs/${encodeURIComponent(job)}/ai-work`, { method: "POST", body: { workerKey } });
     showTrace(out.trace);
-    message("message", `Delivered. Result: ${out.job.status}. The checks, not the AI, settled the payment.`, "ok");
+    const paid = out.job.status === "paid" || out.job.status === "captured";
+    message("message", paid ? `Delivered and every check passed. PayPal is paying you ${money(out.job.payout)}. The checks, not the AI, released the money.` : `Delivered. Result: ${out.job.status}.`, paid ? "ok" : "bad");
+    void brief();
     done(job);
   } catch (error) {
     showTrace(error.data?.trace);
@@ -72,7 +106,8 @@ $("deliver").addEventListener("click", async () => {
     }
     message("message", "Running the agreed checks and settling by their result...", "wait");
     const out = await api(`/api/jobs/${encodeURIComponent(job)}/deliver`, { method: "POST", body });
-    message("message", `${out.verdict.pass ? "Every check passed" : "A check failed"}. Job state: ${out.status}.`, out.verdict.pass ? "ok" : "bad");
+    message("message", out.verdict.pass ? `Every check passed. PayPal is paying you ${money(out.payout)}.` : "A check failed, so the buyer's hold was voided and nothing is paid. See the result for which check.", out.verdict.pass ? "ok" : "bad");
+    void brief();
     done(job);
   } catch (error) { message("message", error.message, "bad"); }
   finally { $("deliver").disabled = false; }

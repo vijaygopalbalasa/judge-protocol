@@ -1,5 +1,8 @@
 // The receipt page: reads the receipt and the delivered file, runs check.js, and shows each step as plain text.
 import { checkReceipt } from "./check.js";
+import { markNav } from "../common.js";
+
+markNav();
 
 const $ = (id) => document.getElementById(id);
 const LABELS = { format: "Format", "receipt hash": "Receipt hash", "criteria hash": "Agreed checks", delivery: "Delivered file",

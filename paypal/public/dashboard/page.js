@@ -1,6 +1,10 @@
 // The jobs dashboard: public job views shown in AG Grid, with headline totals and a detail panel. It reads the sample
 // file by default, or ?src= (an https address or this site) for live data. Every value is shown as text.
 import { toRows, summarize } from "./rows.js";
+import { markNav } from "../common.js";
+import { describeEvent } from "../plain.js";
+
+markNav();
 
 const $ = (id) => document.getElementById(id);
 const { agGrid } = globalThis;
@@ -13,7 +17,7 @@ async function load() {
     const u = new URL(src, location.href);
     if (u.protocol !== "https:" && u.origin !== location.origin) throw new Error("?src= must be an https address or this site");
     url = u;
-    label = `Jobs from ${u.host}.`;
+    label = u.origin === location.origin ? "Live jobs on this server, newest first. Click a row for its checks and history." : `Jobs from ${u.host}.`;
   }
   const res = await fetch(url, { credentials: "omit" });
   if (!res.ok) throw new Error(`could not load ${url.href}: HTTP ${res.status}`);
@@ -70,7 +74,7 @@ function detail(row, view) {
   $("detail-events").replaceChildren(...events.map((e) => {
     const li = document.createElement("li");
     li.className = e.type === "failed" ? "bad" : "ok";
-    li.textContent = `${when(e.at)}: ${e.type}${e.detail ? `, ${e.detail}` : ""}`;
+    li.textContent = `${when(e.at)}: ${describeEvent(e)}`;
     return li;
   }));
 }
@@ -92,7 +96,13 @@ try {
   }
   kpis(summarize(rows));
   if (agGrid.ModuleRegistry && agGrid.AllCommunityModule) agGrid.ModuleRegistry.registerModules([agGrid.AllCommunityModule]);
+  const theme = agGrid.themeQuartz?.withParams?.({
+    fontFamily: "Geist, ui-sans-serif, system-ui, sans-serif", accentColor: "var(--accent)", headerFontWeight: 600,
+    wrapperBorderRadius: 14, borderColor: "var(--line)", headerBackgroundColor: "var(--sunk)", backgroundColor: "var(--panel)",
+    rowHoverColor: "var(--bg)", foregroundColor: "var(--text)", chromeBackgroundColor: "var(--sunk)",
+  });
   agGrid.createGrid($("grid"), {
+    ...(theme ? { theme } : {}),
     rowData: rows,
     domLayout: "autoHeight",
     getRowId: (p) => p.data.id,
@@ -108,10 +118,10 @@ try {
       { field: "score", headerName: "Score", type: "rightAligned", width: 100, filter: "agNumberColumnFilter" },
       { field: "result", headerName: "Result", width: 110,
         cellClassRules: { "res-pass": (p) => p.value === "PASS", "res-reject": (p) => p.value === "REJECT" } },
-      { field: "checks", headerName: "Checks", flex: 2, minWidth: 220 },
       { field: "orderId", headerName: "PayPal order", minWidth: 170 },
       { field: "captureId", headerName: "Capture", minWidth: 170 },
       { field: "payoutBatchId", headerName: "Payout batch", minWidth: 160 },
+      { field: "checks", headerName: "Checks", flex: 2, minWidth: 220 },
       { field: "updatedAt", headerName: "Updated", minWidth: 170, sort: "desc", valueFormatter: (p) => when(p.value) },
     ],
     onRowClicked: (e) => detail(e.data, byId.get(e.data.id)),

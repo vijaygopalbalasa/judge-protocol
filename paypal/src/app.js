@@ -62,9 +62,8 @@ function jobId(path, match) {
 }
 
 /**
- * Caps model calls so a stranger on the hosted demo cannot spend the AI budget. In memory, per process: the per-caller
- * hourly cap uses the proxy's x-forwarded-for (spoofable), so the global daily cap is the real backstop, with a spend
- * limit on the provider key behind both.
+ * Caps model calls so a stranger on the hosted demo cannot spend the AI budget. The counters are in memory, so on a
+ * serverless host each warm instance counts separately: the spend limit on the provider key is the hard backstop.
  */
 export function aiLimiter({ perCallerPerHour = 20, perDay = 300, now = () => Date.now() } = {}) {
   const callers = new Map();
@@ -72,10 +71,12 @@ export function aiLimiter({ perCallerPerHour = 20, perDay = 300, now = () => Dat
   return function take(req) {
     const t = now();
     if (t - day.start >= 86_400_000) day = { start: t, count: 0 };
-    const caller = String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim() || req.socket.remoteAddress || "unknown";
+    // Vercel sets x-vercel-forwarded-for and x-real-ip itself; x-forwarded-for is a fallback for other proxies.
+    const header = req.headers["x-vercel-forwarded-for"] ?? req.headers["x-real-ip"] ?? req.headers["x-forwarded-for"] ?? "";
+    const caller = String(header).split(",")[0].trim() || req.socket.remoteAddress || "unknown";
     let c = callers.get(caller);
     if (!c || t - c.start >= 3_600_000) { c = { start: t, count: 0 }; callers.set(caller, c); }
-    if (callers.size > 10_000) callers.clear();
+    if (callers.size > 10_000) callers.delete(callers.keys().next().value); // evict the oldest caller, keep the rest
     if (day.count >= perDay) throw new HttpError(429, "the demo's daily AI limit is reached; write the checks as JSON or try tomorrow");
     if (c.count >= perCallerPerHour) throw new HttpError(429, "AI limit reached for this hour; please try again later");
     c.count++; day.count++;
@@ -99,7 +100,7 @@ export function createApp({
     if (method === "GET" && path === "/api/config") {
       return send(res, 200, {
         clientId, environment, localMode: Boolean(local), demoWorkerEmail,
-        ai: Boolean(ai), assistant: local ? "preview" : ai ? (ai.provider ?? "anthropic") : "unconfigured",
+        ai: Boolean(ai), assistant: local ? "preview" : ai ? (ai.provider ?? "anthropic") : "unconfigured", model: local ? null : ai?.model ?? null,
       });
     }
     if (method === "POST" && path === "/api/ai/draft") {

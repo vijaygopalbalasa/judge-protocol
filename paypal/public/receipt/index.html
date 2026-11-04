@@ -3,12 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' https:; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' https:; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'">
 <title>Check a Judge Pay receipt</title>
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="/style.css">
 </head>
 <body>
+<header class="site-header"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">J</span>Judge Pay</a><nav aria-label="Main"><a href="/">New job</a><a href="/dashboard/?src=/api/jobs">Jobs</a><a href="/receipt/">Verify a receipt</a></nav></header>
 <main>
   <h1>Check a Judge Pay receipt</h1>
   <p class="lede">Load a receipt and the file that was delivered. This page runs the agreed checks again here, in your browser,
@@ -16,7 +17,8 @@
     page.</p>
 
   <section>
-    <h2>1. The receipt</h2>
+    <span class="label"><span class="step">01</span>Receipt</span>
+    <h2>The receipt</h2>
     <textarea id="receipt" rows="8" spellcheck="false" placeholder="Paste the receipt JSON here, or choose the file below"></textarea>
     <p class="row">
       <input type="file" id="receipt-file" accept="application/json,.json">
@@ -25,7 +27,8 @@
   </section>
 
   <section>
-    <h2>2. The delivered file</h2>
+    <span class="label"><span class="step">02</span>Delivered file</span>
+    <h2>The file the worker delivered</h2>
     <input type="file" id="delivery-file">
     <p id="delivery-note" class="hint">Use the original file. Text copied by hand can change its bytes (line endings, for
       example), and then it will not match.</p>

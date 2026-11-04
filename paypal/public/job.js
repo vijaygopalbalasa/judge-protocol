@@ -1,8 +1,10 @@
-import { $, api, criteriaList, getConfig, message, modeBanner, money, when } from "./common.js";
+import { $, api, criteriaList, getConfig, markNav, message, modeBanner, money, when } from "./common.js";
+import { describeEvent, describeResult } from "./plain.js";
 
 const id = new URLSearchParams(location.search).get("id");
 const config = await getConfig();
 modeBanner(config);
+markNav();
 let job;
 let buttonsRendered = false;
 const deliveryKey = localStorage.getItem(`judge-pay-delivery-${id}`);
@@ -14,25 +16,47 @@ if (deliveryKey) {
 }
 
 const STATUS = {
-  posted: "Waiting for authorization", funding: "Approve in PayPal", funded: "Funded, awaiting delivery",
-  judged: "Judged, settling", captured: "Captured, paying worker", paid: "Paid", refunded: "Hold voided",
+  posted: "Waiting for the PayPal hold", funding: "Approve in PayPal", funded: "Held, waiting for delivery",
+  judged: "Judged, settling", captured: "Captured, paying the worker", paid: "Paid", refunded: "Hold voided",
   expired: "Expired, hold voided", failed: "Needs attention",
 };
 
-function facts(job) {
-  const entries = [
-    ["PayPal order", job.paypal.orderId], ["Authorization", job.paypal.authorizationId],
-    ["Capture", job.paypal.captureId], ["Payout batch", job.paypal.payoutBatchId],
-    ["Payout status", job.paypal.payoutItemStatus ?? job.paypal.payoutStatus],
-  ].filter(([, value]) => value);
-  $("paypal-facts").replaceChildren(...entries.flatMap(([name, value]) => {
+const STAGES = ["Checks agreed", "Payment held", "Work delivered", "Settled"];
+function stepper(status) {
+  const reached = { posted: 1, funding: 1, funded: 2, judged: 3, captured: 3, paid: 4, refunded: 4, expired: 2, failed: 3 }[status] ?? 1;
+  $("stepper").replaceChildren(...STAGES.map((name, i) => {
+    const li = document.createElement("li");
+    let state = i < reached ? "done" : i === reached ? "current" : "";
+    let note = i < reached ? "Done" : i === reached ? "Now" : "";
+    if (status === "refunded" && i === 3) { state = "stopped"; note = "Hold voided"; }
+    if (status === "expired" && i >= 2) { state = "stopped"; note = i === 2 ? "Missed deadline" : "Hold voided"; }
+    if (status === "failed" && i === 3) { state = "stopped"; note = "Needs attention"; }
+    if (status === "paid" && i === 3) note = "Worker paid";
+    li.className = state;
+    const b = document.createElement("b");
+    b.textContent = name;
+    li.append(b, note);
+    if (state === "current") li.setAttribute("aria-current", "step");
+    return li;
+  }));
+}
+
+function definitions(target, entries) {
+  $(target).replaceChildren(...entries.filter(([, v]) => v).flatMap(([name, value]) => {
     const dt = document.createElement("dt");
     dt.textContent = name;
     const dd = document.createElement("dd");
     dd.textContent = value;
-    dd.title = value;
     return [dt, dd];
   }));
+}
+
+function facts(job) {
+  definitions("paypal-facts", [
+    ["PayPal order", job.paypal.orderId], ["Authorization", job.paypal.authorizationId],
+    ["Capture", job.paypal.captureId], ["Payout batch", job.paypal.payoutBatchId],
+    ["Payout status", job.paypal.payoutItemStatus ?? job.paypal.payoutStatus], ["Hold voided", job.paypal.voided ? "yes" : null],
+  ]);
 }
 
 function render(next) {
@@ -49,18 +73,27 @@ function render(next) {
   $("status").className = `status-pill ${job.status}`;
   $("criteria").replaceChildren(criteriaList(job.criteria));
   $("criteria-hash").textContent = job.criteriaHash;
+  stepper(job.status);
   $("funding-section").hidden = !["posted", "funding"].includes(job.status);
-  $("worker-section").hidden = job.status !== "funded";
-  $("worker-link").href = workerUrl;
+  $("worker-access").hidden = !deliveryKey || !["posted", "funding", "funded"].includes(job.status);
+  $("copy-worker-link").className = job.status === "funded" ? "primary" : "secondary";
+  $("worker-access-title").textContent = job.status === "funded" ? "The money is held. Send this link to your worker." : "Your worker's private link (works once the hold is placed)";
   $("verdict-section").hidden = !job.verdict;
   if (job.verdict) {
     const passed = job.verdict.pass;
-    $("verdict-title").textContent = passed ? "Every check passed. Payment released." : "A check failed. The hold was voided.";
-    $("verdict-summary").textContent = `Score ${job.verdict.score}; pass threshold ${job.verdict.threshold}. ${job.status === "paid" ? "PayPal confirmed the worker payout." : job.status === "captured" ? "Payment captured; payout is still pending." : job.status === "refunded" ? "The buyer was not charged." : "See the money trail below."}`;
+    $("verdict-section").className = `outcome ${passed ? "ok" : "bad"}`;
+    $("verdict-title").textContent = passed
+      ? (job.status === "paid" ? `Every check passed. ${money(job.payout)} paid to the worker.` : "Every check passed. Paying the worker...")
+      : job.status === "refunded" ? "A check failed. The hold was voided; the buyer is not charged." : "A check failed. Voiding the hold...";
+    $("verdict-summary").textContent = `Score ${job.verdict.score} of 100 (needed ${job.verdict.threshold}). The agreed program decided this, not the AI. ${passed ? `PayPal captured ${money(job.price)}${job.status === "paid" ? " and confirmed the payout" : ""}.` : "No capture, no payout."}`;
+    definitions("outcome-facts", passed
+      ? [["Capture", job.paypal.captureId], ["Payout batch", job.paypal.payoutBatchId], ["Payout status", job.paypal.payoutItemStatus ?? job.paypal.payoutStatus]]
+      : [["Authorization", job.paypal.authorizationId], ["Status", job.paypal.voided ? "VOIDED" : "voiding"]]);
     $("results").replaceChildren(...job.verdict.results.map((result) => {
+      const r = describeResult(result);
       const li = document.createElement("li");
-      li.className = result.pass ? "ok" : "bad";
-      li.textContent = `${result.kind}: ${result.detail}`;
+      li.className = r.pass ? "ok" : "bad";
+      li.textContent = r.text;
       return li;
     }));
     $("receipt-link").href = `/api/jobs/${encodeURIComponent(job.id)}/receipt`;
@@ -70,7 +103,10 @@ function render(next) {
   $("events").replaceChildren(...[...job.events].reverse().map((event) => {
     const li = document.createElement("li");
     li.className = ["failed", "payout-review"].includes(event.type) ? "bad" : ["settle-retry", "payout-retry", "expire-retry"].includes(event.type) ? "wait" : "ok";
-    li.textContent = `${when(event.at)}: ${event.type}${event.detail ? `, ${event.detail}` : ""}`;
+    const time = document.createElement("time");
+    time.dateTime = event.at;
+    time.textContent = when(event.at);
+    li.append(time, describeEvent(event));
     return li;
   }));
   if (["posted", "funding"].includes(job.status)) void setupFunding();
