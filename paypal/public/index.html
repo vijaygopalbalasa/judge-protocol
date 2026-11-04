@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<title>Judge Pay: verified work, paid</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="/">Judge <span>Pay</span></a>
+  <nav><a href="/#how">How it works</a><a href="/dashboard/?src=/api/jobs">Jobs</a><a href="/receipt/">Verify a receipt</a></nav>
+</header>
+<main class="wide">
+  <div id="mode-banner" class="banner" hidden></div>
+  <section class="hero">
+    <p class="eyebrow">AI work, with acceptance checks before payment</p>
+    <h1>Pay for verified work.<br>Not promises.</h1>
+    <p class="lede">A buyer agrees the checks and authorizes a PayPal hold. An AI or human worker delivers. Passing work releases payment; failing work releases the hold.</p>
+    <div class="trust-row"><span>PayPal authorization holds</span><span>Repeatable checks</span><span>Receipt anyone can recompute</span></div>
+  </section>
+
+  <div class="two-col">
+    <section>
+      <p class="step-label">Start a job</p>
+      <h2>What should the worker deliver?</h2>
+      <form id="job-form">
+        <label for="task">Task</label>
+        <textarea id="task" rows="5" maxlength="4000" required>Reconcile these three refund receipts: RCPT-1042 for 12.50 USD, RCPT-1048 for 7.50 USD, and RCPT-1051 for 5.00 USD. Return only JSON with report set to refund_reconciliation, currency, total_refunds, receipt_ids, and a short summary.</textarea>
+        <div class="form-grid">
+          <div><label for="price">Price in USD</label><input id="price" type="number" min="1" max="500" step="0.01" value="5.00" required></div>
+          <div><label for="worker-email">Worker's PayPal email</label><input id="worker-email" type="email" value="worker@personal.example.com" required></div>
+        </div>
+        <button id="draft" type="button">Draft checks with AI</button>
+        <p class="hint">Review every check before funding. AI proposes the terms; it cannot change them after the PayPal order is created.</p>
+        <div id="criteria-panel" class="criteria-editor">
+          <label for="title">Job title</label>
+          <input id="title" maxlength="80" value="Refund reconciliation report" required>
+          <label for="criteria">Agreed checks, as JSON</label>
+          <textarea id="criteria" rows="18" spellcheck="false" required>{
+  "version": 1,
+  "passThreshold": 100,
+  "checks": [
+    {
+      "kind": "json",
+      "weight": 3,
+      "params": {
+        "shape": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["report", "currency", "total_refunds", "receipt_ids", "summary"],
+          "properties": {
+            "report": { "type": "string", "enum": ["refund_reconciliation"] },
+            "currency": { "type": "string", "enum": ["USD"] },
+            "total_refunds": { "type": "number", "enum": [25] },
+            "receipt_ids": { "type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true, "items": { "type": "string", "enum": ["RCPT-1042", "RCPT-1048", "RCPT-1051"] } },
+            "summary": { "type": "string", "minLength": 20, "maxLength": 240 }
+          }
+        }
+      }
+    },
+    { "kind": "contains", "params": { "all": ["RCPT-1042", "RCPT-1048", "RCPT-1051"] }, "weight": 1 },
+    { "kind": "length", "params": { "min": 100, "max": 1000, "unit": "chars" }, "weight": 1 }
+  ]
+}</textarea>
+          <div id="draft-notes" hidden>
+            <h3>What these checks guarantee</h3>
+            <ul id="reasons"></ul>
+            <p id="not-checkable" class="hint"></p>
+          </div>
+        </div>
+        <button id="create" type="submit" class="primary">Create job and continue to PayPal</button>
+        <p id="message" class="message" role="alert" hidden></p>
+      </form>
+    </section>
+
+    <aside id="how" class="panel flow-panel">
+      <p class="step-label">The payment contract</p>
+      <ol class="flow">
+        <li><span>1</span><div><strong>Agree the checks</strong><p>AI turns a plain request into objective checks. The buyer can edit them.</p></div></li>
+        <li><span>2</span><div><strong>Hold, do not charge</strong><p>The buyer approves a PayPal authorization tied to the exact checks hash.</p></div></li>
+        <li><span>3</span><div><strong>Deliver and verify</strong><p>The worker opens a private job link. Only the agreed program judges the bytes.</p></div></li>
+        <li><span>4</span><div><strong>Settle by the result</strong><p>Pass: capture and payout. Fail or timeout: void the hold. Every step leaves a receipt.</p></div></li>
+      </ol>
+      <p class="limit"><strong>Scope:</strong> repeatable checks can verify form, required content and JSON structure. They cannot prove truth, taste or accuracy.</p>
+    </aside>
+  </div>
+</main>
+<footer>Judge Pay is a sandbox prototype built on Judge Protocol. No custody of buyer funds beyond PayPal's authorization hold.</footer>
+<script type="module" src="/home.js"></script>
+</body>
+</html>

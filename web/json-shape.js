@@ -8,7 +8,7 @@ export const SHAPE_LIMITS = { nodes: 128, anyOf: 4, shown: 5, shownChars: 40, te
 const TYPES = ["object", "array", "string", "number", "integer", "boolean", "null"];
 // Each keyword applies to one type, and a shape that uses it must declare that type.
 const NEEDS = { required: "object", properties: "object", additionalProperties: "object", items: "array", minItems: "array",
-  maxItems: "array", uniqueBy: "array", minLength: "string", maxLength: "string", format: "string", minimum: "number", maximum: "number" };
+  maxItems: "array", uniqueItems: "array", uniqueBy: "array", minLength: "string", maxLength: "string", format: "string", minimum: "number", maximum: "number" };
 const FORMATS = ["url", "email"];
 /** Every keyword a shape may use (docs/CRITERIA.md documents each one; a test holds them together). */
 export const SHAPE_KEYWORDS = ["type", "enum", "anyOf", ...Object.keys(NEEDS)];
@@ -73,6 +73,7 @@ export function shapeProblem(shape) {
       if (Object.hasOwn(node, lo) && Object.hasOwn(node, hi) && node[lo] > node[hi]) return `${at}: ${lo} must not be above ${hi}`;
     }
     if (Object.hasOwn(node, "format") && !FORMATS.includes(node.format)) return `${at}: format must be "url" or "email"`;
+    if (Object.hasOwn(node, "uniqueItems") && typeof node.uniqueItems !== "boolean") return `${at}: uniqueItems must be true or false`;
     if (Object.hasOwn(node, "additionalProperties") && typeof node.additionalProperties !== "boolean") {
       return `${at}: additionalProperties must be true or false`;
     }
@@ -164,12 +165,26 @@ function walk(v, node, path, out) {
       const s = v.length === 1 ? "" : "s";
       if (Object.hasOwn(node, "minItems") && v.length < node.minItems) fail(out, path, `${v.length} item${s}, need at least ${node.minItems}`);
       if (Object.hasOwn(node, "maxItems") && v.length > node.maxItems) fail(out, path, `${v.length} item${s}, need at most ${node.maxItems}`);
+      if (node.uniqueItems === true) {
+        const seen = new Map();
+        for (let i = 0; i < v.length && out.count < out.stop; i++) {
+          const key = canonical(v[i]);
+          if (seen.has(key)) fail(out, `${path}[${i}]`, `same value as ${path}[${seen.get(key)}]`);
+          else seen.set(key, i);
+        }
+      }
       if (Object.hasOwn(node, "items")) for (let i = 0; i < v.length && out.count < out.stop; i++) walk(v[i], node.items, `${path}[${i}]`, out);
       if (Object.hasOwn(node, "uniqueBy")) unique(v, node.uniqueBy, path, out);
       return;
     }
     default:
   }
+}
+
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (isObject(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`;
+  return JSON.stringify(value);
 }
 
 /** No two items may share a key. Items whose field is missing, null, an object or a list (or, for "domain", not a URL)
@@ -194,7 +209,7 @@ function unique(items, { field, key }, path, out) {
 }
 
 /** Every way `value` breaks `shape`: how many, and the first few found as "path: problem" (an array's own bounds,
- *  then each item in turn, then its uniqueBy rule). */
+ *  then each item in turn, then its uniqueness rules). */
 export function shapeViolations(value, shape) {
   const out = { count: 0, stop: Infinity, shown: [] };
   if (shape) walk(value, shape, "$", out);

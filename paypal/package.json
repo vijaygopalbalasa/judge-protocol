@@ -10,6 +10,9 @@
   "scripts": {
     "test": "node --test --test-timeout=60000 'test/*.test.js'",
     "dev": "node scripts/dev-server.js",
+    "start": "node scripts/dev-server.js",
+    "demo": "node scripts/local-demo.js",
+    "sandbox:e2e": "node scripts/sandbox-e2e.js",
     "sync-engine": "node scripts/sync-engine.js"
   },
   "license": "MIT",

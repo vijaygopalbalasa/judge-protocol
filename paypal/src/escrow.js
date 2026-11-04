@@ -10,9 +10,9 @@
 // A step that moves money is recorded before PayPal is called and retried with the same PayPal-Request-Id, so a
 // timeout or a crash between steps never pays twice and never loses a payment.
 //
-// Who may do what: a worker signs in with PayPal and gets a key for that account's confirmed email, stored only as a
-// SHA-256 hash. Only the worker named on a job can deliver to it, so a buyer cannot deliver in the worker's place to
-// force a refund, and nobody can hold a key for an address they do not control.
+// Who may do what: each job has a private delivery key whose SHA-256 hash is stored, never the clear key. Its holder
+// can deliver and retrieve the original bytes. PayPal pays the worker email named on the job; the key is job
+// authorization, not PayPal identity or access to the worker's PayPal account.
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { keccak256 } from "viem";
 import { dryRunEvaluate, MAX_DELIVERABLE_BYTES } from "../engine/evaluate.js";
@@ -69,9 +69,9 @@ export function checkCriteria(criteria) {
   return criteria;
 }
 
-export function createEscrow({ paypal, store, workers, now = () => Date.now(), publicUrl = "http://localhost:3000", feeBps = 500, deadlineHours = 72,
+export function createEscrow({ paypal, store, now = () => Date.now(), publicUrl = "http://localhost:3000", feeBps = 500, deadlineHours = 72,
   idgen = newJobId, keygen = () => randomBytes(24).toString("base64url"), operatorKeyHash = null } = {}) {
-  if (!paypal || !store || !workers) throw new Error("createEscrow needs paypal, store and workers");
+  if (!paypal || !store) throw new Error("createEscrow needs PayPal and a store");
   const iso = () => new Date(now()).toISOString();
   const receiptUrl = (id) => `${publicUrl}/job.html?id=${id}`;
   const event = (job, type, detail) => { job.events.push({ at: iso(), type, ...(detail ? { detail } : {}) }); job.updatedAt = iso(); return job; };
@@ -83,36 +83,9 @@ export function createEscrow({ paypal, store, workers, now = () => Date.now(), p
     return job;
   }
 
-  /** A worker signs in with PayPal and gets a key for the confirmed email on that PayPal account, shown exactly once;
-   *  only its hash is kept. Signing in again as the same account issues a fresh key and retires the old one, so the
-   *  owner of an address can always take it back and nobody can hold a key for an address they do not control. */
-  async function registerWorker({ loginCode } = {}) {
-    if (typeof loginCode !== "string" || !loginCode) throw bad("sign in with PayPal to get a worker key");
-    let who;
-    try { who = await paypal.loginWithPayPal(loginCode); } catch (e) { throw new EscrowError(403, `PayPal sign-in failed: ${e.message}`); }
-    if (!who?.email || !who.emailConfirmed) throw new EscrowError(403, "the PayPal account has no confirmed email to be paid at");
-    const e = normalizeEmail(who.email);
-    const key = keygen();
-    const existing = await workers.get(e);
-    await workers.put({ id: e, email: e, payerId: who.payerId ?? null, keyHash: hashSecret(key), createdAt: existing?.createdAt ?? iso(),
-      ...(existing ? { reissuedAt: iso() } : {}) });
-    return { email: e, key };
-  }
-
-  /** A new key for a registered worker, in exchange for the current one. */
-  async function rotateWorkerKey({ email, workerKey } = {}) {
-    const e = normalizeEmail(email);
-    const w = await workers.get(e);
-    if (!w || !matches(workerKey, w.keyHash)) throw new EscrowError(403, "bad worker key");
-    const key = keygen();
-    await workers.update(e, (x) => ({ ...x, keyHash: hashSecret(key), rotatedAt: iso() }));
-    return { email: e, key };
-  }
-
   async function workerFor(job, workerKey) {
-    const w = await workers.get(job.worker.email);
-    if (!w || !matches(workerKey, w.keyHash)) throw new EscrowError(403, "only the worker named on this job can deliver (bad worker key)");
-    return w;
+    if (!matches(workerKey, job.deliveryKeyHash)) throw new EscrowError(403, "use the private delivery key for this job");
+    return { email: job.worker.email };
   }
 
   /** Post a job: the task, the agreed checks, the price and the worker. Nothing is charged yet. */
@@ -126,18 +99,19 @@ export function createEscrow({ paypal, store, workers, now = () => Date.now(), p
     try { email = normalizeEmail(workerEmail); } catch { throw bad("workerEmail must be the worker's PayPal email"); }
     const created = now();
     const id = idgen(created);
+    const deliveryKey = keygen();
     const job = {
       id, title: title.trim(), task: task.trim(), criteria: c, criteriaHash: criteriaHash(c),
       price: { currency: CURRENCY, value: fromCents(cents), cents }, feeBps,
       payout: { currency: CURRENCY, value: fromCents(payoutCents(cents, feeBps)), cents: payoutCents(cents, feeBps) },
-      worker: { email },
+      worker: { email }, deliveryKeyHash: hashSecret(deliveryKey),
       status: "posted", createdAt: new Date(created).toISOString(), updatedAt: new Date(created).toISOString(),
       deadline: new Date(created + deadlineHours * 3600_000).toISOString(),
       paypal: {}, deliverable: null, verdict: null, decision: null, events: [],
     };
     event(job, "posted", `checks pinned: ${job.criteriaHash}`);
     await store.put(job);
-    return job;
+    return { ...job, deliveryKey };
   }
 
   /** The PayPal order for this job (created once): intent AUTHORIZE, with the criteria hash in custom_id. */
@@ -396,7 +370,23 @@ export function createEscrow({ paypal, store, workers, now = () => Date.now(), p
     return (await store.list()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  return { registerWorker, rotateWorkerKey, postJob, createOrder, authorize, deliver, settle, sweep, refreshPayout, resolvePayoutReview, get: load, list, receiptUrl };
+  async function requireDeliveryWorker(id, workerKey) {
+    let job = await load(id);
+    await workerFor(job, workerKey);
+    job = await sweep(id);
+    if (job.status !== "funded") throw conflict(`the job is ${job.status}; work can start only while it is funded`);
+    return job;
+  }
+
+  async function downloadDelivery(id, { workerKey } = {}) {
+    const job = await load(id);
+    await workerFor(job, workerKey);
+    if (!job.deliverable) throw new EscrowError(404, "this job has no delivery yet");
+    return { base64: job.deliverable.base64, contentType: job.deliverable.contentType };
+  }
+
+  return { postJob, createOrder, authorize, deliver, settle, sweep, refreshPayout, resolvePayoutReview,
+    requireDeliveryWorker, downloadDelivery, get: load, list, receiptUrl };
 }
 
 /** What anyone may see: the terms, the state, the verdict, the hashes and PayPal's record ids. Never the delivered

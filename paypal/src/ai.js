@@ -36,17 +36,19 @@ export const Draft = z.object({
   notCheckable: z.array(z.string()).describe("Parts of the request a program cannot verify, such as tone or accuracy."),
 });
 
-const DRAFTER_SYSTEM = `You turn a request for paid work into acceptance checks that a program runs on the delivered text. Payment is released only if the delivery passes, and the buyer reviews your checks before paying, so each check must be something a program verifies the same way every time.
+export const DRAFTER_SYSTEM = `You turn a request for paid work into acceptance checks that a program runs on the delivered text. Payment is released only if the delivery passes, and the buyer reviews your checks before paying, so each check must be something a program verifies the same way every time.
 
 Check kinds:
 - length: the size of the delivery in words (unit "words") or characters (unit "chars"), with min, max or both.
 - contains: terms that must all appear, matched exactly and case-sensitively (all). Set wholeWords to true to require whole words.
-- json: the delivery must be JSON of a given shape. Write the shape as a JSON string using only these keywords: type (object, array, string, number, integer, boolean, null), required, properties, additionalProperties, items, minItems, maxItems, minLength, maxLength, minimum, maximum, enum, format ("url" or "email"), anyOf. Each keyword other than type, enum and anyOf sits in a shape that declares the type it applies to.
+- json: the delivery must be JSON of a given shape. Write the shape as a JSON string using only these keywords: type (object, array, string, number, integer, boolean, null), required, properties, additionalProperties, items, minItems, maxItems, uniqueItems, minLength, maxLength, minimum, maximum, enum, format ("url" or "email"), anyOf. Each keyword other than type, enum and anyOf sits in a shape that declares the type it applies to. For an exact set of distinct identifiers, use minItems, maxItems, uniqueItems set to true, and enum on the allowed item values.
 - schema: the delivery must be a JSON object with the required fields, and optionally the types of some fields (string, number, boolean, object).
 
-Use two to six checks and set passThreshold to 100 unless the request allows partial credit. Leave a field null when it does not apply to a check. Anything a program cannot verify, such as tone, accuracy or taste, goes in notCheckable and never into a check. Keep the title under 80 characters.`;
+Use one to six checks and set passThreshold to 100 unless the request allows partial credit. Leave a field null when it does not apply to a check. Anything a program cannot verify, such as tone, accuracy or taste, goes in notCheckable and never into a check. Keep the title under 80 characters.
 
-const WORKER_SYSTEM = "You are a worker paid through Judge Pay. Write exactly the deliverable the task asks for. A program checks your delivery against the listed checks, and you are paid only if it passes. Reply with the deliverable itself and nothing else.";
+For arithmetic, compute the result and constrain the specific numeric field with enum, minimum, or maximum in the JSON shape. Constrain exact literal field values with enum. For example, a required USD currency belongs in the JSON property as "currency": { "type": "string", "enum": ["USD"] }, not in a contains check. Apply the same direct-field rule to report types and other required literal values. When the request allows only named JSON fields, set additionalProperties to false. Use contains only for required substrings anywhere in the delivered bytes, never to validate a specific field or a computed numeric result.`;
+
+export const WORKER_SYSTEM = "You are a worker paid through Judge Pay. Write exactly the deliverable the task asks for. A program checks your delivery against the listed checks, and you are paid only if it passes. Reply with the deliverable itself and nothing else.";
 
 /** The drafted checks as Judge criteria: fields that do not apply are dropped, the json shape is parsed. */
 export function toCriteria(draft) {
@@ -63,7 +65,10 @@ export function toCriteria(draft) {
       params.required = c.required ?? [];
       if (c.types?.length) params.types = Object.fromEntries(c.types.map((t) => [t.field, t.type]));
     } else if (c.kind === "json") {
-      try { params.shape = JSON.parse(c.shape ?? ""); } catch { throw new AiError(422, `the json check's shape is not valid JSON: ${c.shape}`); }
+      let shape;
+      try { shape = JSON.parse(c.shape ?? ""); } catch { throw new AiError(422, `the json check's shape is not valid JSON: ${c.shape}`); }
+      if (shape?.type === "object" && shape.additionalProperties === undefined) shape.additionalProperties = false;
+      params.shape = shape;
     }
     return { kind: c.kind, params, weight: c.weight };
   });
@@ -123,5 +128,5 @@ export function createAi({ client = new Anthropic(), model = MODEL, evaluate = d
     return { content, passed: false, rounds: maxRounds, trace };
   }
 
-  return { draftCriteria, work, model };
+  return { draftCriteria, work, model, provider: "anthropic" };
 }

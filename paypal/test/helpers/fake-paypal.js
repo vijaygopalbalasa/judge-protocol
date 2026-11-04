@@ -25,8 +25,6 @@ export function fakePayPal({ clientId = "client-id", clientSecret = "client-secr
   const idem = new Map();         // `${path}|${requestId}` -> { status, body }
   const batchIds = new Set();
   const faults = [];              // { match, when: "before"|"after", status }
-  const loginCodes = new Map();   // Log in with PayPal: one-time code -> identity
-  const userTokens = new Map();   // user access token -> identity
   const calls = [];
   let balance = balanceCents;
 
@@ -47,23 +45,9 @@ export function fakePayPal({ clientId = "client-id", clientSecret = "client-secr
     if (path === "/v1/oauth2/token" && method === "POST") {
       const expected = `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`;
       if (headers.get("authorization") !== expected) return err(401, "invalid_client", null, "Client Authentication failed");
-      if (body?.grant_type === "authorization_code") {
-        const who = loginCodes.get(body.code);
-        if (!who) return json(400, { error: "invalid_grant", error_description: "Invalid authorization code" });
-        loginCodes.delete(body.code); // one use only
-        const t = `A21AA-user-${++n}`;
-        userTokens.set(t, who);
-        return json(200, { access_token: t, token_type: "Bearer", expires_in: 28800, refresh_token: `R23-${n}`, scope: "openid email" });
-      }
       const t = `A21AA-fake-${++n}`;
       tokens.set(t, now() + tokenTtl * 1000);
       return json(200, { access_token: t, token_type: "Bearer", expires_in: tokenTtl, scope: "https://uri.paypal.com/services/payments/payment" });
-    }
-    if (path === "/v1/identity/oauth2/userinfo" && method === "GET") {
-      const who = userTokens.get((headers.get("authorization") || "").replace(/^Bearer /, ""));
-      if (!who) return json(401, { error: "invalid_token" });
-      return json(200, { user_id: `https://www.paypal.com/webapps/auth/identity/user/${who.payerId}`, payer_id: who.payerId,
-        verified_account: String(who.verified !== false), emails: who.emails ?? [{ value: who.email, primary: true, confirmed: who.confirmed !== false }] });
     }
     if (!authorized(headers)) return err(401, "AUTHENTICATION_FAILURE", null, "Authentication failed due to invalid authentication credentials or a missing Authorization header.");
 
@@ -198,12 +182,6 @@ export function fakePayPal({ clientId = "client-id", clientSecret = "client-secr
     fetch: fakeFetch,
     calls,
     fault,
-    /** A person signs in with PayPal; the one-time code PayPal hands back to the site. */
-    loginCode({ email, confirmed = true, verified = true, payerId = `PAYER${++n}`, emails }) {
-      const code = `C21AA-${++n}`;
-      loginCodes.set(code, { email, confirmed, verified, payerId, emails });
-      return code;
-    },
     /** The buyer approves the order in PayPal's checkout. */
     approve(orderId, payer = { payer_id: "BUYER1", email_address: "buyer@personal.example.com" }) {
       const o = orders.get(orderId);

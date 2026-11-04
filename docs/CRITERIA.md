@@ -104,6 +104,7 @@ is refused.
 | `additionalProperties` | object | `false` refuses any field not named in `properties`. |
 | `items` | array | A shape that every item must match. |
 | `minItems`, `maxItems` | array | Whole numbers: inclusive bounds on the number of items. |
+| `uniqueItems` | array | Boolean. When true, no two items may be equal. Objects compare by contents, regardless of key order; arrays compare in order. |
 | `uniqueBy` | array | `{ "field": name, "key": "value" or "domain" }`. No two items may share that field's value (strings, numbers and booleans, compared exactly) or, with `"domain"`, the domain of its URL. Items where the field is missing, or not a value of that kind, are not compared. |
 | `minLength`, `maxLength` | string | Whole numbers: inclusive bounds on the length in Unicode code points. |
 | `format` | string | `"url"` or `"email"`, as defined below. |

@@ -1,6 +1,6 @@
 // The escrow against the PayPal sandbox stand-in: a pass captures and pays the worker, a fail voids the hold, a
-// missed deadline voids it, and no timeout, retry or replay ever charges twice or loses a payment. Only the worker
-// named on a job can deliver to it; the public view shows hashes and record ids, never bytes or people.
+// missed deadline voids it, and no timeout, retry or replay ever charges twice or loses a payment. Only the holder
+// of a job's private delivery key can deliver to it; the public view shows hashes and record ids, never bytes or people.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createEscrow, publicView, receiptOf, checkCriteria, newJobId, hashSecret, EscrowError, SAFE_PAYOUT_REFUSALS } from "../src/escrow.js";
@@ -22,17 +22,9 @@ function setup({ clock = { t: Date.parse("2026-10-22T10:00:00Z") }, ...opts } = 
   const fake = fakePayPal({ now: () => clock.t });
   const paypal = createPayPal({ clientId: "client-id", clientSecret: "client-secret", fetchImpl: fake.fetch, now: () => clock.t });
   let n = 0;
-  const workers = memoryStore();
-  const escrow = createEscrow({ paypal, store: memoryStore(), workers, now: () => clock.t, publicUrl: "https://pay.example",
+  const escrow = createEscrow({ paypal, store: memoryStore(), now: () => clock.t, publicUrl: "https://pay.example",
     idgen: () => String(1_792_000_000_000_000 + ++n), keygen: () => `key-${++n}`, operatorKeyHash: hashSecret(OPERATOR), ...opts });
-  const keys = new Map();
-  /** The worker's key for an email, registering on first use. */
-  /** The worker's key for an email: they sign in with PayPal once, on first use. */
-  const keyFor = async (email = WORKER) => {
-    if (!keys.has(email)) keys.set(email, (await escrow.registerWorker({ loginCode: fake.loginCode({ email }) })).key);
-    return keys.get(email);
-  };
-  return { fake, paypal, escrow, clock, keyFor, workers };
+  return { fake, paypal, escrow, clock };
 }
 
 async function posted(env, over = {}) {
@@ -42,10 +34,10 @@ async function funded(env, over = {}) {
   const job = await posted(env, over);
   const { orderId } = await env.escrow.createOrder(job.id);
   env.fake.approve(orderId);
-  return env.escrow.authorize(job.id, orderId);
+  return { ...await env.escrow.authorize(job.id, orderId), deliveryKey: job.deliveryKey };
 }
-async function deliver(env, job, content, email = WORKER) {
-  return env.escrow.deliver(job.id, { workerKey: await env.keyFor(email), content });
+async function deliver(env, job, content) {
+  return env.escrow.deliver(job.id, { workerKey: job.deliveryKey, content });
 }
 
 test("a pass: the held payment is captured once and the worker is paid the price less the fee", async () => {
@@ -114,70 +106,39 @@ test("the public view is an allowlist: hashes and record ids, never the bytes, t
   assert.equal(publicView(null), null);
 });
 
-test("a worker key is issued only to whoever signs in with PayPal as that email; only its hash is stored", async () => {
+test("each job issues a private delivery key once and stores only its hash", async () => {
   const env = setup();
-  const { email, key } = await env.escrow.registerWorker({ loginCode: env.fake.loginCode({ email: "  New.Worker@Personal.Example.com " }) });
-  assert.equal(email, "new.worker@personal.example.com", "the confirmed email PayPal returned, normalized");
-  assert.match(key, /^key-/);
-  await assert.rejects(env.escrow.registerWorker({ email }), (e) => e.status === 400, "an email alone registers nothing");
-  await assert.rejects(env.escrow.registerWorker({ loginCode: "C21AA-made-up" }), (e) => e.status === 403);
-  await assert.rejects(env.escrow.registerWorker({ loginCode: env.fake.loginCode({ email: "x@personal.example.com", confirmed: false }) }),
-    (e) => e.status === 403 && /confirmed email/.test(e.message));
-  const used = env.fake.loginCode({ email: "once@personal.example.com" });
-  await env.escrow.registerWorker({ loginCode: used });
-  await assert.rejects(env.escrow.registerWorker({ loginCode: used }), (e) => e.status === 403, "a sign-in code works once");
-  const records = JSON.stringify(await env.workers.list());
-  assert.equal(records.includes(key), false, "the workers store holds hashes only");
-  assert.equal(records.includes(hashSecret(key)), true);
+  const job = await posted(env);
+  assert.match(job.deliveryKey, /^key-/);
+  const stored = await env.escrow.get(job.id);
+  assert.equal(stored.deliveryKeyHash, hashSecret(job.deliveryKey));
+  assert.equal(JSON.stringify(stored).includes(job.deliveryKey), false, "the clear key is never persisted");
+  assert.equal(JSON.stringify(publicView(job)).includes(job.deliveryKey), false, "the public job never exposes the key");
+  assert.equal(JSON.stringify(publicView(job)).includes(job.deliveryKeyHash), false, "the key hash stays private too");
   assert.equal(hashSecret("x"), hashSecret("x"));
   assert.notEqual(hashSecret("x"), hashSecret("y"));
 });
 
-test("signing in again as the same PayPal account issues a fresh key and kills the old one; a squatter cannot lock anyone out", async () => {
-  const env = setup();
-  const first = await env.escrow.registerWorker({ loginCode: env.fake.loginCode({ email: WORKER }) });
-  const job = await funded(env);
-  const again = await env.escrow.registerWorker({ loginCode: env.fake.loginCode({ email: WORKER }) });
-  assert.notEqual(again.key, first.key);
-  await assert.rejects(env.escrow.deliver(job.id, { workerKey: first.key, content: GOOD }), (e) => e.status === 403, "the old key is dead");
-  const done = await env.escrow.deliver(job.id, { workerKey: again.key, content: GOOD });
-  assert.equal(done.status, "paid");
-  const stored = await env.escrow.get(job.id);
-  assert.equal(JSON.stringify(stored).includes(again.key), false, "no key in the clear in the job");
-});
-
-test("a worker can also rotate their key with the current one", async () => {
-  const env = setup();
-  const { email, key } = await env.escrow.registerWorker({ loginCode: env.fake.loginCode({ email: WORKER }) });
-  await assert.rejects(env.escrow.rotateWorkerKey({ email, workerKey: "wrong" }), (e) => e.status === 403);
-  const rotated = await env.escrow.rotateWorkerKey({ email, workerKey: key });
-  assert.notEqual(rotated.key, key);
-  const job = await funded(env);
-  await assert.rejects(env.escrow.deliver(job.id, { workerKey: key, content: GOOD }), (e) => e.status === 403);
-  assert.equal((await env.escrow.deliver(job.id, { workerKey: rotated.key, content: GOOD })).status, "paid");
-});
-
-test("only the named worker can deliver, only once, and only while funded", async () => {
+test("only the private key for this job can deliver, only once, and only while funded", async () => {
   const env = setup();
   const job = await posted(env);
   await assert.rejects(deliver(env, job, GOOD), (e) => e.status === 409 && /only while it is funded/.test(e.message), "not funded yet");
   const f = await funded(env);
-  await assert.rejects(env.escrow.deliver(f.id, { workerKey: "key-x", content: GOOD }), (e) => e.status === 403);
-  await assert.rejects(env.escrow.deliver(f.id, { workerKey: "", content: GOOD }), (e) => e.status === 403);
-  await assert.rejects(env.escrow.deliver(f.id, { content: GOOD }), (e) => e.status === 403);
-  const other = await env.keyFor("someone.else@personal.example.com");
-  await assert.rejects(env.escrow.deliver(f.id, { workerKey: other, content: GOOD }), (e) => e.status === 403, "another registered worker cannot deliver to this job");
-  await assert.rejects(env.escrow.deliver(f.id, { workerKey: await env.keyFor() }), (e) => e.status === 400, "no content");
+  const other = await posted(env);
+  for (const workerKey of ["key-x", "", other.deliveryKey, undefined]) {
+    await assert.rejects(env.escrow.deliver(f.id, { workerKey, content: GOOD }), (e) => e.status === 403);
+  }
+  await assert.rejects(env.escrow.deliver(f.id, { workerKey: f.deliveryKey }), (e) => e.status === 400, "no content");
   await assert.rejects(deliver(env, f, ""), /empty/);
   await deliver(env, f, GOOD);
   await assert.rejects(deliver(env, f, GOOD), (e) => e.status === 409, "a second delivery");
 });
 
-test("a job naming an unregistered worker cannot be delivered until that worker registers", async () => {
+test("a worker needs no PayPal login, only the private key for the named payout job", async () => {
   const env = setup();
   const job = await funded(env, { workerEmail: "late@personal.example.com" });
   await assert.rejects(env.escrow.deliver(job.id, { workerKey: "anything", content: GOOD }), (e) => e.status === 403);
-  const done = await deliver(env, job, GOOD, "late@personal.example.com");
+  const done = await deliver(env, job, GOOD);
   assert.equal(done.status, "paid");
 });
 

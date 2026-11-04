@@ -59,6 +59,9 @@ test("every kind maps to criteria Judge accepts; fields that do not apply are dr
   ] });
   assert.deepEqual(c.checks[0].params, { required: ["name", "price"], types: { price: "number" } });
   assert.deepEqual(c.checks[1].params.shape.properties.items, { type: "array", minItems: 1 });
+  assert.equal(c.checks[1].params.shape.additionalProperties, false, "AI-drafted top-level objects are closed by default");
+  assert.equal(toCriteria({ passThreshold: 100, checks: [{ ...nil, kind: "json", why: "", weight: 1,
+    shape: JSON.stringify({ type: "object", additionalProperties: true }) }] }).checks[0].params.shape.additionalProperties, true, "explicit extras remain allowed");
   assert.deepEqual(c.checks[2].params, { all: ["refund"], wholeWords: true });
   assert.deepEqual(c.checks[3].params, { max: 300, unit: "chars" });
   assert.equal(checkCriteria(c), c, "valid Judge criteria");

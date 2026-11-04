@@ -94,29 +94,6 @@ export function createPayPal({ clientId, clientSecret, baseUrl = SANDBOX, fetchI
       }, { requestId });
     },
     getPayout: (batchId) => call("GET", `/v1/payments/payouts/${encodeURIComponent(batchId)}`),
-
-    /** Log in with PayPal: exchange the one-time code PayPal sent back to the site (with this app's credentials),
-     *  then read who signed in with the user's own token. The email is the account's primary email, and whether
-     *  PayPal has confirmed it. */
-    async loginWithPayPal(code) {
-      const res = await fetchImpl(`${baseUrl}/v1/oauth2/token`, {
-        method: "POST",
-        headers: { authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`, "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ grant_type: "authorization_code", code: String(code ?? "") }).toString(),
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      const tok = await res.json().catch(() => null);
-      if (!res.ok || typeof tok?.access_token !== "string") throw new PayPalError(res.status, { name: tok?.error, message: tok?.error_description }, "oauth2/token (login)");
-      const r2 = await fetchImpl(`${baseUrl}/v1/identity/oauth2/userinfo?schema=paypalv1.1`, {
-        headers: { authorization: `Bearer ${tok.access_token}` }, signal: AbortSignal.timeout(timeoutMs),
-      });
-      const info = await r2.json().catch(() => null);
-      if (!r2.ok || !info) throw new PayPalError(r2.status, { name: info?.error, message: info?.error_description }, "identity/userinfo");
-      const emails = Array.isArray(info.emails) ? info.emails : [];
-      const primary = emails.find((e) => e?.primary === true || e?.primary === "true") ?? emails[0] ?? null;
-      const yes = (v) => v === true || v === "true";
-      return { email: primary?.value ?? null, emailConfirmed: yes(primary?.confirmed), payerId: info.payer_id ?? null, verifiedAccount: yes(info.verified_account) };
-    },
   };
 }
 

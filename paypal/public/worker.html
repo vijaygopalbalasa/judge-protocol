@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<title>Judge Pay worker desk</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="site-header"><a class="brand" href="/">Judge <span>Pay</span></a><nav><a href="/">New job</a><a href="/dashboard/?src=/api/jobs">Jobs</a><a href="/receipt/">Verify a receipt</a></nav></header>
+<main>
+  <div id="mode-banner" class="banner" hidden></div>
+  <section class="hero">
+    <p class="eyebrow">Worker desk</p>
+    <h1>Deliver. Verify. Get paid.</h1>
+    <p class="lede">Your private job link authorizes delivery. PayPal sends the payout to the worker email named by the buyer. This link does not grant access to your PayPal account.</p>
+  </section>
+
+  <section>
+    <p class="step-label">Step 1</p>
+    <h2>Open the private job invitation</h2>
+    <label for="job-id">Job ID</label>
+    <input id="job-id" inputmode="numeric" pattern="[0-9]*" placeholder="Job ID from the private link">
+    <label for="worker-key">Private delivery key</label>
+    <input id="worker-key" type="password" autocomplete="off" spellcheck="false" placeholder="Filled by the private worker link">
+    <p class="hint">The server stores only a hash of this key. Keep the link private. This is job authorization, not a PayPal identity check.</p>
+  </section>
+
+  <section>
+    <p class="step-label">Step 2</p>
+    <h2>Deliver the work</h2>
+    <button id="ai-work" class="primary">Let the AI worker deliver and settle</button>
+    <p class="hint">The AI can revise against the agreed checks before submitting. If its last draft still fails, nothing is delivered and the hold stays funded.</p>
+    <div class="separator"><span>or deliver it yourself</span></div>
+    <label for="delivery">Delivery text</label>
+    <textarea id="delivery" rows="8" placeholder="Paste the completed work here"></textarea>
+    <label for="delivery-file">Optional file, used instead of the text</label>
+    <input id="delivery-file" type="file">
+    <div class="actions"><button id="deliver" type="button">Deliver and run the checks</button><button id="download" class="secondary" hidden>Download original delivery</button></div>
+    <p id="message" class="message" role="alert" hidden></p>
+    <pre id="trace" class="trace" hidden></pre>
+    <p id="job-link-wrap" hidden><a id="job-link">Open the job and its evidence trail</a></p>
+  </section>
+</main>
+<script type="module" src="/worker.js"></script>
+</body>
+</html>

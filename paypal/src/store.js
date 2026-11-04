@@ -1,6 +1,5 @@
-// Where jobs and workers live. Every store has the same four calls; update() runs one record's read-modify-write at a
-// time, so two requests for the same record cannot interleave inside this process. Records carry their key in `id`.
-import { createHash } from "node:crypto";
+// Every store has the same four calls; update() runs one record's read-modify-write at a time, so two requests for
+// the same record cannot interleave inside this process. Records carry their key in `id`.
 import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -42,9 +41,6 @@ export const jobFileName = (id) => {
   if (!JOB_ID.test(String(id))) throw new RangeError(`bad job id: ${id}`);
   return `${id}.json`;
 };
-/** Workers: one file per worker named by the hash of their email, so no address appears in a file name. */
-export const workerFileName = (email) => `${createHash("sha256").update(String(email)).digest("hex").slice(0, 40)}.json`;
-
 /** One JSON file per record, written to a temporary name and renamed, so a crash never leaves half a record. */
 export function fileStore(dir, { fileName = jobFileName } = {}) {
   const run = serial();

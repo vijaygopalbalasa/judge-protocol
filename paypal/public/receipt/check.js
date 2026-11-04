@@ -35,7 +35,7 @@ function paypalStep(decision, p) {
     if (p.voided) return [false, "the work was released, yet the PayPal hold is marked voided"];
     if (!p.captureId) return [null, "not captured yet: PayPal still holds the money" + look];
     if (!p.payoutBatchId) return [null, "captured; the worker's payout has not been sent yet." + look];
-    return [true, "captured and paid out to the worker." + look];
+    return [true, "capture and payout batch are recorded. Confirm both in PayPal." + look];
   }
   if (decision === "refund") {
     if (p.captureId) return [false, "the work was refunded, yet PayPal shows a capture"];

@@ -245,6 +245,21 @@ test("uniqueBy value compares strings, numbers and booleans exactly and skips it
   assert.match(detailOf(await judge([{ id: "a" }, { id: "b" }, { id: "a" }], c)), /\$\[2\]\.id: same value as \$\[0\]/);
 });
 
+test("uniqueItems accepts distinct receipt ids and rejects a duplicate", async () => {
+  const c = { checks: [{ kind: "json", params: { shape: { type: "array", uniqueItems: true, items: { type: "string", enum: ["RCPT-1042", "RCPT-1048", "RCPT-1051"] } } } }] };
+  assert.equal((await judge(["RCPT-1042", "RCPT-1048", "RCPT-1051"], c)).pass, true);
+  assert.equal((await judge(["RCPT-1048", "RCPT-1042", "RCPT-1051"], c)).pass, true);
+  assert.match(detailOf(await judge(["RCPT-1042", "RCPT-1042"], c)), /\$\[1\]: same value as \$\[0\]/);
+});
+
+test("uniqueItems compares objects by contents, not key order, and arrays by order", async () => {
+  const c = { checks: [{ kind: "json", params: { shape: { type: "array", uniqueItems: true } } }] };
+  assert.match(detailOf(await judge([{ a: 1, b: [2, 3] }, { b: [2, 3], a: 1 }], c)), /\$\[1\]: same value as \$\[0\]/);
+  assert.equal((await judge([{ a: [1, 2] }, { a: [2, 1] }], c)).pass, true);
+  assert.equal(shapeCase({ type: "array", uniqueItems: "yes" }).valid, false);
+  assert.equal(shapeCase({ type: "string", uniqueItems: true }).valid, false);
+});
+
 test("docs/CRITERIA.md documents every shape keyword and both formats", async () => {
   const { readFileSync } = await import("node:fs");
   const md = readFileSync(new URL("../../docs/CRITERIA.md", import.meta.url), "utf8");
