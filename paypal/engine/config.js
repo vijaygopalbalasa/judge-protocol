@@ -26,6 +26,9 @@ export const config = {
   // Where paid rulings (x402 through Circle Gateway) are credited: the hosted
   // relayer's Gateway balance, which can be withdrawn to pay for verdict gas.
   feeAddress: process.env.JUDGE_FEE_ADDRESS || "0xf493CF092768a4B7a533359F28Db82B06D259Dc2",
+  // True only when JUDGE_FEE_ADDRESS was set. The default above is the testnet relayer's hot key: a mainnet paid route
+  // refuses to start on it (resolvePayTo in x402.js).
+  feeAddressSet: Boolean(process.env.JUDGE_FEE_ADDRESS),
 
   // ERC-8412 (docs/ERC-8412.md): the registry, and JudgeAttestor, the verifier a
   // client names when it preregisters a job's criteria. The judge attests every
