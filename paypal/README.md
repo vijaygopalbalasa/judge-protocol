@@ -134,14 +134,19 @@ The CLI cannot discover private sandbox account credentials or approve a buyer o
 
 ### Verification status
 
-- **91 automated tests pass.** They cover the API, both settlement outcomes, retries, idempotency, private delivery authorization, key privacy, receipt tampering, dashboard totals, local-preview startup, both AI providers, the AI usage caps, the plain-language check descriptions, and the Vercel Blob job store's conflict handling.
+- **92 automated tests pass.** They cover the API, both settlement outcomes, retries, idempotency, private delivery authorization, key privacy, receipt tampering, dashboard totals, local-preview startup, both AI providers, the AI usage caps, the plain-language check descriptions, and the Vercel Blob job store's conflict handling.
 - **The complete browser scenario passes in Chromium:** one paid reconciliation, one refunded delivery, private worker-link use, independent receipt verification, live dashboard, and mobile layouts with no console errors.
 - **Real PayPal sandbox settlement passes.** A passing job captured $5.00 and paid the worker $4.75 with PayPal Payouts reporting `SUCCESS`. A failing job voided its authorization with no capture or payout. Independent PayPal reads confirmed the order terms, capture, payout receiver and amount, and void.
 - **Real receipt evidence passes in Chromium:** the paid job, refunded job, independent receipt recomputation, dashboard, and mobile layout were checked with no console errors. These checks used the real sandbox records, not the simulator.
 - **Real OpenRouter drafting and delivery pass.** The verified run used `openai/gpt-4.1-mini` to produce one comprehensive JSON check, including the exact total, currency, closed object fields, and three unique allowed receipt IDs. Its criteria hash is `0x172bf9ca9fea09590e35133796efd0fd1ffc8b74ceec497ba460295848d39f66`. Passing job `1793795940574689` captured $5.00, paid the worker $4.75, and reached payout `SUCCESS`. Failing job `1793795943066454` voided its authorization without capture or payout. Both were independently checked through PayPal REST. The passing payout batch is `294Q842SX33N4`; the delivery is 229 bytes with SHA-256 `0e50ea63e70a0b35026ca84d236071fab66faa0bbd2b47f4b19757956bea7544`.
 - **The shared Judge engine passes its 323 tests**, including the `uniqueItems` support used by this AI draft. The engine sources in the service, browser verifier, and PayPal module are synchronized.
 
-These settlement results are from local sandbox runs, not a production claim. The hosted demo at https://judgepay.vercel.app answers healthy with real sandbox PayPal and OpenRouter, has drafted checks with the real model and created a real sandbox order; the full hosted pass and fail through PayPal Buttons is recorded below once it is run. The optional Anthropic provider has stand-in tests but was not used in the real AI run.
+- **Hosted pass and fail through real PayPal Buttons (Nov 4, 2026, https://judgepay.vercel.app).** Both jobs were drafted by the live AI (criteria hash `0x172bf9ca9fea09590e35133796efd0fd1ffc8b74ceec497ba460295848d39f66`, the same as the local run) and funded by a sandbox buyer through PayPal Buttons.
+  - Pass: job `1793802085814914`. The live AI worker passed every check on its first draft. Order `65430434VY851464J` (AUTHORIZE, $5.00, criteria hash in `custom_id`), authorization `4P3478731E0513513` CAPTURED, capture `3BP25006DC845045H` COMPLETED, payout batch `LJFXBNQSEZCQC` SUCCESS with $4.75 to the sandbox worker.
+  - Fail: job `1793802176117350`. A delivery with a made-up receipt ID was rejected (`$.receipt_ids[1]: "RCPT-1049" is not one of "RCPT-1042", "RCPT-1048", "RCPT-1051"`). Authorization `55560894MN362212A` VOIDED, no capture, no payout.
+  - Every PayPal record above was read back independently through PayPal's REST API. Both receipts re-verified in the browser from the original delivered files (all nine steps), and the hosted dashboard showed both jobs with no console errors.
+
+These are sandbox results, not a production claim. In this run the sandbox buyer and worker were the same sandbox account. The optional Anthropic provider has stand-in tests but was not used in the real AI run.
 
 ## Deploy on Vercel
 

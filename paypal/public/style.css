@@ -264,3 +264,4 @@ dd.plain { font-family: var(--sans); font-size: 0.95rem; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
 .sr-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .label.spaced { margin-top: 28px; }
+.kpis:empty { display: none; }
