@@ -77,8 +77,10 @@ export function describeCheck(check) {
 }
 
 const KIND_LABEL = { json: "JSON rules", contains: "Required mentions", length: "Length", schema: "Fields", checksum: "Exact file", "http-endpoint": "Live address" };
+const PASS_TEXT = { json: "every rule met", schema: "every field present" };
 export function describeResult(result) {
-  return { pass: Boolean(result.pass), text: `${KIND_LABEL[result.kind] ?? result.kind}: ${result.detail}` };
+  const detail = result.pass && PASS_TEXT[result.kind] && /^(json|schema) ok$/.test(String(result.detail)) ? PASS_TEXT[result.kind] : result.detail;
+  return { pass: Boolean(result.pass), text: `${KIND_LABEL[result.kind] ?? result.kind}: ${detail}` };
 }
 
 const EVENT_LABEL = {

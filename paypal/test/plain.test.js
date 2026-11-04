@@ -40,6 +40,8 @@ test("simple checks read as one sentence", () => {
 
 test("results and events read as sentences, with the raw detail kept", () => {
   assert.deepEqual(describeResult({ kind: "length", pass: true, detail: "chars=229 (need 100–1000)" }), { pass: true, text: "Length: chars=229 (need 100–1000)" });
+  assert.deepEqual(describeResult({ kind: "json", pass: true, detail: "json ok" }), { pass: true, text: "JSON rules: every rule met" });
+  assert.equal(describeResult({ kind: "json", pass: false, detail: "1 problem: x" }).text, "JSON rules: 1 problem: x");
   assert.equal(describeEvent({ type: "posted", detail: "checks pinned: 0xabc" }), "Job created; checks pinned (0xabc)");
   assert.equal(describeEvent({ type: "funded", detail: "4EY876062S256002U" }), "PayPal hold authorized (4EY876062S256002U)");
   assert.equal(describeEvent({ type: "something-new" }), "something-new");
