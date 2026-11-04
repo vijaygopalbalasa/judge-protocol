@@ -101,10 +101,10 @@ test("a draft that leaves the request's named IDs unpinned is sent back once to 
   assert.match(JSON.stringify(out.criteria), /RCPT-1048/);
 });
 
-test("if the second draft still leaves IDs unpinned, it is returned with a warning instead of failing", async () => {
+test("if every draft still leaves IDs unpinned, the last one is returned with a warning instead of failing", async () => {
   const loose = { ...DRAFT, checks: [{ ...nil, kind: "length", why: "size", weight: 1, min: 1, max: 100, unit: "words" }] };
-  const fake = fakeFetch([{ content: JSON.stringify(loose) }, { content: JSON.stringify(loose) }]);
+  const fake = fakeFetch([{ content: JSON.stringify(loose) }, { content: JSON.stringify(loose) }, { content: JSON.stringify(loose) }]);
   const out = await createOpenRouterAi({ apiKey: "x", fetchImpl: fake.fetchImpl }).draftCriteria({ request: "List INV-7 and INV-9." });
-  assert.equal(fake.calls.length, 2);
+  assert.equal(fake.calls.length, 3, "at most two repair turns");
   assert.deepEqual(out.unpinned, ["INV-7", "INV-9"]);
 });

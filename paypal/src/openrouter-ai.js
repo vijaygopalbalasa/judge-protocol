@@ -49,7 +49,7 @@ export function createOpenRouterAi({ apiKey = process.env.OPENROUTER_API_KEY, mo
     const messages = [{ role: "system", content: DRAFTER_SYSTEM }, { role: "user", content: request.trim() }];
     const named = namedIds(request);
     let lastGood = null;
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       const result = await chat(messages, Draft);
       let problem = null;
       let draft = null;
@@ -64,7 +64,7 @@ export function createOpenRouterAi({ apiKey = process.env.OPENROUTER_API_KEY, mo
           const unpinned = named.filter((id) => !JSON.stringify(out.criteria).includes(id));
           if (!unpinned.length) return out;
           lastGood = { ...out, unpinned };
-          problem = `the request names ${unpinned.join(", ")}, but no check pins them. Constrain the field or list that holds them with enum on exactly the allowed values, so a delivery with other IDs fails`;
+          problem = `the request names ${unpinned.join(", ")}, but no check restricts them, so a delivery with made-up IDs would pass. In the JSON shape, give the field or list that holds them an enum of exactly these values, for example "items": { "type": "string", "enum": ${JSON.stringify(unpinned)} } on a list. Keep every other rule`;
         } catch (error) { problem = error.message; }
       }
       messages.push({ role: "assistant", content: result.content }, { role: "user", content: `That draft cannot be used: ${problem}. Return a corrected draft.` });
