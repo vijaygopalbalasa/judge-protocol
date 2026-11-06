@@ -14,6 +14,19 @@ stack in one script:
 The wallet that broadcasts becomes the escrow's admin (upgrades, fees, hook whitelist). That is fine for a demo;
 hand it to a multisig for anything more.
 
+## Escrows built from the ERC-8183 authors' repository
+
+The ERC-8183 authors keep their working code in [erc-8183/base-contracts](https://github.com/erc-8183/base-contracts).
+At commit `142e669` its `getJob` returns a 13-field Job (per-job token, ERC-8004 agent id, claim settlement, payout
+receiver) instead of the 9-field one on eips.ethereum.org, so `JudgeEvaluator` cannot read its jobs.
+`contracts/src/JudgeEvaluatorBaseLayout.sol` is the same contract with only the job read changed;
+`judge-service/test/evaluator-layouts.test.js` checks that the two files differ nowhere else, and
+`contracts/test/JudgeEvaluatorBaseLayout.t.sol` runs Judge end to end on that code (pass pays the provider, fail
+refunds the client, wrong evaluator and late criteria are refused). `JudgeEvaluator.sol` itself is unchanged, so it
+still matches the deployed, Sourcify-verified contracts. Not deployed anywhere yet, and the judge service still reads
+the published layout: deploy this contract and teach the service the new `getJob` when an escrow on that code goes
+live.
+
 ## Deploy
 
 ```bash
