@@ -13,7 +13,7 @@ const { attestRuling, ATTESTATION_TYPES } = await import("../src/erc8412-attest.
 
 const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
 const CHAIN = { chainId: 5042002, acp: "0x0747EEf0706327138c69792bF28Cd525089e4583",
-  registry: "0x48c3a1812F2dFc762a80dbD5c65e9C7B0BB25ae4", attestor: "0x1111111111111111111111111111111111111111" };
+  registry: "0x3A45933E2Cca691093EaeafFe67cAa3dD8ddF5fD", attestor: "0x1111111111111111111111111111111111111111" };
 const CLIENT = "0xA3f1b2503838fc061af842eD2C719559E12ad973";
 const CRITERIA = { version: 1, passThreshold: 100, checks: [
   { kind: "length", params: { min: 3 } },

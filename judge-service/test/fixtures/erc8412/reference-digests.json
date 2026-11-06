@@ -54,6 +54,11 @@
     "bundle": "0x6eeb27ecfa3f5b6f0b95a40da33122c357eb27fc05709fd6ce5e06e2cbe7b8e3",
     "attestation": "0xffa9b7b265502e89d6224850085145c75437f1651f141192be00acbb6258fea2"
   },
+  "o4-not-satisfied-count-shortfall": {
+    "criteria": "0x5c0d4a656a951d4b9c66d35ada4dcea9bc6939bdb385e720fb8fa0643aa606d0",
+    "bundle": "0xadd8e3faec6d1caca5e4fdfc7a062e35cd936f1b1fd12a170c66a480fe1ea9e0",
+    "attestation": "0xa649a3abc23b72763939e30b117e24b513f38378e6fdaf883ffcc87bf36615ab"
+  },
   "o4-undecided-not-unmet": {
     "criteria": "0x1a8dd8ee0ec99f93c1a39c0de8ffe8e7b38bfaf3b85b3f7db768e850083facb6",
     "bundle": "0x6eeb27ecfa3f5b6f0b95a40da33122c357eb27fc05709fd6ce5e06e2cbe7b8e3",

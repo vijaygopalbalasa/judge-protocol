@@ -25,7 +25,7 @@ must not imply they are, or are endorsed by, Judge Protocol.
 Third-party material:
 - judge-service/test/fixtures/erc8412/ holds the ERC-8412 reference
   conformance vectors and reference verifier by Richard (@richard7463), from
-  https://github.com/ethereum/ERCs/pull/2002 at commit ff9fbc7, unchanged and
+  https://github.com/ethereum/ERCs/pull/2002 at commit 6ba1149, unchanged and
   under CC0. They are used only to test this project's ERC-8412 profile.
 - judge-service/test/fixtures/erc8412/proposed/valid-proto-member.json is a vector proposed for
   the same ERC by babyblueviper1 in https://github.com/richard7463/ERCs/pull/1 (commit 02aaae3),

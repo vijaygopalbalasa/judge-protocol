@@ -41,7 +41,7 @@ test("ERC-8412 attestation defaults on only for Arc testnet, where its registry 
     { cwd: new URL("..", import.meta.url), env: { PATH: process.env.PATH, ...env }, encoding: "utf8" }).stdout);
   const testnet = load({});
   assert.equal(testnet.chain, 5042002);
-  assert.match(testnet.a, /^0x78E87A8E/, "testnet keeps its attestor");
+  assert.match(testnet.a, /^0x630C0C96/, "testnet keeps its attestor");
   const mainnet = load({ CHAIN_ID: "5042", ARC_RPC_URL: "https://rpc.mainnet.arc.io" });
   assert.equal(mainnet.chain, 5042);
   assert.equal(mainnet.a, "", "no attestor on a chain where JudgeAttestor is not deployed");
