@@ -1,0 +1,124 @@
+{
+  "name": "judge-protocol-job-191336",
+  "description": "A live Judge Protocol ruling on Arc testnet, attested by the hosted judge through JudgeAttestor: ERC-8183 job 191336, NotSatisfied. Package from GET /api/erc8412, rebuilt from chain data.",
+  "expect": {
+    "valid": true,
+    "violations": []
+  },
+  "chainAccepts": true,
+  "chain": {
+    "chainId": 5042002,
+    "registry": "0x3A45933E2Cca691093EaeafFe67cAa3dD8ddF5fD",
+    "preregistrationId": "0x5d64730201d1a6c9665fb106efd1892fca9b37422f9df5e1d0e6593916f30e96",
+    "author": "0xA3f1b2503838fc061af842eD2C719559E12ad973",
+    "criteriaDigest": "0x83d152972b1eb05ad12de5e68bc97b1ac1521b82e3307d35bfddf06a5099870d",
+    "taskRef": "0xabeecf2bcab89a1a8d130e4e8ba8f5ef44097c4ba80fa34c6ac342e1867bc563",
+    "obligationCount": 2,
+    "obligationFlags": "0x50",
+    "expiry": 1793965589,
+    "registeredAt": 1793961992,
+    "verifier": "0x630C0C962AE25339aE03e282C1D524AD49448c05",
+    "supersedes": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "attestation": {
+      "verifier": "0x630C0C962AE25339aE03e282C1D524AD49448c05",
+      "bundleDigest": "0x891886dcea47b0a2a39e61b26c8fbaa32db9cdd42591e08bee2788d30c8d0cf1",
+      "attestationDigest": "0x108ee7c26310912a92bfafbdf70571e7d35d90d460c24232ac14e16b43c8243c",
+      "verdict": "NotSatisfied",
+      "obligationOutcomes": "0x40",
+      "attestedAt": 1793962004
+    }
+  },
+  "criteria": {
+    "version": "1",
+    "taskRef": "0xabeecf2bcab89a1a8d130e4e8ba8f5ef44097c4ba80fa34c6ac342e1867bc563",
+    "supersedes": null,
+    "decisionRule": "ALL_REQUIRED",
+    "obligations": [
+      {
+        "index": 0,
+        "type": "DOCUMENT",
+        "required": true,
+        "waivable": false,
+        "constraints": {
+          "mediaType": "application/octet-stream",
+          "io.github.vijaygopalbalasa.judge.check": {
+            "kind": "length",
+            "params": {
+              "min": 10,
+              "max": 5000
+            }
+          }
+        }
+      },
+      {
+        "index": 1,
+        "type": "DOCUMENT",
+        "required": true,
+        "waivable": false,
+        "constraints": {
+          "mediaType": "application/octet-stream",
+          "io.github.vijaygopalbalasa.judge.check": {
+            "kind": "contains",
+            "params": {
+              "all": [
+                "ERC-8183",
+                "USDC"
+              ],
+              "wholeWords": true
+            }
+          }
+        }
+      }
+    ],
+    "waiverAuthority": null,
+    "verifier": "0x630C0C962AE25339aE03e282C1D524AD49448c05",
+    "expiry": 1793965589,
+    "terminalOnExpiry": "REFUND_WITH_RECORD",
+    "io.github.vijaygopalbalasa.judge.criteriaHash": "0x81d6e6c194b5aae25941ecc9eddd83ea1381b28ce0f7d8b5f8a2154c89674df8"
+  },
+  "bundle": {
+    "version": "1",
+    "preregistrationId": "0x5d64730201d1a6c9665fb106efd1892fca9b37422f9df5e1d0e6593916f30e96",
+    "items": [
+      {
+        "obligationIndex": 0,
+        "preregistrationId": "0x5d64730201d1a6c9665fb106efd1892fca9b37422f9df5e1d0e6593916f30e96",
+        "digest": "0x73e25fe0d19c44ad277ee9bbf0545ed57dbac669fc7abd2cb0535c9822aac481",
+        "mediaType": "application/octet-stream",
+        "locator": "data:text/plain;base64,QSBzaG9ydCBub3RlIHRoYXQgbmV2ZXIgbmFtZXMgdGhlIGVzY3JvdyBzdGFuZGFyZCBvciB0aGUgc2V0dGxlbWVudCB0b2tlbi4=",
+        "captureMetadata": {
+          "timestamp": 1793961999
+        }
+      },
+      {
+        "obligationIndex": 1,
+        "preregistrationId": "0x5d64730201d1a6c9665fb106efd1892fca9b37422f9df5e1d0e6593916f30e96",
+        "digest": "0x73e25fe0d19c44ad277ee9bbf0545ed57dbac669fc7abd2cb0535c9822aac481",
+        "mediaType": "application/octet-stream",
+        "locator": "data:text/plain;base64,QSBzaG9ydCBub3RlIHRoYXQgbmV2ZXIgbmFtZXMgdGhlIGVzY3JvdyBzdGFuZGFyZCBvciB0aGUgc2V0dGxlbWVudCB0b2tlbi4=",
+        "captureMetadata": {
+          "timestamp": 1793961999
+        }
+      }
+    ]
+  },
+  "attestation": {
+    "version": "1",
+    "preregistrationId": "0x5d64730201d1a6c9665fb106efd1892fca9b37422f9df5e1d0e6593916f30e96",
+    "bundleDigest": "0x891886dcea47b0a2a39e61b26c8fbaa32db9cdd42591e08bee2788d30c8d0cf1",
+    "verdict": "NotSatisfied",
+    "obligationOutcomes": "0x40",
+    "waivers": [],
+    "undecided": []
+  },
+  "io.github.vijaygopalbalasa.judge.transactions": {
+    "createJob": "0xd7482430a8778e7e1027de0145c7aacea960b063dd3400a43ade1fdabe59143e",
+    "preregister": "0x2b2e79937f91994809ca770b865cc3c14be6e8a34cd3accad2ddb1e6885bbf44",
+    "setBudget": "0xa478fae80d533d702803cc502bfb3c4543a589d05cda12751b8976f0f007239a",
+    "approve": "0xfa80cf37ecc70b5bcbe0c44abd821c587d2dfe3fe20460a27cbd335773d43a7e",
+    "fund": "0x6d2cf3627dd699c5cc7eee94fa819c88a4d836ad7e7ef92d2439a1440d25ba08",
+    "submit": "0xefc5c687a1281a90ee46873ad96e287647cddd47ab4e954dcb072fef8917cc4d",
+    "verdict": "0x1a832b65abe368b3c84fc33b3da5cafe704a76cec969fce09ffd916007d3c2a8",
+    "attest": "0x6ae6363521680751d2004f4ea83967c75b968d15b5c3506ac1c7f52f04aee71a"
+  }
+}
