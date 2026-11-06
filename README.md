@@ -412,5 +412,12 @@ chunks to stay inside RPC limits.
   surface (`evaluatorFeeBP` is a single global rate only Circle can set). `withdraw()` is a
   rescue hatch, not the pricing mechanism.
 
+## Support this work
+
+Judge Protocol is built and run by one developer and is free to use. If it helps you, donations in USDC or ETH on
+any EVM chain (Arc, Base, Ethereum) can go to the wallet that owns the Judge contracts,
+`0x427C62eDCae20DDc8c5e875De39D4E4845491458`. The repo's `FUNDING.json` names the same address for
+[Drips](https://www.drips.network).
+
 ## License
 MIT
