@@ -33,6 +33,10 @@ Third-party material:
 - contracts/test/vendor/erc8412/PreregisteredCriteria.sol is the ERC-8412 reference
   registry from the same commit, unchanged and under CC0, used to test
   JudgeAttestor against the real registry.
+- contracts/test/conformance/vendor/erc8183-base-contracts/ holds ERC8183.sol, IERC8183Hook.sol and
+  IDisburser.sol from the ERC-8183 authors' repository https://github.com/erc-8183/base-contracts at
+  commit 142e669, unchanged and under the MIT license (their LICENSE file is copied beside them). They are
+  used only as a target of this project's ERC-8183 conformance tests.
 - rvr/conformance/rvr-v0/verification-profile-manifest.schema.json is from
   Pavlo Tvardovskyi's ERC-8404 reference repository,
   https://github.com/pipavlo82/recomputable-verification-receipts at commit

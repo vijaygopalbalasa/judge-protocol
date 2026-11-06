@@ -229,6 +229,9 @@ abstract contract ERC8183Conformance is Test {
     /// fund: "SHALL revert if ... budget is zero".
     function test_fund_revertsWhenTheBudgetIsZero() public conformance {
         uint256 jobId = _open();
+        // Set the budget to 0 explicitly, so an escrow with a per-job token has its token set and the call below can
+        // only fail for the zero budget, not because no token was chosen yet.
+        _must(provider, _setBudgetData(jobId, 0), "setBudget to 0 by the provider");
         _giveTokens(client, BUDGET);
         assertTrue(_fails(client, _fundData(jobId, 0)), "a zero-budget job was funded");
     }
