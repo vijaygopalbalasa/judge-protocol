@@ -2,7 +2,7 @@
 //
 // Two things are pinned here. First, interoperability with the ERC's own
 // reference implementation: our canonical JSON reproduces its digest for every
-// document in its 23 packages, our independent checker reports exactly the
+// document in its 24 packages, our independent checker reports exactly the
 // violations each package expects, and the packages we emit pass the reference
 // verifier itself. Second, the profile: a Judge verdict becomes criteria,
 // evidence and attestation documents whose decision rule gives the judge's
@@ -29,9 +29,9 @@ const rules = (r) => [...new Set(r.violations.map((v) => v.rule))].sort();
 
 /* ------------------------- the reference vectors -------------------------- */
 
-test("our canonical JSON reproduces the reference digest of every document in the ERC's 23 packages", () => {
+test("our canonical JSON reproduces the reference digest of every document in the ERC's 24 packages", () => {
   const ref = load("reference-digests.json");
-  assert.equal(packages.length, 23);
+  assert.equal(packages.length, 24);
   for (const p of packages) {
     for (const k of ["criteria", "bundle", "attestation"]) assert.equal(E.docDigest(p[k]), ref[p.name][k], `${p.name}.${k}`);
   }

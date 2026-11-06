@@ -20,8 +20,8 @@ export const ARC_TESTNET = {
   api: "https://judge-protocol-api.vercel.app",
   feeAddress: "0xf493CF092768a4B7a533359F28Db82B06D259Dc2", // where paid rulings (x402) are credited
   verifier: "https://judge-protocol-verifier.vercel.app",
-  erc8412Registry: "0x48c3a1812F2dFc762a80dbD5c65e9C7B0BB25ae4", // ERC-8412 reference registry
-  erc8412Attestor: "0x78E87A8E43e8E2784C12bF39eB6e2ea7C990fB15",             // JudgeAttestor, the verifier to name
+  erc8412Registry: "0x3A45933E2Cca691093EaeafFe67cAa3dD8ddF5fD", // ERC-8412 reference registry
+  erc8412Attestor: "0x630C0C962AE25339aE03e282C1D524AD49448c05",             // JudgeAttestor, the verifier to name
 };
 
 const ZERO = "0x0000000000000000000000000000000000000000";

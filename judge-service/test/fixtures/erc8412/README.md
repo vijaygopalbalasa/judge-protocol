@@ -1,10 +1,10 @@
 # ERC-8412 reference vectors
 
 Copied unchanged from the ERC-8412 reference implementation by Richard (@richard7463),
-`assets/erc-8412/vectors/` at commit `ff9fbc7e2de497d3dec2595a90b262aecd576f5d` of
+`assets/erc-8412/vectors/` at commit `6ba1149f5c21f80135b79d47e5ca51b71bc33059` of
 https://github.com/ethereum/ERCs/pull/2002. They are CC0, like the specification.
 
-- `offchain/*.json`: the 23 complete document packages (chain state, criteria document,
+- `offchain/*.json`: the 24 complete document packages (chain state, criteria document,
   evidence bundle, attestation document) with the violations a conforming checker must report.
 - `onchain-ID.json`, `onchain-meta.json`: the `preregistrationId` formula case and its actors.
 - `reference-digests.json`: the keccak256 of the JCS form of every document in every package,
