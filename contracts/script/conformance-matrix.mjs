@@ -19,6 +19,8 @@ const TARGETS = [
   ["ConformanceArcBountyArcMainnet", "ArcBounty, Arc mainnet", "ARC_MAINNET_RPC"],
   ["ConformanceG2JobsArcMainnet", "G2 Jobs, Arc mainnet", "ARC_MAINNET_RPC"],
   ["ConformanceVirtualsBase", "Virtuals V3, Base", "BASE_RPC"],
+  ["ConformanceReferencePR2144", "ERC reference code as proposed in ethereum/ERCs#2144", null],
+  ["ConformanceBaseContracts142e669", "erc-8183/base-contracts at 142e669", null],
 ];
 
 // Each test, the rule it checks (quoted or paraphrased from the Specification section) and whether it is a SHALL.
