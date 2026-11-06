@@ -255,7 +255,7 @@ contracts/        Foundry project (Solidity 0.8.28, cancun)
   src/JudgeAttestor.sol         ERC-8412 verifier: records attestations a trusted judge key signed
   src/interfaces/               IACP, IACPHook, IERC8004, IBountyAdapter
   src/mocks/                    MockACP (faithful to Circle's reference), MockUSDC
-  test/                         212 Foundry tests (evaluator, hook, attestor, arbitrator, BNB policy, attack paths)
+  test/                         251 Foundry tests (evaluator, hook, attestor, arbitrator, BNB policy, attack paths, conformance)
   test/conformance/             ERC-8183 conformance suite: the draft's SHALL rules as tests (docs/CONFORMANCE.md)
   vendor/erc8183-escrow/        ArcBounty's ERC-8183 escrow (MIT), for chains that have none
   script/                       Deploy (Arc testnet), DeployArcMainnet, DeployKit (any chain), DeployArbitrator
@@ -288,9 +288,11 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
 
 ## Status
 
-- ✅ **212/212 contract tests** (`cd contracts && forge test`): 35 for the evaluator and the attestor,
+- ✅ **251/251 contract tests** (`cd contracts && forge test`): 35 for the evaluator and the attestor,
   41 for the arbitrator, 42 for the ERC-8004 hook, 34 for the BNB Chain policy and router, and 60 that hold the
-  ERC-8183 conformance suite to an escrow written from the spec (with and without a fee). Evaluator: full lifecycle, both settlement paths, and attack
+  ERC-8183 conformance suite to an escrow written from the spec (with and without a fee), 30 that run it on the reference fix
+  proposed in ethereum/ERCs#2144, 7 that run Judge end to end on the ERC-8183 authors' own implementation
+  (`JudgeEvaluatorBaseLayout`), and 2 showing that implementation pays the evaluator fee only on completion. Evaluator: full lifecycle, both settlement paths, and attack
   paths: bad signer, double-resolution, pause, criteria mismatch, stale verdict, threshold enforcement,
   criteria-registration gating and withdraw auth. Five came from the pre-deployment review (see ARCHITECTURE.md): renouncing ownership
   is disabled, ownership needs acceptance, and criteria can be bound only for this judge's jobs,
@@ -347,7 +349,7 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
 
 ```bash
 # contracts
-cd contracts && git submodule update --init --recursive && forge test   # 212/212, plus 16 fork tests and the conformance runs (skipped without their variables)
+cd contracts && git submodule update --init --recursive && forge test   # 251/251, plus 16 fork tests and the conformance runs (skipped without their variables)
 
 # service
 cd ../judge-service && npm install && npm test                          # 325/325
