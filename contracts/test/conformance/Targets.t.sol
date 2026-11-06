@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "./ERC8183Conformance.sol";
 import "./reference/AgenticCommerce.sol";
+import "./reference/AgenticCommercePR2144.sol";
 import "../../src/mocks/MockUSDC.sol";
 import "./helpers/SpecEscrow.sol";
 
@@ -125,6 +126,44 @@ contract ConformanceReferenceImplementation is ReferenceShapes {
         usdc.mint(who, amount);
         vm.prank(who);
         usdc.approve(escrow, type(uint256).max);
+    }
+}
+
+/// @notice The reference implementation as proposed in ethereum/ERCs PR #2144 (vendored under ./reference, CC0), set up
+///         the same way. It takes fund(jobId, expectedBudget, optParams). Run on every plain `forge test`: the proposed
+///         fix must pass every test, including the four the published reference fails.
+contract ConformanceReferencePR2144 is ReferenceShapes {
+    MockUSDC internal usdc;
+    address internal escrow;
+
+    function _setUpTarget() internal override returns (bool) {
+        usdc = new MockUSDC();
+        AgenticCommercePR2144 impl = new AgenticCommercePR2144();
+        escrow = address(new ERC1967Proxy(address(impl),
+            abi.encodeCall(AgenticCommercePR2144.initialize, (address(usdc), makeAddr("treasury")))));
+        return true;
+    }
+
+    function _escrow() internal view override returns (address) {
+        return escrow;
+    }
+
+    function _token() internal view override returns (address) {
+        return address(usdc);
+    }
+
+    function _giveTokens(address who, uint256 amount) internal override {
+        usdc.mint(who, amount);
+        vm.prank(who);
+        usdc.approve(escrow, type(uint256).max);
+    }
+
+    function _fundData(uint256 jobId, uint256 expected) internal pure override returns (bytes memory) {
+        return abi.encodeWithSignature("fund(uint256,uint256,bytes)", jobId, expected, bytes(""));
+    }
+
+    function _enabled() internal pure override returns (bool) {
+        return true;
     }
 }
 
