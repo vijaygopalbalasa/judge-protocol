@@ -30,6 +30,13 @@ function parseJobId(s) {
   return typeof s === "string" && /^\d{1,20}$/.test(s) ? BigInt(s) : null;
 }
 
+// Full error to stderr (method, path, stack when present); never sent to the caller.
+function logFailure(req, e) {
+  let pathname = req.url;
+  try { pathname = new URL(req.url, "http://localhost").pathname; } catch { /* keep raw url */ }
+  console.error(`[http] ${req.method} ${pathname} failed:`, e instanceof Error ? (e.stack ?? e.message) : e);
+}
+
 function readBody(req, cap) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -87,9 +94,16 @@ export function createJudgeApi(deps = {}) {
         const jobId = parseJobId(param);
         if (jobId === null) return send(400, { error: "jobId must be a positive integer" });
         if (!config.judgeAddress) return send(503, { error: "JUDGE_ADDRESS not configured" });
-        const v = await client().readContract({
-          address: config.judgeAddress, abi: judgeAbi, functionName: "getVerdict", args: [jobId],
-        });
+        let v;
+        try {
+          v = await client().readContract({
+            address: config.judgeAddress, abi: judgeAbi, functionName: "getVerdict", args: [jobId],
+          });
+        } catch (e) {
+          // viem errors carry the RPC URL (and any key in it): log in full, tell the caller nothing.
+          logFailure(req, e);
+          return send(502, { error: "upstream chain read failed" });
+        }
         const timestamp = Number(v.timestamp ?? v[7] ?? 0);
         if (timestamp === 0) return send(404, { error: `no verdict recorded for job ${jobId}` });
         return send(200, {
@@ -107,10 +121,12 @@ export function createJudgeApi(deps = {}) {
       if (req.method === "GET" && route === "evidence" && !extra) {
         const jobId = parseJobId(param);
         if (jobId === null) return send(400, { error: "jobId must be a positive integer" });
+        // Only job-<jobId>-<hex>.json counts; siblings like job-<id>-arbitration.json are not evidence.
+        // jobId is digits only (parseJobId), so it is safe inside the pattern.
+        const evidenceName = new RegExp(`^job-${jobId}-[0-9a-fA-F]+\\.json$`);
         let files = [];
         try {
-          files = fs.readdirSync(evidenceDir)
-            .filter((f) => f.startsWith(`job-${jobId}-`) && f.endsWith(".json"));
+          files = fs.readdirSync(evidenceDir).filter((f) => evidenceName.test(f));
         } catch { /* evidence dir absent → treated as no evidence */ }
         if (files.length === 0) return send(404, { error: `no evidence stored for job ${jobId}` });
         // Multiple files can exist if a job was re-run; serve the newest.
@@ -142,7 +158,9 @@ export function createJudgeApi(deps = {}) {
     } catch (e) {
       if (e instanceof InvalidCriteriaError) return send(422, { error: `invalid criteria: ${e.message}` });
       if (e.statusCode === 413) return send(413, { error: e.message });
-      if (!res.headersSent) return send(500, { error: e.message });
+      // Anything else is unexpected: log it in full for the operator, tell the caller nothing.
+      logFailure(req, e);
+      if (!res.headersSent) return send(500, { error: "internal error" });
     }
   });
 }

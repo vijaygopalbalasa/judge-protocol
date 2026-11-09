@@ -277,7 +277,7 @@ judge-service/    Node/viem off-chain engine
   src/rvr-snapshot.mjs          freezes one ruling's chain evidence for the ERC-8404 profile
   api/                          hosted judge (Vercel): /api/judge, /api/x402/judge, /api/evaluate,
                                 /api/x402/evaluate, /api/openapi, /api/arcbounty, /api/health, /api/cron/sweep
-  test/                         325 unit tests (checker gate, json shapes, SSRF, evidence determinism, hosted judge, x402, ERC-8412, ERC-8404, ArcBounty)
+  test/                         333 unit tests (checker gate, json shapes, SSRF, evidence determinism, hosted judge, x402, ERC-8412, ERC-8404, ArcBounty)
   evidence/                     recomputable verdict evidence (public audit trail)
 mcp/              MCP server: the checklist builder, a dry run, job reads, verification and ruling requests as tools
 rvr/              ERC-8404 profile, in the layout of the RVR reference repository
@@ -303,7 +303,7 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
   touched, and an untrusted signature or mismatched criteria is refused. `script/DeployArcMainnet.s.sol`
   refuses any other chain, any escrow with another Job layout and any owner but the declared one. Gas
   on mainnet: the deployment cost 0.037 USDC, a full judged job about 0.017.
-- ✅ **325/325 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
+- ✅ **333/333 service unit tests** (`cd judge-service && npm test`): the four escrow-steering
   criteria defects, SSRF denylist with DNS pinning, evidence-hash determinism, and the hosted judge
   (on-demand rulings, races, reverted transactions, the daily sweep, deliverables that can never
   load abstaining instead of retrying forever), and paid rulings over x402 (payments signed by
@@ -352,7 +352,7 @@ rvr/              ERC-8404 profile, in the layout of the RVR reference repositor
 cd contracts && git submodule update --init --recursive && forge test   # 251/251, plus 16 fork tests and the conformance runs (skipped without their variables)
 
 # service
-cd ../judge-service && npm install && npm test                          # 325/325
+cd ../judge-service && npm install && npm test                          # 333/333
 
 # run the judge against Arc testnet (needs a funded .env, see .env.example)
 node --env-file=.env src/index.js

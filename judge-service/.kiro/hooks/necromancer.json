@@ -1,0 +1,33 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Contract Necromancer PreToolUse",
+      "trigger": "PreToolUse",
+      "action": {
+        "type": "command",
+        "command": "\"/Users/vijaygopalb/.local/share/fnm/node-versions/v24.22.2/installation/bin/node\" \"/Users/vijaygopalb/Judge Protocol/kiroween/contract-necromancer/bin/necro.js\" hook pre"
+      },
+      "timeout": 300
+    },
+    {
+      "name": "Contract Necromancer PostToolUse",
+      "trigger": "PostToolUse",
+      "matcher": "execute_bash|execute_pwsh|control_bash_process|control_pwsh_process|fs_write|str_replace|fs_append|delete_file",
+      "action": {
+        "type": "command",
+        "command": "\"/Users/vijaygopalb/.local/share/fnm/node-versions/v24.22.2/installation/bin/node\" \"/Users/vijaygopalb/Judge Protocol/kiroween/contract-necromancer/bin/necro.js\" hook post"
+      },
+      "timeout": 300
+    },
+    {
+      "name": "Contract Necromancer Stop",
+      "trigger": "Stop",
+      "action": {
+        "type": "command",
+        "command": "\"/Users/vijaygopalb/.local/share/fnm/node-versions/v24.22.2/installation/bin/node\" \"/Users/vijaygopalb/Judge Protocol/kiroween/contract-necromancer/bin/necro.js\" hook stop"
+      },
+      "timeout": 300
+    }
+  ]
+}
