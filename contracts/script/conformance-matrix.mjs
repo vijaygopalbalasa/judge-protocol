@@ -20,6 +20,7 @@ const TARGETS = [
   ["ConformanceG2JobsArcMainnet", "G2 Jobs, Arc mainnet", "ARC_MAINNET_RPC"],
   ["ConformanceVirtualsBase", "Virtuals V3, Base", "BASE_RPC"],
   ["ConformanceReferencePR2144", "ERC reference code as proposed in ethereum/ERCs#2144", null],
+  ["ConformanceReferencePR2144Narrowed", "the same PR narrowed to the expectedBudget check (56c28eb)", null],
   ["ConformanceBaseContracts142e669", "erc-8183/base-contracts at 142e669", null],
 ];
 

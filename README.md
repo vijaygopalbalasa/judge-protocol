@@ -33,10 +33,11 @@ test a delivery (a dry run), read a job, verify a ruling from chain data, and as
 testnet. An agent that pays for work can check that work before the escrow pays out.
 
 **For escrow builders:** [`docs/CONFORMANCE.md`](docs/CONFORMANCE.md) is an ERC-8183 conformance suite: each SHALL
-rule of the draft is a Foundry test, run on a fork against any deployment. Re-measured on 2026-11-06: the ERC's own
+rule of the draft is a Foundry test, run on a fork against any deployment. Re-measured on 2026-11-12: the ERC's own
 reference code, Circle's Arc testnet escrow and ArcBounty's Arc mainnet escrow pass 25 of 29, G2 Jobs 28 and
 Virtuals' AgenticCommerceV3 on Base 22, with what each difference means and which ones can move money. The reference
-fix proposed in ethereum/ERCs#2144 passes 29 of 29; the ERC-8183 authors' own repository (erc-8183/base-contracts at
+fix first proposed in ethereum/ERCs#2144 passes 29 of 29, and the PR narrowed to the expectedBudget check passes 26;
+the ERC-8183 authors' own repository (erc-8183/base-contracts at
 `142e669`) passes 23, each difference being a place where its `eip.md` has moved past the published text.
 
 ## See it work
