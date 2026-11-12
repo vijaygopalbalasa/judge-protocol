@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "./ERC8183Conformance.sol";
 import "./reference/AgenticCommerce.sol";
 import "./reference/AgenticCommercePR2144.sol";
+import "./reference/AgenticCommercePR2144Narrowed.sol";
 import "../../src/mocks/MockUSDC.sol";
 import "./helpers/SpecEscrow.sol";
 
@@ -164,6 +165,42 @@ contract ConformanceReferencePR2144 is ReferenceShapes {
 
     function _enabled() internal pure override returns (bool) {
         return true;
+    }
+}
+
+/// @notice The reference implementation as narrowed in ethereum/ERCs PR #2144 at 56c28eb (vendored under ./reference, CC0):
+///         only the expectedBudget check of fund(jobId, expectedBudget, optParams) is added to the published reference.
+///         Expected: 27 of 30, failing the three rules the PR now leaves to the authors (zero budget, the client calling
+///         setBudget, submit on an unfunded job). A finding about that text, not a broken build, so it runs only with
+///         ERC8183_CONFORMANCE=1 like the other measured implementations.
+contract ConformanceReferencePR2144Narrowed is ReferenceShapes {
+    MockUSDC internal usdc;
+    address internal escrow;
+
+    function _setUpTarget() internal override returns (bool) {
+        usdc = new MockUSDC();
+        AgenticCommercePR2144Narrowed impl = new AgenticCommercePR2144Narrowed();
+        escrow = address(new ERC1967Proxy(address(impl),
+            abi.encodeCall(AgenticCommercePR2144Narrowed.initialize, (address(usdc), makeAddr("treasury")))));
+        return true;
+    }
+
+    function _escrow() internal view override returns (address) {
+        return escrow;
+    }
+
+    function _token() internal view override returns (address) {
+        return address(usdc);
+    }
+
+    function _giveTokens(address who, uint256 amount) internal override {
+        usdc.mint(who, amount);
+        vm.prank(who);
+        usdc.approve(escrow, type(uint256).max);
+    }
+
+    function _fundData(uint256 jobId, uint256 expected) internal pure override returns (bytes memory) {
+        return abi.encodeWithSignature("fund(uint256,uint256,bytes)", jobId, expected, bytes(""));
     }
 }
 
