@@ -1,0 +1,58 @@
+{
+  "spec": "api-errors",
+  "gitCommit": "2bc2f23041c553c2b870d812cf5834c26cbf6a97",
+  "requirements": {
+    "path": ".kiro/specs/api-errors/requirements.md",
+    "sha256": "c422da15f644d78a7c11a6f30e91f730b15af1c36059ae373b9b967afbfca46a"
+  },
+  "contracts": [
+    {
+      "name": "R1.1 a failing chain read on GET /verdict answers 502 with the fixed body and no upstream detail",
+      "path": "contracts/api-errors/errors.contract.test.js",
+      "sha256": "eb1d97c98103c9243f782ca53be9f6e808ea37723e701a95c29a64d3fc494d46",
+      "result": "pass"
+    },
+    {
+      "name": "R1.2 any other unexpected error answers 500 with the fixed body and no error text",
+      "path": "contracts/api-errors/errors.contract.test.js",
+      "sha256": "eb1d97c98103c9243f782ca53be9f6e808ea37723e701a95c29a64d3fc494d46",
+      "result": "pass"
+    },
+    {
+      "name": "R1.3 both the 502 and the 500 write the full error to stderr",
+      "path": "contracts/api-errors/errors.contract.test.js",
+      "sha256": "eb1d97c98103c9243f782ca53be9f6e808ea37723e701a95c29a64d3fc494d46",
+      "result": "pass"
+    },
+    {
+      "name": "R1.4 deliberate errors keep their status and message (422, 413, 400)",
+      "path": "contracts/api-errors/errors.contract.test.js",
+      "sha256": "eb1d97c98103c9243f782ca53be9f6e808ea37723e701a95c29a64d3fc494d46",
+      "result": "pass"
+    },
+    {
+      "name": "R2.1 only job-<id>-<hex>.json files count; other job-<id>-* files are ignored even when newer",
+      "path": "contracts/api-errors/evidence.contract.test.js",
+      "sha256": "2722f8522f6d126291788afa1ffa8c0e7c73f178e33656fc71f71ba1d0ef4a6f",
+      "result": "fail"
+    },
+    {
+      "name": "R2.2 a job with only non-matching files answers 404 like a job with no evidence",
+      "path": "contracts/api-errors/evidence.contract.test.js",
+      "sha256": "2722f8522f6d126291788afa1ffa8c0e7c73f178e33656fc71f71ba1d0ef4a6f",
+      "result": "fail"
+    }
+  ],
+  "sources": [],
+  "task": {
+    "id": "2",
+    "line": "2. Report a failing chain read in `GET /verdict/:jobId` as `502 {\"error\":\"upstream chain read failed\"}`, logging the full error to stderr (Req 1.1, 1.3)"
+  },
+  "required": [
+    "R1.1 a failing chain read on GET /verdict answers 502 with the fixed body and no upstream detail",
+    "R1.3 both the 502 and the 500 write the full error to stderr"
+  ],
+  "uncommitted": [],
+  "receiptHash": "4a9549e0df9f70525d135702645d74459ca040842039ca43814cb38b0d4ecc60",
+  "createdAt": "2026-11-09T16:08:18.448Z"
+}
