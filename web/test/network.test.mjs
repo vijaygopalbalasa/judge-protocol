@@ -52,3 +52,13 @@ test('the page offers the hosted judge only where there is one, and names each n
   assert.match(main, /CFG\.acpLabel/);
   assert.match(main, /CFG\.unknownNetwork/, 'an unknown ?network= is shown to the visitor');
 });
+
+test('the header tag and the footer funds note follow the network, so the mainnet view never says testnet', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const main = readFileSync(new URL('../main.js', import.meta.url), 'utf8');
+  assert.match(html, /<div class="tag" id="net-tag">ARC TESTNET · CHAIN 5042002<\/div>/, 'scripts off: the default network');
+  assert.match(html, /<span id="funds-note">Arc testnet only, no real funds\.<\/span>/);
+  assert.match(main, /set\(\$\('#net-tag'\), \[el\('span', \{ text: `\$\{CFG\.label\.toUpperCase\(\)\} · CHAIN \$\{CFG\.chainId\}` \}\)\]\)/);
+  assert.match(main, /set\(\$\('#funds-note'\)/);
+  assert.match(main, /CFG\.network === 'arc-mainnet'\s*\? 'Arc mainnet, read straight from Arc\\'s public RPC\./);
+});
