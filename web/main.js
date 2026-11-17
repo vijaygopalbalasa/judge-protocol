@@ -65,6 +65,16 @@ set($('#limits'), [
   ]);
 }
 
+/* ----------------------------- network labels ----------------------------- */
+// The header tag and the footer's funds note follow the network the page reads, so the mainnet view never says
+// testnet. The static HTML keeps the testnet wording for a visitor with scripts off, who always sees testnet.
+{
+  set($('#net-tag'), [el('span', { text: `${CFG.label.toUpperCase()} · CHAIN ${CFG.chainId}` })]);
+  set($('#funds-note'), [el('span', { text: CFG.network === 'arc-mainnet'
+    ? 'Arc mainnet, read straight from Arc\'s public RPC. The rulings so far are on our own zero-budget test jobs.'
+    : 'Arc testnet only, no real funds.' })]);
+}
+
 /* ---------------------------------- stats --------------------------------- */
 const statCard = (k, v, sm) => el('div', { class: 'card' }, [
   el('div', { class: 'k', text: k }),
