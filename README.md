@@ -8,6 +8,8 @@
 *(The judge runs on demand plus a daily safety sweep on Arc testnet, best effort with no uptime
 guarantee: https://judge-protocol-api.vercel.app. The contracts and the in-browser verifier are live.)*
 
+Updates on X: [@judgeprotocol](https://x.com/judgeprotocol).
+
 > **PayPal AI Hackathon entry: [Judge Pay](paypal/README.md).** The same deterministic engine settles PayPal payments:
 > AI drafts the checks and does the work, PayPal holds the money, and only the agreed checks release it.
 > Live sandbox demo: https://judgepay.vercel.app
